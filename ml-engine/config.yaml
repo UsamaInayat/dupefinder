@@ -1,0 +1,39 @@
+# DupeFinder ML Engine Configuration
+
+model:
+  architecture: "resnet50"  # Options: resnet50, resnet101, efficientnet-b0, efficientnet-b4
+  pretrained: true
+  embedding_dimension: 2048
+  device: "cuda"  # Options: cuda, cpu, mps (for Mac M1/M2)
+
+preprocessing:
+  target_size: [224, 224]
+  normalize: true
+  mean: [0.485, 0.456, 0.406]
+  std: [0.229, 0.224, 0.225]
+  remove_background: false
+
+faiss:
+  index_type: "IndexFlatL2"  # Options: IndexFlatL2, IndexIVFFlat, IndexHNSW
+  metric: "L2"  # Options: L2, cosine
+  nlist: 100  # For IVF index
+  nprobe: 10  # For IVF search
+
+search:
+  top_k: 20
+  similarity_threshold: 0.85
+  enable_filtering: true
+
+training:
+  batch_size: 32
+  learning_rate: 0.001
+  epochs: 50
+  optimizer: "adam"
+  loss: "triplet"  # Options: triplet, contrastive
+
+paths:
+  model_dir: "./models"
+  data_dir: "./data"
+  index_path: "./data/faiss_index"
+  logs_dir: "./logs"
+

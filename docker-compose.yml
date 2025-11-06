@@ -1,0 +1,129 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: dupefinder-postgres
+    environment:
+      POSTGRES_USER: dupefinder
+      POSTGRES_PASSWORD: dupefinder_password
+      POSTGRES_DB: dupefinder_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./database/schemas/postgresql_schema.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - dupefinder-network
+    restart: unless-stopped
+
+  # MongoDB Database
+  mongodb:
+    image: mongo:7.0
+    container_name: dupefinder-mongodb
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: dupefinder
+      MONGO_INITDB_ROOT_PASSWORD: dupefinder_password
+      MONGO_INITDB_DATABASE: dupefinder_images
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb_data:/data/db
+    networks:
+      - dupefinder-network
+    restart: unless-stopped
+
+  # Redis Cache
+  redis:
+    image: redis:7-alpine
+    container_name: dupefinder-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - dupefinder-network
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+
+  # Backend API
+  backend:
+    build:
+      context: ./backend
+      dockerfile: ../docker/Dockerfile.backend
+    container_name: dupefinder-backend
+    environment:
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_USER=dupefinder
+      - POSTGRES_PASSWORD=dupefinder_password
+      - POSTGRES_DB=dupefinder_db
+      - MONGO_HOST=mongodb
+      - MONGO_PORT=27017
+      - MONGO_USER=dupefinder
+      - MONGO_PASSWORD=dupefinder_password
+      - MONGO_DB=dupefinder_images
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend:/app
+      - ./ml-engine:/ml-engine
+    depends_on:
+      - postgres
+      - mongodb
+      - redis
+    networks:
+      - dupefinder-network
+    restart: unless-stopped
+    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+
+  # Frontend Web App
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: ../docker/Dockerfile.frontend
+    container_name: dupefinder-frontend
+    environment:
+      - REACT_APP_API_URL=http://localhost:8000
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    depends_on:
+      - backend
+    networks:
+      - dupefinder-network
+    restart: unless-stopped
+
+  # Admin Dashboard
+  admin-dashboard:
+    build:
+      context: ./admin-dashboard
+      dockerfile: ../docker/Dockerfile.admin
+    container_name: dupefinder-admin
+    environment:
+      - REACT_APP_API_URL=http://localhost:8000
+    ports:
+      - "3001:3000"
+    volumes:
+      - ./admin-dashboard:/app
+      - /app/node_modules
+    depends_on:
+      - backend
+    networks:
+      - dupefinder-network
+    restart: unless-stopped
+
+networks:
+  dupefinder-network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  mongodb_data:
+  redis_data:
+
