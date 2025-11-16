@@ -1,5 +1,3 @@
 """
-API Routes Package
-Contains individual route modules
+API route modules
 """
-

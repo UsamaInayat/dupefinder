@@ -1,44 +1,60 @@
 # DupeFinder Backend Dependencies
+# Updated: November 11, 2025 - Added authentication dependencies
 
 # Web Framework
-fastapi==0.104.1
-uvicorn[standard]==0.24.0
-python-multipart==0.0.6
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+python-multipart>=0.0.6
 
-# Database
-sqlalchemy==2.0.23
-psycopg2-binary==2.9.9
-pymongo==4.6.0
-alembic==1.13.0
+# Database (MongoDB only for 40% milestone)
+pymongo>=4.6.0
+
+# Environment & Configuration
+python-dotenv>=1.0.0
 
 # Authentication & Security
-python-jose[cryptography]==3.3.0
-passlib[bcrypt]==1.7.4
-python-dotenv==1.0.0
+PyJWT>=2.8.0
+python-jose[cryptography]>=3.3.0
+passlib[bcrypt]>=1.7.4
+bcrypt>=4.1.0
 
-# Image Processing
-Pillow==10.1.0
-opencv-python==4.8.1.78
+# Email (for OTP)
+aiosmtplib>=3.0.0
+email-validator>=2.1.0
 
-# ML & AI
-torch==2.1.1
-torchvision==0.16.1
-numpy==1.26.2
-scikit-learn==1.3.2
+# Image Processing (for handling uploads)
+Pillow>=10.1.0
+opencv-python>=4.8.0
+
+# ML & AI (for embedding extraction)
+torch>=2.2.0
+torchvision>=0.17.0
+numpy>=1.26.0
+scipy>=1.10.0
 
 # API & Data Validation
-pydantic==2.5.2
-pydantic-settings==2.1.0
+pydantic>=2.5.0
+pydantic-settings>=2.1.0
 
 # HTTP Requests
-httpx==0.25.2
-aiohttp==3.9.1
+httpx>=0.25.0
+aiohttp>=3.9.0
+
+# Web Scraping
+beautifulsoup4>=4.12.0
+lxml>=4.9.0
+
+# Excel File Reading
+openpyxl>=3.1.0
+pandas>=2.1.0
 
 # Utilities
-python-slugify==8.0.1
-redis==5.0.1
+python-slugify>=8.0.0
 
 # Testing
-pytest==7.4.3
-pytest-asyncio==0.21.1
+pytest>=7.4.0
+pytest-asyncio>=0.21.0
+
+# CORS
+fastapi-cors>=0.0.6
 
