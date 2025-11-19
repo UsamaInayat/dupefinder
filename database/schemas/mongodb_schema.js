@@ -1,303 +1,224 @@
-/**
- * DupeFinder MongoDB Schema Definitions
- * MongoDB will be used for storing image data, embeddings, and unstructured data
- */
+// MongoDB Schema for DupeFinder - 40% Milestone
+// Database: dupefinder
+// Updated: November 9, 2025 - Switched from PostgreSQL to MongoDB
 
-// Product Embeddings Collection
-const productEmbeddingsSchema = {
+// ============================================
+// Collection: products
+// ============================================
+// Stores product information with embeddings
+// embedded directly in the document
+
+db.createCollection("products", {
   validator: {
     $jsonSchema: {
       bsonType: "object",
-      required: ["product_id", "embedding", "model_version"],
+      required: ["name", "category", "brand", "price", "image_path", "embedding"],
       properties: {
+        _id: {
+          bsonType: "objectId",
+          description: "Unique identifier (auto-generated)"
+        },
         product_id: {
+          bsonType: "int",
+          description: "Original product ID from CSV (1-100)"
+        },
+        name: {
           bsonType: "string",
-          description: "UUID of the product from PostgreSQL"
+          description: "Product name"
+        },
+        category: {
+          bsonType: "string",
+          enum: ["bags", "shoes", "watches", "clothing", "accessories"],
+          description: "Product category"
+        },
+        brand: {
+          bsonType: "string",
+          description: "Brand name"
+        },
+        price: {
+          bsonType: "double",
+          minimum: 0,
+          description: "Product price in dollars"
+        },
+        image_path: {
+          bsonType: "string",
+          description: "Relative path to product image"
         },
         embedding: {
           bsonType: "array",
-          description: "Vector embedding of product image (2048 dimensions)",
           items: {
             bsonType: "double"
-          }
+          },
+          minItems: 2048,
+          maxItems: 2048,
+          description: "2048-dimensional ResNet50 embedding vector"
         },
-        model_version: {
+        description: {
           bsonType: "string",
-          description: "ML model version used for embedding"
-        },
-        image_features: {
-          bsonType: "object",
-          properties: {
-            dominant_colors: { bsonType: "array" },
-            patterns: { bsonType: "array" },
-            textures: { bsonType: "array" },
-            style_tags: { bsonType: "array" }
-          }
+          description: "Product description (optional)"
         },
         created_at: {
           bsonType: "date",
-          description: "Timestamp of embedding creation"
+          description: "Timestamp when product was added"
         },
         updated_at: {
-          bsonType: "date"
+          bsonType: "date",
+          description: "Timestamp when product was last updated"
         }
       }
     }
   }
-};
+});
 
-// User Search Analytics Collection
-const userSearchAnalyticsSchema = {
+// ============================================
+// Indexes for products collection
+// ============================================
+
+// Index on category for filtering
+db.products.createIndex({ "category": 1 });
+
+// Index on price for range queries
+db.products.createIndex({ "price": 1 });
+
+// Compound index for category + price queries
+db.products.createIndex({ "category": 1, "price": 1 });
+
+// Text index for searching by name/description
+db.products.createIndex({ 
+  "name": "text", 
+  "description": "text",
+  "brand": "text"
+}, {
+  weights: {
+    "name": 10,
+    "brand": 5,
+    "description": 1
+  },
+  name: "text_search_index"
+});
+
+// Index on product_id for quick lookups
+db.products.createIndex({ "product_id": 1 }, { unique: true });
+
+// ============================================
+// Collection: search_history (Optional - for analytics)
+// ============================================
+
+db.createCollection("search_history", {
   validator: {
     $jsonSchema: {
       bsonType: "object",
-      required: ["user_id", "timestamp"],
+      required: ["uploaded_image_path", "results", "timestamp"],
       properties: {
-        user_id: {
+        _id: {
+          bsonType: "objectId",
+          description: "Unique identifier"
+        },
+        uploaded_image_path: {
           bsonType: "string",
-          description: "UUID of the user"
+          description: "Path to uploaded search image"
         },
-        search_id: {
-          bsonType: "string",
-          description: "Unique search session ID"
-        },
-        uploaded_image: {
-          bsonType: "object",
-          properties: {
-            url: { bsonType: "string" },
-            size: { bsonType: "int" },
-            dimensions: { 
-              bsonType: "object",
-              properties: {
-                width: { bsonType: "int" },
-                height: { bsonType: "int" }
-              }
-            }
-          }
-        },
-        query_embedding: {
+        embedding: {
           bsonType: "array",
+          items: {
+            bsonType: "double"
+          },
           description: "Embedding of uploaded image"
         },
         results: {
           bsonType: "array",
-          description: "Search results with similarity scores",
           items: {
             bsonType: "object",
             properties: {
-              product_id: { bsonType: "string" },
-              similarity_score: { bsonType: "double" },
-              rank: { bsonType: "int" }
-            }
-          }
-        },
-        filters_applied: {
-          bsonType: "object",
-          properties: {
-            category: { bsonType: "string" },
-            price_range: { 
-              bsonType: "object",
-              properties: {
-                min: { bsonType: "double" },
-                max: { bsonType: "double" }
-              }
-            },
-            gender: { bsonType: "string" },
-            city: { bsonType: "string" }
-          }
-        },
-        user_interactions: {
-          bsonType: "array",
-          description: "Products clicked/viewed",
-          items: {
-            bsonType: "object",
-            properties: {
-              product_id: { bsonType: "string" },
-              action: { bsonType: "string" }, // view, click, favorite, compare
-              timestamp: { bsonType: "date" }
-            }
-          }
-        },
-        timestamp: {
-          bsonType: "date"
-        }
-      }
-    }
-  }
-};
-
-// Image Metadata Collection
-const imageMetadataSchema = {
-  validator: {
-    $jsonSchema: {
-      bsonType: "object",
-      required: ["image_url", "type"],
-      properties: {
-        image_url: {
-          bsonType: "string",
-          description: "URL or path to image"
-        },
-        type: {
-          bsonType: "string",
-          enum: ["product", "user_upload", "community"],
-          description: "Type of image"
-        },
-        reference_id: {
-          bsonType: "string",
-          description: "ID of related entity (product_id, user_id, etc.)"
-        },
-        storage_location: {
-          bsonType: "string",
-          description: "S3/Cloud storage location"
-        },
-        metadata: {
-          bsonType: "object",
-          properties: {
-            file_size: { bsonType: "int" },
-            format: { bsonType: "string" },
-            width: { bsonType: "int" },
-            height: { bsonType: "int" },
-            exif_data: { bsonType: "object" }
-          }
-        },
-        processed_versions: {
-          bsonType: "array",
-          description: "Different sizes/versions of the image",
-          items: {
-            bsonType: "object",
-            properties: {
-              version: { bsonType: "string" }, // thumbnail, medium, large
-              url: { bsonType: "string" },
-              dimensions: {
-                bsonType: "object",
-                properties: {
-                  width: { bsonType: "int" },
-                  height: { bsonType: "int" }
-                }
+              product_id: {
+                bsonType: "objectId",
+                description: "Reference to product"
+              },
+              similarity_score: {
+                bsonType: "double",
+                minimum: 0,
+                maximum: 1,
+                description: "Cosine similarity score"
               }
             }
-          }
-        },
-        created_at: {
-          bsonType: "date"
-        }
-      }
-    }
-  }
-};
-
-// Analytics Events Collection
-const analyticsEventsSchema = {
-  validator: {
-    $jsonSchema: {
-      bsonType: "object",
-      required: ["event_type", "timestamp"],
-      properties: {
-        event_type: {
-          bsonType: "string",
-          enum: ["search", "view", "click", "favorite", "purchase_intent", "share"],
-          description: "Type of user event"
-        },
-        user_id: {
-          bsonType: "string"
-        },
-        product_id: {
-          bsonType: "string"
-        },
-        session_id: {
-          bsonType: "string"
-        },
-        metadata: {
-          bsonType: "object",
-          description: "Additional event-specific data"
-        },
-        device_info: {
-          bsonType: "object",
-          properties: {
-            type: { bsonType: "string" }, // mobile, web, tablet
-            os: { bsonType: "string" },
-            browser: { bsonType: "string" }
-          }
-        },
-        location: {
-          bsonType: "object",
-          properties: {
-            city: { bsonType: "string" },
-            country: { bsonType: "string" },
-            ip: { bsonType: "string" }
-          }
+          },
+          description: "Top-K similar products"
         },
         timestamp: {
-          bsonType: "date"
+          bsonType: "date",
+          description: "When search was performed"
+        },
+        search_time_ms: {
+          bsonType: "double",
+          description: "Search execution time in milliseconds"
         }
       }
     }
   }
-};
+});
 
-// ML Model Performance Logs Collection
-const mlModelLogsSchema = {
-  validator: {
-    $jsonSchema: {
-      bsonType: "object",
-      required: ["model_version", "timestamp"],
-      properties: {
-        model_version: {
-          bsonType: "string"
-        },
-        search_id: {
-          bsonType: "string"
-        },
-        performance_metrics: {
-          bsonType: "object",
-          properties: {
-            embedding_time_ms: { bsonType: "double" },
-            search_time_ms: { bsonType: "double" },
-            total_time_ms: { bsonType: "double" }
-          }
-        },
-        accuracy_feedback: {
-          bsonType: "object",
-          description: "User feedback on results quality",
-          properties: {
-            user_rating: { bsonType: "int" },
-            top_k_relevant: { bsonType: "int" },
-            clicked_rank: { bsonType: "int" }
-          }
-        },
-        timestamp: {
-          bsonType: "date"
-        }
-      }
+// Index on timestamp for analytics
+db.search_history.createIndex({ "timestamp": -1 });
+
+// ============================================
+// Sample Document Structure
+// ============================================
+
+/*
+Example product document:
+{
+  "_id": ObjectId("507f1f77bcf86cd799439011"),
+  "product_id": 1,
+  "name": "Classic Leather Tote Bag",
+  "category": "bags",
+  "brand": "LuxeBrand",
+  "price": 89.99,
+  "image_path": "data/products/bags/product_1.jpg",
+  "embedding": [0.123, -0.456, 0.789, ... (2048 dimensions)],
+  "description": "Premium leather tote bag with gold hardware",
+  "created_at": ISODate("2025-11-09T10:30:00Z"),
+  "updated_at": ISODate("2025-11-09T10:30:00Z")
+}
+
+Example search history document:
+{
+  "_id": ObjectId("507f1f77bcf86cd799439012"),
+  "uploaded_image_path": "uploads/search_20251109_103045.jpg",
+  "embedding": [0.234, -0.567, 0.890, ... (2048 dimensions)],
+  "results": [
+    {
+      "product_id": ObjectId("507f1f77bcf86cd799439011"),
+      "similarity_score": 0.95
+    },
+    {
+      "product_id": ObjectId("507f1f77bcf86cd799439013"),
+      "similarity_score": 0.92
     }
-  }
-};
+  ],
+  "timestamp": ISODate("2025-11-09T10:30:45Z"),
+  "search_time_ms": 2.77
+}
+*/
 
-// Export schemas for reference
-module.exports = {
-  productEmbeddingsSchema,
-  userSearchAnalyticsSchema,
-  imageMetadataSchema,
-  analyticsEventsSchema,
-  mlModelLogsSchema
-};
+// ============================================
+// Useful Queries
+// ============================================
 
-/**
- * Index Creation Commands:
- * 
- * db.product_embeddings.createIndex({ "product_id": 1 }, { unique: true })
- * db.product_embeddings.createIndex({ "model_version": 1 })
- * 
- * db.user_search_analytics.createIndex({ "user_id": 1 })
- * db.user_search_analytics.createIndex({ "timestamp": -1 })
- * 
- * db.image_metadata.createIndex({ "image_url": 1 })
- * db.image_metadata.createIndex({ "reference_id": 1 })
- * 
- * db.analytics_events.createIndex({ "user_id": 1 })
- * db.analytics_events.createIndex({ "event_type": 1, "timestamp": -1 })
- * 
- * db.ml_model_logs.createIndex({ "model_version": 1 })
- * db.ml_model_logs.createIndex({ "timestamp": -1 })
- */
+// Find all products in a category
+// db.products.find({ "category": "bags" })
 
+// Find products in price range
+// db.products.find({ "price": { $gte: 50, $lte: 150 } })
+
+// Text search for products
+// db.products.find({ $text: { $search: "leather bag" } })
+
+// Get product count by category
+// db.products.aggregate([
+//   { $group: { _id: "$category", count: { $sum: 1 } } }
+// ])
+
+// Get average price by category
+// db.products.aggregate([
+//   { $group: { _id: "$category", avg_price: { $avg: "$price" } } }
+// ])

@@ -2,14 +2,24 @@
 
 Machine Learning engine for image similarity and product matching.
 
-## Features
+**Current Status**: Phase 2 - ML Engine Proof of Concept (40% Milestone)
 
-- Image preprocessing and augmentation
-- Deep learning-based feature extraction (ResNet, EfficientNet)
-- Vector embedding generation
-- FAISS-based similarity search
-- Model training and fine-tuning capabilities
-- Batch processing for catalog indexing
+## Features (40% Milestone)
+
+- ✅ Pre-trained ResNet50 for feature extraction
+- ✅ Image preprocessing pipeline
+- ✅ 2048-dimensional embedding generation
+- ✅ Cosine similarity-based search
+- 🔄 Simple numpy/scipy similarity (FAISS deferred to 60%)
+- 🔄 Pre-trained models only (fine-tuning deferred to 60%)
+
+## Features (Planned for 60-100%)
+
+- FAISS-based similarity search for scalability
+- Model fine-tuning on fashion datasets
+- Advanced preprocessing (background removal)
+- Batch processing optimization
+- Multi-modal search (image + text)
 
 ## Project Structure
 
@@ -27,30 +37,89 @@ ml-engine/
 
 ## Setup Instructions
 
-### Prerequisites
-- Python 3.10+
+### Task 2.1: ML Environment Setup
+
+**Prerequisites:**
+- Python 3.8+ (3.10+ recommended)
 - CUDA-capable GPU (optional, for faster processing)
+- 2GB+ free disk space for PyTorch
 
-### Installation
+### Quick Setup (Automated)
 
-1. Create virtual environment:
+Run the automated setup script:
+
 ```bash
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
+# Navigate to ml-engine directory
+cd ml-engine
+
+# Run automated setup
+python setup_ml_env.py
 ```
 
-2. Install dependencies:
+This will:
+1. Check Python version
+2. Install all dependencies from requirements.txt
+3. Download pre-trained ResNet50 model automatically
+4. Run verification tests
+5. Confirm everything works
+
+### Manual Setup
+
+If you prefer manual installation:
+
+**1. Create virtual environment (recommended):**
+
+```bash
+# On Windows
+python -m venv venv
+venv\Scripts\activate
+
+# On Mac/Linux
+python3 -m venv venv
+source venv/bin/activate
+```
+
+**2. Install dependencies:**
+
 ```bash
 pip install -r requirements.txt
-
-# For GPU support (optional)
-pip install torch torchvision --index-url https://download.pytorch.org/whl/cu118
-pip install faiss-gpu
 ```
 
-3. Download pretrained models:
+**3. Verify setup:**
+
 ```bash
-# Scripts will be provided for model download
+python test_setup.py
+```
+
+Expected output:
+```
+✓ All required libraries imported successfully
+✓ Device detection successful (CUDA/MPS/CPU)
+✓ ResNet50 loaded successfully
+✓ Model inference working (2048-dim embeddings)
+✓ Cosine similarity calculation working
+🎉 SUCCESS! All tests passed!
+```
+
+### GPU Support (Optional but Recommended)
+
+**For NVIDIA GPU (CUDA):**
+```bash
+# Install CUDA-enabled PyTorch
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cu118
+```
+
+**For Apple Silicon (M1/M2/M3):**
+```bash
+# MPS (Metal Performance Shaders) is automatically supported
+# Just install regular PyTorch, it will detect MPS
+pip install torch torchvision
+```
+
+**For CPU Only:**
+```bash
+# Default installation uses CPU
+pip install torch torchvision
 ```
 
 ## Components
