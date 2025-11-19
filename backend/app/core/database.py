@@ -1,27 +1,39 @@
 """
-<<<<<<< HEAD
 DupeFinder Backend - Database Connection
 
 This module handles MongoDB Atlas connection and database operations.
+Supports both async (Motor) and sync (PyMongo) connections.
 """
 
 from motor.motor_asyncio import AsyncIOMotorClient
+from pymongo import MongoClient
+from pymongo.database import Database
+from pymongo.collection import Collection
 from pymongo.errors import ConnectionFailure, ServerSelectionTimeoutError
 from typing import Optional
 import logging
+import os
+from dotenv import load_dotenv
 
 from app.core.config import settings
 
+# Load environment variables
+load_dotenv()
+
 logger = logging.getLogger(__name__)
 
-# Global database client
+# ============================================
+# Async MongoDB Atlas Connection (Motor)
+# ============================================
+
+# Global async database client
 client: Optional[AsyncIOMotorClient] = None
 database = None
 
 
 async def connect_to_mongo():
     """
-    Create database connection to MongoDB Atlas
+    Create async database connection to MongoDB Atlas using Motor
     """
     global client, database
     
@@ -40,20 +52,20 @@ async def connect_to_mongo():
         # Get database
         database = client[settings.MONGO_DB_NAME]
         
-        logger.info(f"✅ Successfully connected to MongoDB Atlas: {settings.MONGO_DB_NAME}")
+        logger.info(f"Successfully connected to MongoDB Atlas: {settings.MONGO_DB_NAME}")
         return database
         
     except (ConnectionFailure, ServerSelectionTimeoutError) as e:
-        logger.error(f"❌ Failed to connect to MongoDB Atlas: {e}")
+        logger.error(f"Failed to connect to MongoDB Atlas: {e}")
         raise
     except Exception as e:
-        logger.error(f"❌ Unexpected error connecting to MongoDB: {e}")
+        logger.error(f"Unexpected error connecting to MongoDB: {e}")
         raise
 
 
 async def close_mongo_connection():
     """
-    Close database connection
+    Close async database connection
     """
     global client
     
@@ -64,7 +76,7 @@ async def close_mongo_connection():
 
 def get_database():
     """
-    Get database instance
+    Get async database instance
     """
     if database is None:
         raise RuntimeError("Database not initialized. Call connect_to_mongo() first.")
@@ -73,7 +85,7 @@ def get_database():
 
 async def check_connection() -> bool:
     """
-    Check if database connection is active
+    Check if async database connection is active
     """
     try:
         if client is None:
@@ -82,44 +94,23 @@ async def check_connection() -> bool:
         return True
     except Exception:
         return False
-=======
-Database connection and management
-MongoDB connection for DupeFinder
-"""
 
-import os
-from typing import Optional
-from pymongo import MongoClient
-from pymongo.database import Database
-from pymongo.collection import Collection
-from pymongo.errors import ConnectionFailure, ServerSelectionTimeoutError
-from dotenv import load_dotenv
-
-# Load environment variables
-load_dotenv()
 
 # ============================================
-# Database Configuration
+# Sync MongoDB Connection (PyMongo) - For Admin Dashboard
 # ============================================
 
-MONGODB_URI = os.getenv("MONGODB_URI", "mongodb://localhost:27017/")
-DATABASE_NAME = os.getenv("DATABASE_NAME", "dupefinder")
+# Collection names
 PRODUCTS_COLLECTION = "products"
 SEARCH_HISTORY_COLLECTION = "search_history"
-
-# Authentication collections
 USERS_COLLECTION = "users"
 OTPS_COLLECTION = "otps"
 REFRESH_TOKENS_COLLECTION = "refresh_tokens"
 
 
-# ============================================
-# Database Manager Class
-# ============================================
-
 class DatabaseManager:
     """
-    Singleton database manager for MongoDB connections
+    Singleton database manager for sync MongoDB connections (used by admin dashboard)
     """
     
     def __init__(self):
@@ -127,17 +118,20 @@ class DatabaseManager:
         self.db: Optional[Database] = None
         self._connected = False
     
-    def connect(self, uri: str = MONGODB_URI, db_name: str = DATABASE_NAME):
+    def connect(self, uri: str = None, db_name: str = None):
         """
-        Connect to MongoDB
+        Connect to MongoDB (sync connection)
         
         Args:
-            uri: MongoDB connection URI
-            db_name: Database name
+            uri: MongoDB connection URI (defaults to settings.MONGO_URI)
+            db_name: Database name (defaults to settings.MONGO_DB_NAME)
         """
         if self._connected:
-            print("[INFO] Already connected to MongoDB")
+            logger.info("Already connected to MongoDB")
             return
+        
+        uri = uri or settings.MONGO_URI
+        db_name = db_name or settings.MONGO_DB_NAME
         
         try:
             # Create client with timeout
@@ -155,11 +149,11 @@ class DatabaseManager:
             self.db = self.client[db_name]
             self._connected = True
             
-            print(f"[OK] Connected to MongoDB at {uri}")
-            print(f"[INFO] Using database: {db_name}")
+            logger.info(f"Connected to MongoDB at {uri}")
+            logger.info(f"Using database: {db_name}")
             
         except (ConnectionFailure, ServerSelectionTimeoutError) as e:
-            print(f"[ERROR] Failed to connect to MongoDB: {e}")
+            logger.error(f"Failed to connect to MongoDB: {e}")
             self._connected = False
             raise
     
@@ -168,7 +162,7 @@ class DatabaseManager:
         if self.client:
             self.client.close()
             self._connected = False
-            print("[OK] Disconnected from MongoDB")
+            logger.info("Disconnected from MongoDB")
     
     def is_connected(self) -> bool:
         """Check if connected to database"""
@@ -223,22 +217,22 @@ class DatabaseManager:
             # Users collection - unique email index
             users = self.get_users_collection()
             users.create_index("email", unique=True)
-            print("[OK] Created unique index on users.email")
+            logger.info("Created unique index on users.email")
             
             # OTPs collection - TTL index (auto-delete expired OTPs)
             otps = self.get_otps_collection()
             otps.create_index("expires_at", expireAfterSeconds=0)
             otps.create_index("email")
-            print("[OK] Created TTL index on otps.expires_at")
+            logger.info("Created TTL index on otps.expires_at")
             
             # Refresh tokens collection - TTL index
             tokens = self.get_refresh_tokens_collection()
             tokens.create_index("expires_at", expireAfterSeconds=0)
             tokens.create_index("user_id")
-            print("[OK] Created TTL index on refresh_tokens.expires_at")
+            logger.info("Created TTL index on refresh_tokens.expires_at")
             
         except Exception as e:
-            print(f"[ERROR] Failed to create indexes: {e}")
+            logger.error(f"Failed to create indexes: {e}")
             raise
     
     def health_check(self) -> dict:
@@ -278,19 +272,19 @@ class DatabaseManager:
 
 
 # ============================================
-# Global Database Manager Instance
+# Global Database Manager Instance (Sync)
 # ============================================
 
 db_manager = DatabaseManager()
 
 
 # ============================================
-# Helper Functions
+# Helper Functions (Sync - for Admin Dashboard)
 # ============================================
 
 def get_db() -> Database:
     """
-    Dependency function to get database instance
+    Dependency function to get database instance (sync)
     Use with FastAPI Depends()
     
     Returns:
@@ -303,7 +297,7 @@ def get_db() -> Database:
 
 def get_products_collection() -> Collection:
     """
-    Get products collection
+    Get products collection (sync)
     
     Returns:
         Products collection
@@ -313,7 +307,7 @@ def get_products_collection() -> Collection:
 
 def get_search_history_collection() -> Collection:
     """
-    Get search history collection
+    Get search history collection (sync)
     
     Returns:
         Search history collection
@@ -323,7 +317,7 @@ def get_search_history_collection() -> Collection:
 
 def get_users_collection() -> Collection:
     """
-    Get users collection
+    Get users collection (sync)
     
     Returns:
         Users collection
@@ -333,7 +327,7 @@ def get_users_collection() -> Collection:
 
 def get_otps_collection() -> Collection:
     """
-    Get OTPs collection
+    Get OTPs collection (sync)
     
     Returns:
         OTPs collection
@@ -343,11 +337,9 @@ def get_otps_collection() -> Collection:
 
 def get_refresh_tokens_collection() -> Collection:
     """
-    Get refresh tokens collection
+    Get refresh tokens collection (sync)
     
     Returns:
         Refresh tokens collection
     """
     return db_manager.get_refresh_tokens_collection()
->>>>>>> origin/main
-
