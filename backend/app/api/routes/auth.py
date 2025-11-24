@@ -89,14 +89,25 @@ async def signup(request: SignupRequest):
         )
     
     # Generate and send OTP
-    otp_sent = await generate_and_send_otp(request.email)
-    
-    if not otp_sent:
-        # Rollback user creation
+    try:
+        otp_sent = await generate_and_send_otp(request.email)
+        
+        if not otp_sent:
+            # Rollback user creation
+            users.delete_one({"_id": result.inserted_id})
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to send verification email. Please check your email settings or try again later."
+            )
+    except Exception as e:
+        # Rollback user creation on any error
         users.delete_one({"_id": result.inserted_id})
+        print(f"[ERROR] Signup failed for {request.email}: {e}")
+        import traceback
+        traceback.print_exc()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to send verification email. Please try again."
+            detail=f"Failed to send verification email: {str(e)}"
         )
     
     return SignupResponse(

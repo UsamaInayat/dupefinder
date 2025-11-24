@@ -8,14 +8,27 @@ import AdminLogin from './pages/AdminLogin'
 import { AuthProvider, useAuth } from './context/AuthContext'
 
 function MainApp() {
-  const [view, setView] = useState('login') // Start at login page per requirements
+  // Check for admin token on mount to maintain state on refresh
+  const [view, setView] = useState(() => {
+    const adminToken = localStorage.getItem('adminToken')
+    const adminData = localStorage.getItem('adminData')
+    if (adminToken && adminData) {
+      return 'adminDashboard'
+    }
+    return 'login'
+  })
   const { user, loading, logout } = useAuth()
 
   useEffect(() => {
-    // If user is logged in, show admin dashboard
-    if (user && user.is_verified) {
+    // Check for admin token first (priority)
+    const adminToken = localStorage.getItem('adminToken')
+    const adminData = localStorage.getItem('adminData')
+    
+    if (adminToken && adminData) {
       setView('adminDashboard')
-    } else if (!user) {
+    } else if (user && user.is_verified) {
+      setView('adminDashboard')
+    } else if (!user && !adminToken) {
       setView('login')
     }
   }, [user])

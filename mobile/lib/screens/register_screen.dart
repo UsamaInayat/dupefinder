@@ -54,7 +54,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text('Registration successful! Please check your email for OTP.'),
-            backgroundColor: Colors.green,
+            backgroundColor: Colors.black87,
+            behavior: SnackBarBehavior.floating,
           ),
         );
       }
@@ -63,7 +64,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(e.toString().replaceFirst('Exception: ', '')),
-            backgroundColor: Colors.red,
+            backgroundColor: Colors.black87,
+            behavior: SnackBarBehavior.floating,
           ),
         );
       }
@@ -81,7 +83,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Please enter OTP'),
-          backgroundColor: Colors.red,
+          backgroundColor: Colors.black87,
+          behavior: SnackBarBehavior.floating,
         ),
       );
       return;
@@ -98,7 +101,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text('Email verified! You can now login.'),
-            backgroundColor: Colors.green,
+            backgroundColor: Colors.black87,
+            behavior: SnackBarBehavior.floating,
           ),
         );
         Navigator.of(context).pop();
@@ -108,7 +112,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(e.toString().replaceFirst('Exception: ', '')),
-            backgroundColor: Colors.red,
+            backgroundColor: Colors.black87,
+            behavior: SnackBarBehavior.floating,
           ),
         );
       }
@@ -221,7 +226,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     onPressed: _isLoading ? null : _handleRegister,
                     style: ElevatedButton.styleFrom(
                       padding: const EdgeInsets.symmetric(vertical: 16),
-                      backgroundColor: Colors.purple,
+                      backgroundColor: Colors.black,
+                      foregroundColor: Colors.white,
                     ),
                     child: _isLoading
                         ? const SizedBox(
@@ -271,7 +277,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     onPressed: _isLoading ? null : _handleVerifyOTP,
                     style: ElevatedButton.styleFrom(
                       padding: const EdgeInsets.symmetric(vertical: 16),
-                      backgroundColor: Colors.purple,
+                      backgroundColor: Colors.black,
+                      foregroundColor: Colors.white,
                     ),
                     child: _isLoading
                         ? const SizedBox(

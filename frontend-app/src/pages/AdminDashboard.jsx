@@ -22,7 +22,7 @@ function AdminDashboard({ onLogout }) {
   const renderModule = () => {
     switch (activeModule) {
       case 'overview':
-        return <Overview />
+        return <Overview onNavigate={setActiveModule} />
       case 'users':
         return <UserManagement />
       case 'products':
@@ -32,7 +32,7 @@ function AdminDashboard({ onLogout }) {
       case 'scraping':
         return <ScrapingManagement />
       default:
-        return <Overview />
+        return <Overview onNavigate={setActiveModule} />
     }
   }
 

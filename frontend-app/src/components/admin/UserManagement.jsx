@@ -7,11 +7,10 @@ function UserManagement() {
   const [page, setPage] = useState(1)
   const [totalPages, setTotalPages] = useState(1)
   const [search, setSearch] = useState('')
-  const [statusFilter, setStatusFilter] = useState('all')
 
   useEffect(() => {
     fetchUsers()
-  }, [page, statusFilter])
+  }, [page])
 
   const fetchUsers = async () => {
     setLoading(true)
@@ -23,7 +22,6 @@ function UserManagement() {
       })
       
       if (search) params.append('search', search)
-      if (statusFilter !== 'all') params.append('status_filter', statusFilter)
 
       const response = await axios.get(
         `http://localhost:8000/api/admin/users?${params}`,
@@ -39,39 +37,21 @@ function UserManagement() {
     }
   }
 
-  const handleDeactivate = async (userId) => {
-    if (!confirm('Are you sure you want to deactivate this user?')) return
+  const handleDelete = async (userId) => {
+    if (!confirm('Are you sure you want to delete this user? This action cannot be undone.')) return
 
     try {
       const token = localStorage.getItem('adminToken') || localStorage.getItem('token')
-      await axios.put(
-        `http://localhost:8000/api/admin/users/${userId}/deactivate`,
-        {},
+      await axios.delete(
+        `http://localhost:8000/api/admin/users/${userId}`,
         { headers: { Authorization: `Bearer ${token}` } }
       )
       
-      alert('User deactivated successfully')
+      alert('User deleted successfully')
       fetchUsers()
     } catch (error) {
-      console.error('Failed to deactivate user:', error)
-      alert('Failed to deactivate user')
-    }
-  }
-
-  const handleActivate = async (userId) => {
-    try {
-      const token = localStorage.getItem('adminToken') || localStorage.getItem('token')
-      await axios.put(
-        `http://localhost:8000/api/admin/users/${userId}/activate`,
-        {},
-        { headers: { Authorization: `Bearer ${token}` } }
-      )
-      
-      alert('User activated successfully')
-      fetchUsers()
-    } catch (error) {
-      console.error('Failed to activate user:', error)
-      alert('Failed to activate user')
+      console.error('Failed to delete user:', error)
+      alert(error.response?.data?.detail || 'Failed to delete user')
     }
   }
 
@@ -100,26 +80,6 @@ function UserManagement() {
           <button type="submit" className="search-btn">Search</button>
         </form>
 
-        <div className="filter-buttons">
-          <button
-            className={`filter-btn ${statusFilter === 'all' ? 'active' : ''}`}
-            onClick={() => setStatusFilter('all')}
-          >
-            All
-          </button>
-          <button
-            className={`filter-btn ${statusFilter === 'active' ? 'active' : ''}`}
-            onClick={() => setStatusFilter('active')}
-          >
-            Active
-          </button>
-          <button
-            className={`filter-btn ${statusFilter === 'inactive' ? 'active' : ''}`}
-            onClick={() => setStatusFilter('inactive')}
-          >
-            Inactive
-          </button>
-        </div>
       </div>
 
       {loading ? (
@@ -131,7 +91,6 @@ function UserManagement() {
               <thead>
                 <tr>
                   <th>Email</th>
-                  <th>Status</th>
                   <th>Verified</th>
                   <th>Created</th>
                   <th>Last Login</th>
@@ -139,40 +98,34 @@ function UserManagement() {
                 </tr>
               </thead>
               <tbody>
-                {users.map(user => (
-                  <tr key={user._id}>
-                    <td>{user.email}</td>
-                    <td>
-                      <span className={`status-badge ${user.is_active ? 'active' : 'inactive'}`}>
-                        {user.is_active ? 'Active' : 'Inactive'}
-                      </span>
-                    </td>
-                    <td>
-                      <span className={`status-badge ${user.is_verified ? 'verified' : 'unverified'}`}>
-                        {user.is_verified ? 'Yes' : 'No'}
-                      </span>
-                    </td>
-                    <td>{new Date(user.created_at).toLocaleDateString()}</td>
-                    <td>{user.last_login ? new Date(user.last_login).toLocaleDateString() : 'Never'}</td>
-                    <td>
-                      {user.is_active ? (
-                        <button
-                          onClick={() => handleDeactivate(user._id)}
-                          className="action-btn danger"
-                        >
-                          Deactivate
-                        </button>
-                      ) : (
-                        <button
-                          onClick={() => handleActivate(user._id)}
-                          className="action-btn success"
-                        >
-                          Activate
-                        </button>
-                      )}
+                {users.length === 0 ? (
+                  <tr>
+                    <td colSpan="5" style={{ textAlign: 'center', padding: '40px', color: '#666' }}>
+                      No verified users found
                     </td>
                   </tr>
-                ))}
+                ) : (
+                  users.map(user => (
+                    <tr key={user._id}>
+                      <td>{user.email}</td>
+                      <td>
+                        <span className={`status-badge ${user.is_verified ? 'verified' : 'unverified'}`}>
+                          {user.is_verified ? 'Yes' : 'No'}
+                        </span>
+                      </td>
+                      <td>{new Date(user.created_at).toLocaleDateString()}</td>
+                      <td>{user.last_login ? new Date(user.last_login).toLocaleDateString() : 'Never'}</td>
+                      <td>
+                        <button
+                          onClick={() => handleDelete(user._id)}
+                          className="action-btn danger"
+                        >
+                          Delete
+                        </button>
+                      </td>
+                    </tr>
+                  ))
+                )}
               </tbody>
             </table>
           </div>

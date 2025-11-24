@@ -4,12 +4,13 @@ FastAPI application for image-based fashion search
 Created: November 9, 2025
 """
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from contextlib import asynccontextmanager
 import sys
+import re
 from pathlib import Path
 
 # Add parent directory to path
@@ -71,19 +72,22 @@ app = FastAPI(
 
 # Allow all origins for development (restrict in production)
 # Note: Using ["*"] with allow_credentials=True is not allowed, so we list common ports
+# CORS configuration - allow all localhost origins for development
+# In production, restrict to specific origins
+def is_localhost_origin(origin: str) -> bool:
+    """Check if origin is localhost or 127.0.0.1"""
+    if not origin:
+        return False
+    pattern = r'^https?://(localhost|127\.0\.0\.1)(:\d+)?$'
+    return bool(re.match(pattern, origin))
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",
-        "http://localhost:3001", 
-        "http://localhost:5173",
-        "http://127.0.0.1:3000",
-        "http://127.0.0.1:3001",
-        "http://127.0.0.1:5173",
-    ],
+    allow_origin_regex=r"https?://(localhost|127\.0\.0\.1)(:\d+)?",
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
     allow_headers=["*"],
+    expose_headers=["*"],
 )
 
 # ============================================
@@ -101,6 +105,28 @@ app.include_router(search.router, prefix="/api/search", tags=["Search"])
 # Mount static files for product images
 data_dir = Path(__file__).parent.parent.parent / "data"
 app.mount("/data", StaticFiles(directory=str(data_dir)), name="data")
+
+# ============================================
+# CORS Preflight Handler
+# ============================================
+
+@app.options("/{full_path:path}")
+async def options_handler(request: Request, full_path: str):
+    """Handle CORS preflight requests for all localhost origins"""
+    origin = request.headers.get("origin", "")
+    # Allow any localhost or 127.0.0.1 origin
+    if is_localhost_origin(origin):
+        return Response(
+            status_code=200,
+            headers={
+                "Access-Control-Allow-Origin": origin,
+                "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS, PATCH",
+                "Access-Control-Allow-Headers": "*",
+                "Access-Control-Allow-Credentials": "true",
+                "Access-Control-Max-Age": "3600",
+            }
+        )
+    return Response(status_code=200)
 
 # ============================================
 # Root Endpoint

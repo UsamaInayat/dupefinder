@@ -47,7 +47,8 @@ class _LoginScreenState extends State<LoginScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(e.toString().replaceFirst('Exception: ', '')),
-            backgroundColor: Colors.red,
+            backgroundColor: Colors.black87,
+            behavior: SnackBarBehavior.floating,
           ),
         );
       }
@@ -76,7 +77,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   const Icon(
                     Icons.shopping_bag,
                     size: 80,
-                    color: Colors.purple,
+                    color: Colors.black,
                   ),
                   const SizedBox(height: 24),
                   const Text(
@@ -148,7 +149,8 @@ class _LoginScreenState extends State<LoginScreen> {
                     onPressed: _isLoading ? null : _handleLogin,
                     style: ElevatedButton.styleFrom(
                       padding: const EdgeInsets.symmetric(vertical: 16),
-                      backgroundColor: Colors.purple,
+                      backgroundColor: Colors.black,
+                      foregroundColor: Colors.white,
                     ),
                     child: _isLoading
                         ? const SizedBox(

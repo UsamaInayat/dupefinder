@@ -11,6 +11,10 @@ function ProductManagement() {
   const [brokenLinksOnly, setBrokenLinksOnly] = useState(false)
   const [page, setPage] = useState(1)
   const [totalProducts, setTotalProducts] = useState(0)
+  const [totalPages, setTotalPages] = useState(1)
+  const [brokenLinks, setBrokenLinks] = useState([])
+  const [showBrokenLinks, setShowBrokenLinks] = useState(false)
+  const [repairingId, setRepairingId] = useState(null)
 
   useEffect(() => {
     fetchProducts()
@@ -47,6 +51,10 @@ function ProductManagement() {
 
       setProducts(response.data.products || [])
       setTotalProducts(response.data.total || 0)
+      // Calculate total pages if not provided
+      const calculatedTotalPages = response.data.total_pages || 
+        Math.ceil((response.data.total || 0) / 20)
+      setTotalPages(calculatedTotalPages)
       setLoading(false)
     } catch (error) {
       console.error('Failed to fetch products:', error)
@@ -125,13 +133,50 @@ function ProductManagement() {
         { headers: { Authorization: `Bearer ${token}` } }
       )
 
-      alert(`Cleanup completed!\nChecked: ${response.data.checked}\nBroken: ${response.data.broken}\nWorking: ${response.data.working}`)
+      // Fetch broken links
+      if (response.data.broken > 0 && response.data.broken_ids) {
+        const brokenProductsResponse = await axios.get(
+          `http://localhost:8000/api/admin/products?broken_links_only=true&page_size=100`,
+          { headers: { Authorization: `Bearer ${token}` } }
+        )
+        setBrokenLinks(brokenProductsResponse.data.products || [])
+        setShowBrokenLinks(true)
+      } else {
+        setBrokenLinks([])
+        setShowBrokenLinks(false)
+      }
+      
       fetchProducts()
     } catch (error) {
       console.error('Failed to cleanup links:', error)
       alert('Failed to cleanup links')
     } finally {
       setLoading(false)
+    }
+  }
+
+  const handleRepairLink = async (productId) => {
+    try {
+      const token = localStorage.getItem('adminToken') || localStorage.getItem('token')
+      setRepairingId(productId)
+      
+      const response = await axios.post(
+        `http://localhost:8000/api/admin/products/${productId}/repair-link`,
+        {},
+        { headers: { Authorization: `Bearer ${token}` } }
+      )
+
+      if (response.data.success) {
+        // Remove from broken links list
+        setBrokenLinks(prev => prev.filter(p => p._id !== productId))
+        // Refresh products
+        fetchProducts()
+      }
+    } catch (error) {
+      console.error('Failed to repair link:', error)
+      alert('Failed to repair link: ' + (error.response?.data?.detail || error.message))
+    } finally {
+      setRepairingId(null)
     }
   }
 
@@ -174,45 +219,90 @@ function ProductManagement() {
         <button onClick={handleCleanupLinks} className="cleanup-btn" disabled={loading}>
           {loading ? 'Checking...' : 'Check Broken Links'}
         </button>
+        
+        {/* Broken Links List */}
+        {showBrokenLinks && brokenLinks.length > 0 && (
+          <div className="broken-links-section" style={{ marginTop: '20px' }}>
+            <h4 style={{ marginBottom: '15px', fontSize: '1.1rem' }}>
+              Broken Links ({brokenLinks.length})
+            </h4>
+            <div className="broken-links-table">
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>Product Name</th>
+                    <th>Image URL</th>
+                    <th>Brand</th>
+                    <th>Category</th>
+                    <th>Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {brokenLinks.map(product => (
+                    <tr key={product._id}>
+                      <td>{product.name}</td>
+                      <td>
+                        <span className="broken-url">
+                          {product.image_url || product.image_path || 'N/A'}
+                        </span>
+                      </td>
+                      <td>{product.brand || 'N/A'}</td>
+                      <td>{product.category || 'N/A'}</td>
+                      <td>
+                        <button
+                          onClick={() => handleRepairLink(product._id)}
+                          className="repair-btn"
+                          disabled={repairingId === product._id}
+                        >
+                          {repairingId === product._id ? 'Repairing...' : 'Repair'}
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+        
+        {showBrokenLinks && brokenLinks.length === 0 && (
+          <div style={{ marginTop: '15px', padding: '15px', background: '#f5f5f5', borderRadius: '4px', color: '#000' }}>
+            No broken links found! All image URLs are working.
+          </div>
+        )}
       </div>
 
       {/* Categories Section */}
       <div className="section-card">
         <h3>Categories</h3>
         <div className="category-list">
+          <button
+            className={`category-tag ${categoryFilter === '' ? 'active' : ''}`}
+            onClick={() => {
+              setCategoryFilter('')
+              setPage(1) // Reset to first page when filter changes
+            }}
+          >
+            All ({totalProducts})
+          </button>
           {categories.map(cat => (
-            <span key={cat.name} className="category-tag">
+            <button
+              key={cat.name}
+              className={`category-tag ${categoryFilter === cat.name ? 'active' : ''}`}
+              onClick={() => {
+                setCategoryFilter(cat.name)
+                setPage(1) // Reset to first page when filter changes
+              }}
+            >
               {cat.name} ({cat.count})
-            </span>
+            </button>
           ))}
         </div>
       </div>
 
-      {/* Products Table */}
+      {/* Products Grid */}
       <div className="section-card">
-        <div className="table-header">
-          <h3>Products</h3>
-          <div className="table-filters">
-            <select
-              value={categoryFilter}
-              onChange={(e) => setCategoryFilter(e.target.value)}
-              className="filter-select"
-            >
-              <option value="">All Categories</option>
-              {categories.map(cat => (
-                <option key={cat.name} value={cat.name}>{cat.name}</option>
-              ))}
-            </select>
-            <label className="checkbox-label">
-              <input
-                type="checkbox"
-                checked={brokenLinksOnly}
-                onChange={(e) => setBrokenLinksOnly(e.target.checked)}
-              />
-              Broken Links Only
-            </label>
-          </div>
-        </div>
+        <h3>Products</h3>
 
         {loading ? (
           <div className="loading">Loading products...</div>
@@ -220,72 +310,103 @@ function ProductManagement() {
           <div className="no-products">No products found. Start scraping to add products!</div>
         ) : (
           <>
-            <div className="table-container">
-              <table className="data-table">
-                <thead>
-                  <tr>
-                    <th>Image</th>
-                    <th>Name</th>
-                    <th>Category</th>
-                    <th>Brand</th>
-                    <th>Price</th>
-                    <th>Status</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {products.map(product => (
-                    <tr key={product._id}>
-                      <td>
-                        <img
-                          src={product.image_url || product.image_path || 'https://via.placeholder.com/50?text=No+Image'}
-                          alt={product.name}
-                          className="product-thumb"
-                          onError={(e) => {
-                            e.target.src = 'https://via.placeholder.com/50?text=No+Image'
-                          }}
-                        />
-                      </td>
-                      <td>
-                        <div className="product-name-cell">
-                          <strong>{product.name}</strong>
-                          {product.description && (
-                            <small className="product-desc">{product.description.substring(0, 50)}...</small>
-                          )}
-                        </div>
-                      </td>
-                      <td><span className="category-badge">{product.category}</span></td>
-                      <td>{product.brand || 'N/A'}</td>
-                      <td>${product.price || '0.00'}</td>
-                      <td>
-                        {product.broken_link ? (
-                          <span className="status-badge broken">Broken Link</span>
-                        ) : (
-                          <span className="status-badge ok">OK</span>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+            <div className="products-grid">
+              {products.map(product => {
+                const imageUrl = product.image_url || 
+                  (product.image_path ? `http://localhost:8000/data/${product.image_path.replace(/\\/g, '/')}` : null) ||
+                  'https://via.placeholder.com/200?text=No+Image'
+                
+                return (
+                  <div key={product._id} className="product-card-item">
+                    <div className="product-image-wrapper">
+                      <img
+                        src={imageUrl}
+                        alt={product.name}
+                        className="product-image-small"
+                        onError={(e) => {
+                          e.target.src = 'https://via.placeholder.com/200?text=No+Image'
+                        }}
+                      />
+                      {product.broken_link && (
+                        <span className="broken-link-badge">Broken</span>
+                      )}
+                    </div>
+                    <div className="product-info-wrapper">
+                      <div className="product-name-small">{product.name}</div>
+                      <div className="product-brand-small">{product.brand || 'N/A'}</div>
+                      <div className="product-meta">
+                        <span className="product-category-small">{product.category}</span>
+                        <span className="product-price-small">${product.price || '0.00'}</span>
+                      </div>
+                    </div>
+                  </div>
+                )
+              })}
             </div>
             <div className="pagination-controls">
+              <button
+                onClick={() => setPage(1)}
+                disabled={page === 1 || loading}
+                className="pagination-btn"
+                title="First page"
+              >
+                ««
+              </button>
               <button
                 onClick={() => setPage(p => Math.max(1, p - 1))}
                 disabled={page === 1 || loading}
                 className="pagination-btn"
+                title="Previous page"
               >
-                Previous
+                «
               </button>
-              <span className="page-info">
-                Page {page} ({totalProducts} total products)
-              </span>
+              
+              <div className="page-numbers">
+                {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                  let pageNum;
+                  if (totalPages <= 5) {
+                    pageNum = i + 1;
+                  } else if (page <= 3) {
+                    pageNum = i + 1;
+                  } else if (page >= totalPages - 2) {
+                    pageNum = totalPages - 4 + i;
+                  } else {
+                    pageNum = page - 2 + i;
+                  }
+                  
+                  return (
+                    <button
+                      key={pageNum}
+                      onClick={() => setPage(pageNum)}
+                      disabled={loading}
+                      className={`page-number-btn ${page === pageNum ? 'active' : ''}`}
+                    >
+                      {pageNum}
+                    </button>
+                  );
+                })}
+              </div>
+              
               <button
-                onClick={() => setPage(p => p + 1)}
-                disabled={products.length < 20 || loading}
+                onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+                disabled={page === totalPages || loading}
                 className="pagination-btn"
+                title="Next page"
               >
-                Next
+                »
               </button>
+              <button
+                onClick={() => setPage(totalPages)}
+                disabled={page === totalPages || loading}
+                className="pagination-btn"
+                title="Last page"
+              >
+                »»
+              </button>
+              
+              <span className="page-info">
+                Page {page} of {totalPages} ({totalProducts} total)
+              </span>
             </div>
           </>
         )}

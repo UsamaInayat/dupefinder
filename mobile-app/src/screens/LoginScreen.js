@@ -78,6 +78,8 @@ export default function LoginScreen({ navigation }) {
               loading={loading}
               disabled={loading}
               style={styles.button}
+              buttonColor="#000000"
+              textColor="#ffffff"
             >
               Login
             </Button>
@@ -86,6 +88,7 @@ export default function LoginScreen({ navigation }) {
               mode="text"
               onPress={() => navigation.navigate('Register')}
               style={styles.linkButton}
+              textColor="#000000"
             >
               Don't have an account? Register
             </Button>
@@ -113,6 +116,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginBottom: 8,
     fontWeight: 'bold',
+    color: '#000000',
   },
   subtitle: {
     textAlign: 'center',

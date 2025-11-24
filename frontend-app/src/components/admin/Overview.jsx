@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import axios from 'axios'
 
-function Overview() {
+function Overview({ onNavigate }) {
   const [stats, setStats] = useState(null)
   const [loading, setLoading] = useState(true)
 
@@ -96,16 +96,28 @@ function Overview() {
       <div className="quick-actions">
         <h3>Quick Actions</h3>
         <div className="action-buttons">
-          <button className="action-btn">
+          <button 
+            className="action-btn"
+            onClick={() => onNavigate && onNavigate('users')}
+          >
             Manage Users
           </button>
-          <button className="action-btn">
+          <button 
+            className="action-btn"
+            onClick={() => onNavigate && onNavigate('products')}
+          >
             Add Products
           </button>
-          <button className="action-btn">
+          <button 
+            className="action-btn"
+            onClick={() => onNavigate && onNavigate('training')}
+          >
             Train Model
           </button>
-          <button className="action-btn">
+          <button 
+            className="action-btn"
+            onClick={() => onNavigate && onNavigate('scraping')}
+          >
             Start Sync
           </button>
         </div>

@@ -1,17 +1,37 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 
 class ApiService {
-  // Change this to your computer's IP if testing on physical device
+  // Platform-aware base URL
+  // For web (Chrome): use localhost
   // For Android emulator: use 10.0.2.2
   // For iOS simulator: use localhost
   // For physical device: use your computer's IP (e.g., 192.168.1.100)
   
-  // Default: Android emulator (10.0.2.2)
-  // Change to 'http://localhost:8000/api' for iOS simulator
-  // Change to 'http://YOUR_COMPUTER_IP:8000/api' for physical device
-  static const String baseUrl = 'http://10.0.2.2:8000/api';
+  static String get baseUrl {
+    String url;
+    if (kIsWeb) {
+      // Web platform (Chrome) - use localhost
+      url = 'http://localhost:8000/api';
+    } else {
+      // For mobile platforms, check if Android
+      try {
+        // Try to import Platform only when not on web
+        // For now, default to Android emulator address for mobile
+        // Change this to localhost if testing on iOS simulator
+        url = 'http://10.0.2.2:8000/api'; // Android emulator
+        // return 'http://localhost:8000/api'; // iOS simulator or physical device
+      } catch (e) {
+        // Fallback to localhost
+        url = 'http://localhost:8000/api';
+      }
+    }
+    // Debug: print the URL being used (remove in production)
+    print('[ApiService] Using baseUrl: $url (kIsWeb: $kIsWeb)');
+    return url;
+  }
 
   // Get stored access token
   Future<String?> getAccessToken() async {
@@ -73,7 +93,7 @@ class ApiService {
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({
           'email': email,
-          'otp': otp,
+          'otp_code': otp,  // Backend expects 'otp_code' not 'otp'
         }),
       );
 

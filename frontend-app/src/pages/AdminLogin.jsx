@@ -33,7 +33,7 @@ function AdminLogin({ onLoginSuccess }) {
   }
 
   return (
-    <div className="auth-container" style={{background: 'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)'}}>
+    <div className="auth-container">
       <div className="auth-box">
         <div className="auth-header">
           <h2>Admin Login</h2>
@@ -43,7 +43,7 @@ function AdminLogin({ onLoginSuccess }) {
         <form onSubmit={handleSubmit} className="auth-form">
           {error && (
             <div className="auth-error">
-              ❌ {error}
+              {error}
             </div>
           )}
 
@@ -72,7 +72,6 @@ function AdminLogin({ onLoginSuccess }) {
           <button
             type="submit"
             className="auth-button"
-            style={{background: 'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)'}}
             disabled={loading}
           >
             {loading ? 'Logging in...' : 'Login'}

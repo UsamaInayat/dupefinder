@@ -74,7 +74,11 @@ async def send_email(
         message.attach(part2)
         
         # Send email via SMTP
+        print(f"[INFO] Attempting to send email to {to_email} via {settings.SMTP_HOST}:{settings.SMTP_PORT}")
+        print(f"[INFO] Using username: {settings.SMTP_USERNAME}")
+        
         if settings.SMTP_USE_TLS:
+            print(f"[INFO] Using TLS connection")
             await aiosmtplib.send(
                 message,
                 hostname=settings.SMTP_HOST,
@@ -84,6 +88,7 @@ async def send_email(
                 password=settings.SMTP_PASSWORD,
             )
         else:
+            print(f"[INFO] Using non-TLS connection")
             await aiosmtplib.send(
                 message,
                 hostname=settings.SMTP_HOST,
@@ -92,11 +97,16 @@ async def send_email(
                 password=settings.SMTP_PASSWORD,
             )
         
-        print(f"[OK] Email sent to {to_email}")
+        print(f"[OK] Email sent successfully to {to_email}")
         return True
         
     except Exception as e:
-        print(f"[ERROR] Failed to send email to {to_email}: {e}")
+        import traceback
+        error_trace = traceback.format_exc()
+        print(f"[ERROR] Failed to send email to {to_email}")
+        print(f"[ERROR] Error type: {type(e).__name__}")
+        print(f"[ERROR] Error message: {str(e)}")
+        print(f"[ERROR] Full traceback:\n{error_trace}")
         return False
 
 

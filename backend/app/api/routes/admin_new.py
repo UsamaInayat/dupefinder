@@ -23,8 +23,10 @@ from app.core.database import (
 from app.services.scraper_service import scrape_from_excel_files
 from app.services.category_normalizer import normalize_category, get_category_display_name
 from app.models.admin import AdminLogin, AdminToken, AdminResponse
-from app.core.security import verify_password
+# Don't import verify_password - it causes bcrypt import errors
+# from app.core.security import verify_password
 from app.utils.auth import create_access_token
+import bcrypt
 import os
 import logging
 
@@ -61,8 +63,12 @@ async def admin_login(credentials: AdminLogin):
             detail="Invalid admin credentials"
         )
     
-    # Verify password
-    if not verify_password(credentials.password, admin["hashed_password"]):
+    # Verify password using bcrypt directly
+    password_bytes = credentials.password.encode('utf-8')
+    hash_bytes = admin["hashed_password"].encode('utf-8')
+    password_valid = bcrypt.checkpw(password_bytes, hash_bytes)
+    
+    if not password_valid:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid admin credentials"
@@ -173,8 +179,8 @@ async def get_all_users(
     """
     users = get_users_collection()
     
-    # Build query
-    query = {}
+    # Build query - only show verified users
+    query = {"is_verified": True}
     if search:
         query["email"] = {"$regex": search, "$options": "i"}
     
@@ -264,6 +270,33 @@ async def activate_user(
     return {
         "success": True,
         "message": "User activated successfully",
+        "user_id": user_id
+    }
+
+
+@router.delete("/users/{user_id}")
+async def delete_user(
+    user_id: str,
+    admin: dict = Depends(require_admin)
+):
+    """
+    Delete a user permanently
+    
+    Module 1: User Management - Delete user accounts
+    """
+    users = get_users_collection()
+    
+    if not ObjectId.is_valid(user_id):
+        raise HTTPException(status_code=400, detail="Invalid user ID")
+    
+    result = users.delete_one({"_id": ObjectId(user_id)})
+    
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    return {
+        "success": True,
+        "message": "User deleted successfully",
         "user_id": user_id
     }
 
@@ -407,6 +440,80 @@ async def cleanup_broken_links(
     }
 
 
+@router.post("/products/{product_id}/repair-link")
+async def repair_broken_link(
+    product_id: str,
+    admin: dict = Depends(require_admin)
+):
+    """
+    Repair a broken image link by re-checking it
+    
+    Module 2: Product Catalogue - Repair broken links
+    """
+    products = get_products_collection()
+    
+    if not ObjectId.is_valid(product_id):
+        raise HTTPException(status_code=400, detail="Invalid product ID")
+    
+    product = products.find_one({"_id": ObjectId(product_id)})
+    if not product:
+        raise HTTPException(status_code=404, detail="Product not found")
+    
+    image_url = product.get("image_url") or product.get("image_path", "")
+    
+    if not image_url:
+        raise HTTPException(status_code=400, detail="Product has no image URL")
+    
+    # Re-check the link
+    try:
+        # Skip local file paths
+        if not image_url.startswith('http'):
+            # For local paths, just mark as working
+            products.update_one(
+                {"_id": ObjectId(product_id)},
+                {"$set": {"broken_link": False}}
+            )
+            return {
+                "success": True,
+                "message": "Link repaired (local file)",
+                "product_id": product_id,
+                "broken_link": False
+            }
+        
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            response = await client.head(image_url)
+            
+            if response.status_code < 400:
+                # Link is working now
+                products.update_one(
+                    {"_id": ObjectId(product_id)},
+                    {"$set": {"broken_link": False}}
+                )
+                return {
+                    "success": True,
+                    "message": "Link repaired successfully",
+                    "product_id": product_id,
+                    "broken_link": False
+                }
+            else:
+                # Still broken
+                return {
+                    "success": False,
+                    "message": f"Link still broken (HTTP {response.status_code})",
+                    "product_id": product_id,
+                    "broken_link": True
+                }
+                
+    except Exception as e:
+        # Still broken - connection error
+        return {
+            "success": False,
+            "message": f"Link still broken: {str(e)}",
+            "product_id": product_id,
+            "broken_link": True
+        }
+
+
 @router.get("/categories")
 async def get_all_categories(
     admin: dict = Depends(require_admin)
@@ -519,7 +626,8 @@ async def get_products_admin(
         "products": product_list,
         "total": total,
         "page": page,
-        "page_size": page_size
+        "page_size": page_size,
+        "total_pages": (total + page_size - 1) // page_size
     }
 
 
