@@ -15,6 +15,8 @@ function ProductManagement() {
   const [brokenLinks, setBrokenLinks] = useState([])
   const [showBrokenLinks, setShowBrokenLinks] = useState(false)
   const [repairingId, setRepairingId] = useState(null)
+  const [recentlyImported, setRecentlyImported] = useState([])
+  const [showImportedData, setShowImportedData] = useState(false)
 
   useEffect(() => {
     fetchProducts()
@@ -110,13 +112,45 @@ function ProductManagement() {
       )
 
       setUploadProgress(null)
-      alert(`Import completed!\nImported: ${response.data.imported}\nFailed: ${response.data.failed}`)
+      
+      // Show detailed results
+      let message = `Import completed!\n\nTotal Rows: ${response.data.total_rows}\nImported: ${response.data.imported}\nFailed: ${response.data.failed}`
+      
+      // Show errors if any
+      if (response.data.errors && response.data.errors.length > 0) {
+        message += `\n\nErrors:\n${response.data.errors.slice(0, 10).join('\n')}`
+        if (response.data.errors.length > 10) {
+          message += `\n... and ${response.data.errors.length - 10} more errors`
+        }
+      }
+      
+      alert(message)
       setCsvFile(null)
+      
+      // Fetch and show recently imported products
+      if (response.data.imported > 0) {
+        // Fetch the latest products (recently imported)
+        try {
+          const productsResponse = await axios.get(
+            `http://localhost:8000/api/admin/products?page=1&page_size=${response.data.imported}`,
+            { headers: { Authorization: `Bearer ${token}` } }
+          )
+          // Get the most recent products (assuming they're sorted by created_at desc)
+          const importedProducts = (productsResponse.data.products || []).slice(0, response.data.imported)
+          setRecentlyImported(importedProducts)
+          setShowImportedData(true)
+        } catch (err) {
+          console.error('Failed to fetch imported products:', err)
+        }
+      }
+      
       fetchProducts()
+      fetchCategories()
     } catch (error) {
       setUploadProgress(null)
       console.error('Failed to upload CSV:', error)
-      alert('Failed to upload CSV: ' + (error.response?.data?.detail || error.message))
+      const errorMsg = error.response?.data?.detail || error.message
+      alert(`Failed to upload CSV:\n${errorMsg}`)
     }
   }
 
@@ -211,6 +245,55 @@ function ProductManagement() {
           <p><strong>CSV Format:</strong> name, category, brand, price, image_url, description</p>
         </div>
       </div>
+
+      {/* Recently Imported Products Section */}
+      {showImportedData && recentlyImported.length > 0 && (
+        <div className="section-card" style={{ marginTop: '20px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+            <h3>Recently Imported Products ({recentlyImported.length})</h3>
+            <button 
+              onClick={() => {
+                setShowImportedData(false)
+                setRecentlyImported([])
+              }}
+              className="action-btn"
+              style={{ padding: '8px 16px', fontSize: '0.9rem' }}
+            >
+              Hide
+            </button>
+          </div>
+          <div className="table-container">
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>Brand</th>
+                  <th>Category</th>
+                  <th>Price</th>
+                  <th>Image URL</th>
+                  <th>Description</th>
+                </tr>
+              </thead>
+              <tbody>
+                {recentlyImported.map(product => (
+                  <tr key={product._id || product.product_id}>
+                    <td><strong>{product.name || 'N/A'}</strong></td>
+                    <td>{product.brand || 'N/A'}</td>
+                    <td>{product.category || 'N/A'}</td>
+                    <td>${product.price ? parseFloat(product.price).toFixed(2) : '0.00'}</td>
+                    <td style={{ maxWidth: '200px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {product.image_url || product.image_path || 'N/A'}
+                    </td>
+                    <td style={{ maxWidth: '300px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {product.description || 'N/A'}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
 
       {/* Link Cleanup Section */}
       <div className="section-card">

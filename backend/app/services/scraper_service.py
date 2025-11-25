@@ -12,6 +12,7 @@ from bs4 import BeautifulSoup
 import re
 from urllib.parse import urljoin, urlparse
 import logging
+import hashlib
 
 from app.core.database import get_products_collection
 from app.services.category_normalizer import normalize_category, extract_gender_from_category
@@ -204,8 +205,14 @@ class ProductScraper:
             # Use product category if found, otherwise use main category
             category_to_normalize = product_category if product_category else main_category
             
+            # Generate unique product_id from URL hash (to avoid null product_id errors)
+            # Use first 8 characters of MD5 hash converted to integer
+            url_hash = hashlib.md5(product_url.encode('utf-8')).hexdigest()
+            product_id = int(url_hash[:8], 16)  # Convert first 8 hex chars to int
+            
             # Extract product information (generic approach)
             product = {
+                'product_id': product_id,  # Unique ID generated from URL
                 'name': self._extract_product_name(soup),
                 'brand': brand_name,
                 'category': main_category,  # Keep original main category
@@ -478,19 +485,55 @@ async def scrape_from_excel_files(men_file: str = "men dataset.xlsx",
         for product in all_products:
             try:
                 # Check if product already exists (by URL)
-                existing = products_collection.find_one({"product_url": product["product_url"]})
+                existing = products_collection.find_one({"product_url": product.get("product_url")})
                 if not existing:
+                    # Ensure product_id exists (generate if missing)
+                    if not product.get("product_id"):
+                        import hashlib
+                        url_hash = hashlib.md5(product.get("product_url", "").encode('utf-8')).hexdigest()
+                        product["product_id"] = int(url_hash[:8], 16)
+                    
+                    # Check if product_id already exists (handle hash collisions)
+                    product_id = product.get("product_id")
+                    if product_id:
+                        id_exists = products_collection.find_one({"product_id": product_id})
+                        if id_exists:
+                            # Generate new product_id by appending timestamp
+                            url_hash = hashlib.md5(
+                                f"{product.get('product_url')}{datetime.utcnow().isoformat()}".encode('utf-8')
+                            ).hexdigest()
+                            product["product_id"] = int(url_hash[:8], 16)
+                    
                     products_collection.insert_one(product)
                     stored_count += 1
                 else:
-                    # Update existing product
+                    # Update existing product (preserve existing product_id)
+                    update_data = product.copy()
+                    if 'product_id' in update_data:
+                        del update_data['product_id']
                     products_collection.update_one(
-                        {"product_url": product["product_url"]},
-                        {"$set": product}
+                        {"product_url": product.get("product_url")},
+                        {"$set": update_data}
                     )
             except Exception as e:
-                logger.error(f"Error storing product: {e}")
-                scraper.errors.append(f"Storage error: {str(e)}")
+                error_msg = str(e)
+                # If it's a duplicate key error, try with a new product_id
+                if "E11000" in error_msg or "duplicate key" in error_msg.lower():
+                    try:
+                        import hashlib
+                        url_hash = hashlib.md5(
+                            f"{product.get('product_url')}{datetime.utcnow().isoformat()}".encode('utf-8')
+                        ).hexdigest()
+                        product["product_id"] = int(url_hash[:8], 16)
+                        products_collection.insert_one(product)
+                        stored_count += 1
+                        logger.info(f"Retried insert with new product_id for {product.get('product_url')}")
+                    except Exception as retry_error:
+                        logger.error(f"Error storing product (retry failed): {retry_error}")
+                        scraper.errors.append(f"Storage error: {str(retry_error)}")
+                else:
+                    logger.error(f"Error storing product: {e}")
+                    scraper.errors.append(f"Storage error: {error_msg}")
         
         await scraper.close()
         

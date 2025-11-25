@@ -10,6 +10,7 @@ class RegisterScreen extends StatefulWidget {
 
 class _RegisterScreenState extends State<RegisterScreen> {
   final _formKey = GlobalKey<FormState>();
+  final _nameController = TextEditingController();
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   final _confirmPasswordController = TextEditingController();
@@ -20,14 +21,295 @@ class _RegisterScreenState extends State<RegisterScreen> {
   bool _obscureConfirmPassword = true;
   bool _otpSent = false;
   String? _userEmail;
+  
+  // Password validation states
+  bool _hasUppercase = false;
+  bool _hasLowercase = false;
+  bool _hasDigit = false;
+  bool _hasSpecialChar = false;
+  bool _hasMinLength = false;
+  
+  // Real-time error messages for each field
+  String? _nameError;
+  String? _emailError;
+  String? _passwordError;
+  String? _confirmPasswordError;
+
+  @override
+  void initState() {
+    super.initState();
+  }
 
   @override
   void dispose() {
+    _nameController.dispose();
     _emailController.dispose();
     _passwordController.dispose();
     _confirmPasswordController.dispose();
     _otpController.dispose();
     super.dispose();
+  }
+
+  // Real-time password validation
+  void _validatePassword() {
+    final password = _passwordController.text;
+    setState(() {
+      _hasUppercase = password.contains(RegExp(r'[A-Z]'));
+      _hasLowercase = password.contains(RegExp(r'[a-z]'));
+      _hasDigit = password.contains(RegExp(r'[0-9]'));
+      _hasSpecialChar = password.contains(RegExp(r'[!@#$%^&*(),.?":{}|<>]'));
+      _hasMinLength = password.length >= 8;
+      
+      // Set password error message
+      if (password.isEmpty) {
+        _passwordError = null;
+      } else if (!_hasMinLength) {
+        _passwordError = 'Password must be at least 8 characters';
+      } else if (!_hasUppercase) {
+        _passwordError = 'Password must contain at least one uppercase letter';
+      } else if (!_hasLowercase) {
+        _passwordError = 'Password must contain at least one lowercase letter';
+      } else if (!_hasDigit) {
+        _passwordError = 'Password must contain at least one digit';
+      } else if (!_hasSpecialChar) {
+        _passwordError = 'Password must contain at least one special character';
+      } else {
+        _passwordError = null; // All requirements met
+      }
+      
+      // Also update confirm password error if confirm password field has text
+      if (_confirmPasswordController.text.isNotEmpty) {
+        if (_confirmPasswordController.text != password) {
+          _confirmPasswordError = 'Passwords do not match';
+        } else {
+          _confirmPasswordError = null;
+        }
+      }
+    });
+  }
+
+  // Real-time name validation
+  void _validateNameRealTime(String value) {
+    setState(() {
+      if (value.isEmpty) {
+        _nameError = null;
+      } else if (!RegExp(r"^[a-zA-Z\s'-]+$").hasMatch(value)) {
+        _nameError = 'Name can only contain letters, spaces, hyphens, and apostrophes';
+      } else if (value.trim().length < 2) {
+        _nameError = 'Name must be at least 2 characters';
+      } else {
+        _nameError = null;
+      }
+    });
+  }
+
+  // Real-time email validation with strict domain check
+  void _validateEmailRealTime(String value) {
+    setState(() {
+      if (value.isEmpty) {
+        _emailError = null;
+        return;
+      }
+      
+      // Basic email format check
+      final emailRegex = RegExp(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$');
+      if (!emailRegex.hasMatch(value)) {
+        _emailError = 'Please enter a valid email address';
+        return;
+      }
+      
+      // Split email into local and domain parts
+      final parts = value.split('@');
+      if (parts.length != 2) {
+        _emailError = 'Please enter a valid email address';
+        return;
+      }
+      
+      final localPart = parts[0];
+      final domain = parts[1];
+      
+      // Check local part (before @)
+      if (localPart.isEmpty) {
+        _emailError = 'Email must have text before @ symbol';
+        return;
+      }
+      
+      if (localPart.length > 64) {
+        _emailError = 'Email username is too long';
+        return;
+      }
+      
+      // Check domain part (after @)
+      if (domain.isEmpty) {
+        _emailError = 'Email must have a domain (e.g., @gmail.com)';
+        return;
+      }
+      
+      // Check if domain has dot
+      if (!domain.contains('.')) {
+        _emailError = 'Email domain must include extension (e.g., @gmail.com)';
+        return;
+      }
+      
+      final domainParts = domain.split('.');
+      
+      // Check domain name (before last dot)
+      if (domainParts.length < 2) {
+        _emailError = 'Email must have a valid domain (e.g., @gmail.com)';
+        return;
+      }
+      
+      final domainName = domainParts[0];
+      final domainExtension = domainParts.last;
+      
+      // Check domain name is not empty
+      if (domainName.isEmpty) {
+        _emailError = 'Email domain name cannot be empty (e.g., @gmail.com)';
+        return;
+      }
+      
+      // Check domain extension (TLD)
+      if (domainExtension.isEmpty) {
+        _emailError = 'Email must have domain extension (e.g., .com, .org)';
+        return;
+      }
+      
+      if (domainExtension.length < 2) {
+        _emailError = 'Email domain extension must be at least 2 characters (e.g., .com)';
+        return;
+      }
+      
+      // Check for valid domain extension (common TLDs)
+      final validExtensions = ['com', 'org', 'net', 'edu', 'gov', 'co', 'io', 'in', 'pk', 'uk', 'ca', 'au', 'de', 'fr', 'jp', 'cn'];
+      if (!validExtensions.contains(domainExtension.toLowerCase())) {
+        // Still allow if it's 2+ characters, just warn
+        if (domainExtension.length < 2) {
+          _emailError = 'Email domain extension must be at least 2 characters';
+          return;
+        }
+      }
+      
+      // Check for common email providers (gmail.com, yahoo.com, etc.)
+      final commonDomains = ['gmail.com', 'yahoo.com', 'hotmail.com', 'outlook.com', 'icloud.com', 'aol.com', 'mail.com', 'protonmail.com'];
+      final domainLower = domain.toLowerCase();
+      
+      if (commonDomains.contains(domainLower)) {
+        // Valid common domain
+        _emailError = null;
+        return;
+      }
+      
+      // For other domains, check if it looks valid
+      if (domainName.length < 1) {
+        _emailError = 'Email domain name is too short';
+        return;
+      }
+      
+      // All checks passed
+      _emailError = null;
+    });
+  }
+
+  // Real-time confirm password validation
+  void _validateConfirmPasswordRealTime(String value) {
+    setState(() {
+      if (value.isEmpty) {
+        _confirmPasswordError = null;
+      } else if (value != _passwordController.text) {
+        _confirmPasswordError = 'Passwords do not match';
+      } else {
+        _confirmPasswordError = null;
+      }
+    });
+  }
+
+  // Check if passwords match (for confirm password field)
+  bool _passwordsMatch() {
+    return _confirmPasswordController.text.isNotEmpty &&
+           _confirmPasswordController.text == _passwordController.text;
+  }
+
+  // Validate name (only characters and spaces)
+  String? _validateName(String? value) {
+    if (value == null || value.isEmpty) {
+      return 'Please enter your name';
+    }
+    // Only allow letters, spaces, and common name characters (apostrophes, hyphens)
+    if (!RegExp(r"^[a-zA-Z\s'-]+$").hasMatch(value)) {
+      return 'Name can only contain letters, spaces, hyphens, and apostrophes';
+    }
+    if (value.trim().length < 2) {
+      return 'Name must be at least 2 characters';
+    }
+    return null;
+  }
+
+  // Validate email with proper format and domain (for form submission)
+  String? _validateEmail(String? value) {
+    if (value == null || value.isEmpty) {
+      return 'Please enter your email';
+    }
+    
+    // Basic email format check
+    final emailRegex = RegExp(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$');
+    if (!emailRegex.hasMatch(value)) {
+      return 'Please enter a valid email address';
+    }
+    
+    // Split email into local and domain parts
+    final parts = value.split('@');
+    if (parts.length != 2) {
+      return 'Please enter a valid email address';
+    }
+    
+    final localPart = parts[0];
+    final domain = parts[1];
+    
+    // Check local part
+    if (localPart.isEmpty) {
+      return 'Email must have text before @ symbol';
+    }
+    
+    // Check domain
+    if (domain.isEmpty || !domain.contains('.')) {
+      return 'Email must have a valid domain (e.g., @gmail.com)';
+    }
+    
+    final domainParts = domain.split('.');
+    if (domainParts.length < 2) {
+      return 'Email must have a valid domain (e.g., @gmail.com)';
+    }
+    
+    final domainExtension = domainParts.last;
+    if (domainExtension.length < 2) {
+      return 'Email domain extension must be at least 2 characters';
+    }
+    
+    return null;
+  }
+
+  // Validate password with all requirements (only for form submission)
+  String? _validatePasswordField(String? value) {
+    if (value == null || value.isEmpty) {
+      return 'Please enter a password';
+    }
+    // For form submission, check all requirements
+    if (value.length < 8) {
+      return 'Password must be at least 8 characters';
+    }
+    if (!value.contains(RegExp(r'[A-Z]'))) {
+      return 'Password must contain at least one uppercase letter';
+    }
+    if (!value.contains(RegExp(r'[a-z]'))) {
+      return 'Password must contain at least one lowercase letter';
+    }
+    if (!value.contains(RegExp(r'[0-9]'))) {
+      return 'Password must contain at least one digit';
+    }
+    if (!value.contains(RegExp(r'[!@#$%^&*(),.?":{}|<>]'))) {
+      return 'Password must contain at least one special character';
+    }
+    return null;
   }
 
   Future<void> _handleRegister() async {
@@ -141,28 +423,82 @@ class _RegisterScreenState extends State<RegisterScreen> {
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 if (!_otpSent) ...[
+                  // Name Field
+                  TextFormField(
+                    controller: _nameController,
+                    keyboardType: TextInputType.name,
+                    textCapitalization: TextCapitalization.words,
+                    onChanged: _validateNameRealTime,
+                    decoration: InputDecoration(
+                      labelText: 'Full Name',
+                      prefixIcon: const Icon(Icons.person),
+                      border: const OutlineInputBorder(),
+                      hintText: 'Enter your full name',
+                      errorText: null, // Disable default validator error
+                    ),
+                    validator: (value) {
+                      // Only validate on form submit, not real-time
+                      return null;
+                    },
+                  ),
+                  // Real-time error message below name field
+                  if (_nameError != null) ...[
+                    const SizedBox(height: 4),
+                    Padding(
+                      padding: const EdgeInsets.only(left: 16),
+                      child: Text(
+                        _nameError!,
+                        style: const TextStyle(
+                          color: Colors.red,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ),
+                  ],
+                  const SizedBox(height: 16),
+                  
+                  // Email Field
                   TextFormField(
                     controller: _emailController,
                     keyboardType: TextInputType.emailAddress,
+                    onChanged: _validateEmailRealTime,
                     decoration: const InputDecoration(
                       labelText: 'Email',
                       prefixIcon: Icon(Icons.email),
                       border: OutlineInputBorder(),
+                      hintText: 'example@gmail.com',
+                      errorText: null, // Disable default validator error
                     ),
                     validator: (value) {
-                      if (value == null || value.isEmpty) {
-                        return 'Please enter your email';
-                      }
-                      if (!value.contains('@')) {
-                        return 'Please enter a valid email';
-                      }
+                      // Only validate on form submit, not real-time
                       return null;
                     },
                   ),
+                  // Real-time error message below email field
+                  if (_emailError != null) ...[
+                    const SizedBox(height: 4),
+                    Padding(
+                      padding: const EdgeInsets.only(left: 16),
+                      child: Text(
+                        _emailError!,
+                        style: const TextStyle(
+                          color: Colors.red,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ),
+                  ],
                   const SizedBox(height: 16),
+                  
+                  // Password Field with Real-time Validation
                   TextFormField(
                     controller: _passwordController,
                     obscureText: _obscurePassword,
+                    onChanged: (value) {
+                      _validatePassword(); // Update validation in real-time
+                    },
                     decoration: InputDecoration(
                       labelText: 'Password',
                       prefixIcon: const Icon(Icons.lock),
@@ -179,21 +515,67 @@ class _RegisterScreenState extends State<RegisterScreen> {
                         },
                       ),
                       border: const OutlineInputBorder(),
+                      hintText: 'At least 8 characters',
+                      errorText: null, // Disable default validator error
                     ),
                     validator: (value) {
-                      if (value == null || value.isEmpty) {
-                        return 'Please enter a password';
-                      }
-                      if (value.length < 6) {
-                        return 'Password must be at least 6 characters';
-                      }
+                      // Only validate on form submit, not real-time
                       return null;
                     },
                   ),
+                  // Real-time error message below password field
+                  if (_passwordError != null) ...[
+                    const SizedBox(height: 4),
+                    Padding(
+                      padding: const EdgeInsets.only(left: 16),
+                      child: Text(
+                        _passwordError!,
+                        style: const TextStyle(
+                          color: Colors.red,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ),
+                  ],
+                  // Password Requirements Display - Always show when typing
+                  if (_passwordController.text.isNotEmpty) ...[
+                    const SizedBox(height: 8),
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.grey[100],
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: Colors.grey[300]!),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'Password Requirements:',
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.black87,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          _buildRequirementRow('At least 8 characters', _hasMinLength),
+                          _buildRequirementRow('One uppercase letter (A-Z)', _hasUppercase),
+                          _buildRequirementRow('One lowercase letter (a-z)', _hasLowercase),
+                          _buildRequirementRow('One digit (0-9)', _hasDigit),
+                          _buildRequirementRow('One special character (!@#\$%...)', _hasSpecialChar),
+                        ],
+                      ),
+                    ),
+                  ],
                   const SizedBox(height: 16),
                   TextFormField(
                     controller: _confirmPasswordController,
                     obscureText: _obscureConfirmPassword,
+                    onChanged: (value) {
+                      _validateConfirmPasswordRealTime(value);
+                    },
                     decoration: InputDecoration(
                       labelText: 'Confirm Password',
                       prefixIcon: const Icon(Icons.lock_outline),
@@ -210,17 +592,29 @@ class _RegisterScreenState extends State<RegisterScreen> {
                         },
                       ),
                       border: const OutlineInputBorder(),
+                      hintText: 'Re-enter your password',
+                      errorText: null, // Disable default validator error
                     ),
                     validator: (value) {
-                      if (value == null || value.isEmpty) {
-                        return 'Please confirm your password';
-                      }
-                      if (value != _passwordController.text) {
-                        return 'Passwords do not match';
-                      }
+                      // Only validate on form submit, not real-time
                       return null;
                     },
                   ),
+                  // Real-time error message below confirm password field
+                  if (_confirmPasswordError != null) ...[
+                    const SizedBox(height: 4),
+                    Padding(
+                      padding: const EdgeInsets.only(left: 16),
+                      child: Text(
+                        _confirmPasswordError!,
+                        style: const TextStyle(
+                          color: Colors.red,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ),
+                  ],
                   const SizedBox(height: 24),
                   ElevatedButton(
                     onPressed: _isLoading ? null : _handleRegister,
@@ -320,6 +714,33 @@ class _RegisterScreenState extends State<RegisterScreen> {
             ),
           ),
         ),
+      ),
+    );
+  }
+
+  // Helper widget to build requirement row with checkmark
+  Widget _buildRequirementRow(String text, bool isValid) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 2),
+      child: Row(
+        children: [
+          Icon(
+            isValid ? Icons.check_circle : Icons.circle_outlined,
+            size: 16,
+            color: isValid ? Colors.green : Colors.grey,
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              text,
+              style: TextStyle(
+                fontSize: 12,
+                color: isValid ? Colors.green[700] : Colors.grey[600],
+                decoration: isValid ? null : TextDecoration.none,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

@@ -23,10 +23,8 @@ from app.core.database import (
 from app.services.scraper_service import scrape_from_excel_files
 from app.services.category_normalizer import normalize_category, get_category_display_name
 from app.models.admin import AdminLogin, AdminToken, AdminResponse
-# Don't import verify_password - it causes bcrypt import errors
-# from app.core.security import verify_password
+from app.core.security import verify_password
 from app.utils.auth import create_access_token
-import bcrypt
 import os
 import logging
 
@@ -51,40 +49,64 @@ async def admin_login(credentials: AdminLogin):
     - Email: admin@dupefinder.com
     - Password: admin123
     """
-    db = get_db()
-    admins_collection = db.admins
-    
-    # Find admin
-    admin = admins_collection.find_one({"email": credentials.email})
-    
-    if not admin:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid admin credentials"
+    try:
+        db = get_db()
+        if db is None:
+            logger.error("Database connection is None")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Database connection error"
+            )
+        
+        admins_collection = db.admins
+        
+        # Find admin
+        admin = admins_collection.find_one({"email": credentials.email})
+        
+        if not admin:
+            logger.warning(f"Admin not found: {credentials.email}")
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid admin credentials"
+            )
+        
+        # Verify password using verify_password from security
+        try:
+            password_valid = verify_password(credentials.password, admin["hashed_password"])
+        except Exception as e:
+            logger.error(f"Password verification error: {e}, type: {type(admin.get('hashed_password'))}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Error verifying password: {str(e)}"
+            )
+        
+        if not password_valid:
+            logger.warning(f"Invalid password for admin: {credentials.email}")
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid admin credentials"
+            )
+        
+        # Create access token
+        access_token = create_access_token(data={"sub": credentials.email, "role": "admin"})
+        
+        # Prepare admin response
+        admin["_id"] = str(admin["_id"])
+        if "hashed_password" in admin:
+            del admin["hashed_password"]
+        
+        return AdminToken(
+            access_token=access_token,
+            admin=AdminResponse(**admin)
         )
-    
-    # Verify password using bcrypt directly
-    password_bytes = credentials.password.encode('utf-8')
-    hash_bytes = admin["hashed_password"].encode('utf-8')
-    password_valid = bcrypt.checkpw(password_bytes, hash_bytes)
-    
-    if not password_valid:
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Unexpected error in admin_login: {e}", exc_info=True)
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid admin credentials"
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Internal server error: {str(e)}"
         )
-    
-    # Create access token
-    access_token = create_access_token(data={"sub": credentials.email, "role": "admin"})
-    
-    # Prepare admin response
-    admin["_id"] = str(admin["_id"])
-    del admin["hashed_password"]
-    
-    return AdminToken(
-        access_token=access_token,
-        admin=AdminResponse(**admin)
-    )
 
 
 # ============================================
@@ -325,13 +347,30 @@ async def import_products_from_csv(
         contents = await file.read()
         df = pd.read_csv(io.StringIO(contents.decode('utf-8')))
         
-        # Validate required columns
+        # Normalize column names: lowercase and strip whitespace
+        df.columns = df.columns.str.strip().str.lower()
+        
+        # Remove completely empty rows
+        df = df.dropna(how='all')
+        
+        logger.info(f"Processing {len(df)} rows from CSV")
+        logger.info(f"CSV columns (normalized): {list(df.columns)}")
+        if len(df) > 0:
+            logger.info(f"First row sample: {df.iloc[0].to_dict()}")
+        
+        # Validate required columns (case-insensitive)
         required_cols = ['name', 'category', 'brand', 'price']
         missing_cols = [col for col in required_cols if col not in df.columns]
         if missing_cols:
             raise HTTPException(
                 status_code=400,
-                detail=f"Missing required columns: {', '.join(missing_cols)}"
+                detail=f"Missing required columns: {', '.join(missing_cols)}. Found columns: {', '.join(df.columns)}"
+            )
+        
+        if len(df) == 0:
+            raise HTTPException(
+                status_code=400,
+                detail="CSV file is empty or contains no valid data rows"
             )
         
         # Process products
@@ -342,34 +381,133 @@ async def import_products_from_csv(
         
         for idx, row in df.iterrows():
             try:
+                # Clean and validate data - handle NaN values properly
+                name = None
+                category = None
+                brand = None
+                
+                # Extract name
+                if 'name' in row and pd.notna(row['name']):
+                    name = str(row['name']).strip()
+                elif 'product_name' in row and pd.notna(row.get('product_name')):
+                    name = str(row['product_name']).strip()
+                elif 'product' in row and pd.notna(row.get('product')):
+                    name = str(row['product']).strip()
+                
+                # Extract category
+                if 'category' in row and pd.notna(row['category']):
+                    category = str(row['category']).strip()
+                elif 'cat' in row and pd.notna(row.get('cat')):
+                    category = str(row['cat']).strip()
+                
+                # Extract brand
+                if 'brand' in row and pd.notna(row['brand']):
+                    brand = str(row['brand']).strip()
+                elif 'brand_name' in row and pd.notna(row.get('brand_name')):
+                    brand = str(row['brand_name']).strip()
+                
+                # Validate required fields with detailed error messages
+                if not name or name == 'None' or name == '' or name == 'nan':
+                    raise ValueError(f"Name is required and cannot be empty. Got: '{row.get('name', 'N/A')}'")
+                if not category or category == 'None' or category == '' or category == 'nan':
+                    raise ValueError(f"Category is required and cannot be empty. Got: '{row.get('category', 'N/A')}'")
+                if not brand or brand == 'None' or brand == '' or brand == 'nan':
+                    raise ValueError(f"Brand is required and cannot be empty. Got: '{row.get('brand', 'N/A')}'")
+                
+                # Handle price conversion with better error handling
+                price = 0.0
+                price_value = row.get('price', 0)
+                if pd.notna(price_value):
+                    try:
+                        # Remove currency symbols and commas
+                        price_str = str(price_value).replace('$', '').replace(',', '').strip()
+                        price = float(price_str)
+                        if price < 0:
+                            price = 0.0
+                    except (ValueError, TypeError) as e:
+                        logger.warning(f"Row {idx + 2}: Invalid price '{price_value}', using 0.0")
+                        price = 0.0
+                else:
+                    logger.warning(f"Row {idx + 2}: Price is missing, using 0.0")
+                
+                # Handle optional fields
+                image_url = ''
+                if 'image_url' in row and pd.notna(row.get('image_url')):
+                    image_url = str(row['image_url']).strip()
+                elif 'image' in row and pd.notna(row.get('image')):
+                    image_url = str(row['image']).strip()
+                elif 'image_path' in row and pd.notna(row.get('image_path')):
+                    image_url = str(row['image_path']).strip()
+                
+                description = ''
+                if 'description' in row and pd.notna(row.get('description')):
+                    description = str(row['description']).strip()
+                elif 'desc' in row and pd.notna(row.get('desc')):
+                    description = str(row['desc']).strip()
+                
+                # Generate product_id if not present (for uniqueness)
+                import hashlib
+                product_id_source = f"{name}_{brand}_{category}"
+                product_id = hashlib.md5(product_id_source.encode()).hexdigest()
+                
                 product_doc = {
-                    "name": str(row['name']),
-                    "category": str(row['category']),
-                    "brand": str(row['brand']),
-                    "price": float(row['price']),
-                    "image_path": str(row.get('image_url', '')),
-                    "description": str(row.get('description', '')),
+                    "product_id": product_id,
+                    "name": name,
+                    "category": category,
+                    "brand": brand,
+                    "price": price,
+                    "image_url": image_url,
+                    "image_path": image_url,  # Keep both for compatibility
+                    "description": description,
                     "embedding": [],  # Will be computed later
                     "created_at": datetime.utcnow(),
                     "created_by": "admin_csv_import",
-                    "broken_link": False
+                    "broken_link": False,
+                    "scraped_at": datetime.utcnow()
                 }
                 
-                products.insert_one(product_doc)
+                # Check if product already exists (by product_id or name+brand combination)
+                existing = products.find_one({
+                    "$or": [
+                        {"product_id": product_id},
+                        {"name": name, "brand": brand}
+                    ]
+                })
+                
+                if existing:
+                    # Update existing product
+                    products.update_one(
+                        {"_id": existing["_id"]},
+                        {"$set": product_doc}
+                    )
+                    logger.info(f"Row {idx + 2}: Updated existing product: {name}")
+                else:
+                    # Insert new product
+                    products.insert_one(product_doc)
+                    logger.info(f"Row {idx + 2}: Inserted new product: {name}")
+                
                 success_count += 1
                 
             except Exception as e:
                 error_count += 1
-                errors.append(f"Row {idx + 2}: {str(e)}")
+                error_msg = f"Row {idx + 2}: {str(e)}"
+                errors.append(error_msg)
+                logger.error(f"CSV import error - {error_msg}")
+                logger.error(f"Row {idx + 2} data: {row.to_dict()}")
+                # Log the actual values for debugging
+                logger.error(f"Row {idx + 2} raw values - name: '{row.get('name', 'N/A')}', category: '{row.get('category', 'N/A')}', brand: '{row.get('brand', 'N/A')}', price: '{row.get('price', 'N/A')}'")
         
-        return {
+        result = {
             "success": True,
             "message": f"Import completed",
             "total_rows": len(df),
             "imported": success_count,
             "failed": error_count,
-            "errors": errors[:10]  # Return first 10 errors
+            "errors": errors[:20]  # Return first 20 errors for better debugging
         }
+        
+        logger.info(f"CSV import result: {result}")
+        return result
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to process CSV: {str(e)}")
@@ -977,21 +1115,53 @@ async def run_scraping_job(job_id: str, brand_list: List[dict]):
                 
                 for product in products:
                     try:
-                        # Check if product already exists
+                        # Check if product already exists by URL
                         existing = products_collection.find_one({"product_url": product.get("product_url")})
                         if not existing:
+                            # Check if product_id already exists (handle hash collisions)
+                            product_id = product.get("product_id")
+                            if product_id:
+                                id_exists = products_collection.find_one({"product_id": product_id})
+                                if id_exists:
+                                    # Generate new product_id by appending timestamp hash
+                                    import hashlib
+                                    url_hash = hashlib.md5(
+                                        f"{product.get('product_url')}{datetime.utcnow().isoformat()}".encode('utf-8')
+                                    ).hexdigest()
+                                    product['product_id'] = int(url_hash[:8], 16)
+                            
                             products_collection.insert_one(product)
                             stored += 1
                         else:
-                            # Update existing
+                            # Update existing product (preserve existing product_id)
+                            update_data = product.copy()
+                            if 'product_id' in update_data:
+                                # Keep existing product_id if it exists
+                                del update_data['product_id']
                             products_collection.update_one(
                                 {"product_url": product.get("product_url")},
-                                {"$set": product}
+                                {"$set": update_data}
                             )
                             updated += 1
                     except Exception as e:
-                        logger.error(f"Error storing product: {e}")
-                        scraping_jobs[job_id]["logs"].append(f"Error storing product: {str(e)}")
+                        error_msg = str(e)
+                        # If it's a duplicate key error, try with a new product_id
+                        if "E11000" in error_msg or "duplicate key" in error_msg.lower():
+                            try:
+                                import hashlib
+                                url_hash = hashlib.md5(
+                                    f"{product.get('product_url')}{datetime.utcnow().isoformat()}".encode('utf-8')
+                                ).hexdigest()
+                                product['product_id'] = int(url_hash[:8], 16)
+                                products_collection.insert_one(product)
+                                stored += 1
+                                logger.info(f"Retried insert with new product_id for {product.get('product_url')}")
+                            except Exception as retry_error:
+                                logger.error(f"Error storing product (retry failed): {retry_error}")
+                                scraping_jobs[job_id]["logs"].append(f"Error storing product: {str(retry_error)}")
+                        else:
+                            logger.error(f"Error storing product: {e}")
+                            scraping_jobs[job_id]["logs"].append(f"Error storing product: {error_msg}")
                 
                 total_products += stored
                 scraping_jobs[job_id]["products_added"] = total_products

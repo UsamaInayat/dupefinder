@@ -1,11 +1,6 @@
 import { useState, useEffect } from 'react'
-import App from './App'
-import Login from './pages/Login'
-import Signup from './pages/Signup'
-import Dashboard from './pages/Dashboard'
 import AdminDashboard from './pages/AdminDashboard'
 import AdminLogin from './pages/AdminLogin'
-import { AuthProvider, useAuth } from './context/AuthContext'
 
 function MainApp() {
   // Check for admin token on mount to maintain state on refresh
@@ -15,65 +10,22 @@ function MainApp() {
     if (adminToken && adminData) {
       return 'adminDashboard'
     }
-    return 'login'
+    return 'adminLogin'
   })
-  const { user, loading, logout } = useAuth()
 
   useEffect(() => {
-    // Check for admin token first (priority)
+    // Check for admin token
     const adminToken = localStorage.getItem('adminToken')
     const adminData = localStorage.getItem('adminData')
     
     if (adminToken && adminData) {
       setView('adminDashboard')
-    } else if (user && user.is_verified) {
-      setView('adminDashboard')
-    } else if (!user && !adminToken) {
-      setView('login')
+    } else {
+      setView('adminLogin')
     }
-  }, [user])
+  }, [])
 
-  const handleLogout = () => {
-    logout()
-    setView('login')
-  }
-
-  // Views
-  if (loading) {
-    return (
-      <div style={{ 
-        display: 'flex', 
-        justifyContent: 'center', 
-        alignItems: 'center', 
-        height: '100vh',
-        background: '#fff',
-        color: '#000',
-        fontSize: '1.5rem'
-      }}>
-        Loading...
-      </div>
-    )
-  }
-
-  if (view === 'login') {
-    return (
-      <Login
-        onSwitchToSignup={() => setView('signup')}
-        onLoginSuccess={() => setView('adminDashboard')}
-        onSwitchToAdmin={() => setView('adminLogin')}
-      />
-    )
-  }
-
-  if (view === 'signup') {
-    return (
-      <Signup
-        onSwitchToLogin={() => setView('login')}
-        onSignupSuccess={() => setView('login')}
-      />
-    )
-  }
-
+  // Admin Login View
   if (view === 'adminLogin') {
     return (
       <AdminLogin
@@ -88,38 +40,34 @@ function MainApp() {
     )
   }
 
-  // Check if admin is logged in
-  const adminToken = localStorage.getItem('adminToken')
-  const adminData = adminToken ? JSON.parse(localStorage.getItem('adminData') || '{}') : null
-  
-  if (adminToken && adminData && view === 'adminDashboard') {
-    return <AdminDashboard onLogout={() => {
-      localStorage.removeItem('adminToken')
-      localStorage.removeItem('adminData')
-      setView('login')
-    }} />
+  // Admin Dashboard View
+  if (view === 'adminDashboard') {
+    const adminToken = localStorage.getItem('adminToken')
+    const adminData = adminToken ? JSON.parse(localStorage.getItem('adminData') || '{}') : null
+    
+    if (adminToken && adminData) {
+      return <AdminDashboard onLogout={() => {
+        localStorage.removeItem('adminToken')
+        localStorage.removeItem('adminData')
+        setView('adminLogin')
+      }} />
+    }
   }
 
-  if (view === 'adminDashboard' && user && user.is_verified) {
-    return <AdminDashboard onLogout={handleLogout} />
-  }
-
-  // Fallback to login
+  // Fallback to admin login
   return (
-    <Login
-      onSwitchToSignup={() => setView('signup')}
-      onLoginSuccess={() => setView('adminDashboard')}
-      onSwitchToAdmin={() => setView('adminLogin')}
+    <AdminLogin
+      onLoginSuccess={(admin, token) => {
+        localStorage.setItem('adminToken', token)
+        localStorage.setItem('adminData', JSON.stringify(admin))
+        setView('adminDashboard')
+      }}
     />
   )
 }
 
 function AppWithAuth() {
-  return (
-    <AuthProvider>
-      <MainApp />
-    </AuthProvider>
-  )
+  return <MainApp />
 }
 
 export default AppWithAuth

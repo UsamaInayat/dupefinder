@@ -77,12 +77,6 @@ function AdminLogin({ onLoginSuccess }) {
             {loading ? 'Logging in...' : 'Login'}
           </button>
         </form>
-
-        <div className="auth-footer">
-          <p style={{fontSize: '0.85rem', color: '#666'}}>
-            Default: admin@dupefinder.com / admin123
-          </p>
-        </div>
       </div>
     </div>
   )

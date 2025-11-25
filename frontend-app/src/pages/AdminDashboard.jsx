@@ -73,7 +73,7 @@ function AdminDashboard({ onLogout }) {
           </div>
         </div>
 
-        <div className="admin-content">
+        <div className="admin-content" key={activeModule}>
           {renderModule()}
         </div>
       </div>
