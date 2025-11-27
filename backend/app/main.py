@@ -81,7 +81,7 @@ def is_localhost_origin(origin: str) -> bool:
     pattern = r'^https?://(localhost|127\.0\.0\.1)(:\d+)?$'
     return bool(re.match(pattern, origin))
 
-# CORS - Allow all localhost origins for development
+# CORS - Allow all localhost origins for development (including Flutter web dynamic ports)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -92,6 +92,7 @@ app.add_middleware(
         "http://localhost:8000",
         "http://127.0.0.1:8000",
     ],
+    allow_origin_regex=r"https?://(localhost|127\.0\.0\.1)(:\d+)?$",  # Allow any localhost port (for Flutter web)
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
     allow_headers=["*"],
@@ -120,18 +121,10 @@ app.mount("/data", StaticFiles(directory=str(data_dir)), name="data")
 
 @app.options("/{full_path:path}")
 async def options_handler(request: Request, full_path: str):
-    """Handle CORS preflight requests for all localhost origins"""
+    """Handle CORS preflight requests for all localhost origins (including Flutter web)"""
     origin = request.headers.get("origin", "")
-    # Allow any localhost or 127.0.0.1 origin
-    allowed_origins = [
-        "http://localhost:3000",
-        "http://localhost:5173",
-        "http://127.0.0.1:3000",
-        "http://127.0.0.1:5173",
-        "http://localhost:8000",
-        "http://127.0.0.1:8000",
-    ]
-    if origin in allowed_origins or is_localhost_origin(origin):
+    # Allow any localhost or 127.0.0.1 origin (including dynamic ports like Flutter web)
+    if is_localhost_origin(origin):
         return Response(
             status_code=200,
             headers={

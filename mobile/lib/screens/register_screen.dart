@@ -126,7 +126,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
       }
       
       final localPart = parts[0];
-      final domain = parts[1];
+      final domain = parts[1].toLowerCase();
       
       // Check local part (before @)
       if (localPart.isEmpty) {
@@ -179,29 +179,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
         return;
       }
       
-      // Check for valid domain extension (common TLDs)
-      final validExtensions = ['com', 'org', 'net', 'edu', 'gov', 'co', 'io', 'in', 'pk', 'uk', 'ca', 'au', 'de', 'fr', 'jp', 'cn'];
-      if (!validExtensions.contains(domainExtension.toLowerCase())) {
-        // Still allow if it's 2+ characters, just warn
-        if (domainExtension.length < 2) {
-          _emailError = 'Email domain extension must be at least 2 characters';
-          return;
-        }
-      }
-      
-      // Check for common email providers (gmail.com, yahoo.com, etc.)
-      final commonDomains = ['gmail.com', 'yahoo.com', 'hotmail.com', 'outlook.com', 'icloud.com', 'aol.com', 'mail.com', 'protonmail.com'];
-      final domainLower = domain.toLowerCase();
-      
-      if (commonDomains.contains(domainLower)) {
-        // Valid common domain
-        _emailError = null;
-        return;
-      }
-      
-      // For other domains, check if it looks valid
-      if (domainName.length < 1) {
-        _emailError = 'Email domain name is too short';
+      // STRICT CHECK: Must be @gmail.com exactly
+      if (domain != 'gmail.com') {
+        _emailError = 'Only @gmail.com email addresses are allowed';
         return;
       }
       
@@ -263,7 +243,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
     }
     
     final localPart = parts[0];
-    final domain = parts[1];
+    final domain = parts[1].toLowerCase();
     
     // Check local part
     if (localPart.isEmpty) {
@@ -283,6 +263,11 @@ class _RegisterScreenState extends State<RegisterScreen> {
     final domainExtension = domainParts.last;
     if (domainExtension.length < 2) {
       return 'Email domain extension must be at least 2 characters';
+    }
+    
+    // STRICT CHECK: Must be @gmail.com exactly
+    if (domain != 'gmail.com') {
+      return 'Only @gmail.com email addresses are allowed';
     }
     
     return null;
@@ -313,7 +298,36 @@ class _RegisterScreenState extends State<RegisterScreen> {
   }
 
   Future<void> _handleRegister() async {
+    // First validate form fields
     if (!_formKey.currentState!.validate()) {
+      return;
+    }
+    
+    // Also check for real-time validation errors
+    if (_nameError != null || _emailError != null || _passwordError != null || _confirmPasswordError != null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please fix all errors before submitting'),
+          backgroundColor: Colors.red,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
+    
+    // Double-check email is @gmail.com
+    final email = _emailController.text.trim().toLowerCase();
+    if (!email.endsWith('@gmail.com')) {
+      setState(() {
+        _emailError = 'Only @gmail.com email addresses are allowed';
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Only @gmail.com email addresses are allowed'),
+          backgroundColor: Colors.red,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
       return;
     }
 
@@ -436,10 +450,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       hintText: 'Enter your full name',
                       errorText: null, // Disable default validator error
                     ),
-                    validator: (value) {
-                      // Only validate on form submit, not real-time
-                      return null;
-                    },
+                    validator: _validateName,
                   ),
                   // Real-time error message below name field
                   if (_nameError != null) ...[
@@ -470,10 +481,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       hintText: 'example@gmail.com',
                       errorText: null, // Disable default validator error
                     ),
-                    validator: (value) {
-                      // Only validate on form submit, not real-time
-                      return null;
-                    },
+                    validator: _validateEmail,
                   ),
                   // Real-time error message below email field
                   if (_emailError != null) ...[
@@ -518,10 +526,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       hintText: 'At least 8 characters',
                       errorText: null, // Disable default validator error
                     ),
-                    validator: (value) {
-                      // Only validate on form submit, not real-time
-                      return null;
-                    },
+                    validator: _validatePasswordField,
                   ),
                   // Real-time error message below password field
                   if (_passwordError != null) ...[
@@ -596,7 +601,12 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       errorText: null, // Disable default validator error
                     ),
                     validator: (value) {
-                      // Only validate on form submit, not real-time
+                      if (value == null || value.isEmpty) {
+                        return 'Please confirm your password';
+                      }
+                      if (value != _passwordController.text) {
+                        return 'Passwords do not match';
+                      }
                       return null;
                     },
                   ),
