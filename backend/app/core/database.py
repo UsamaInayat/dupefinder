@@ -106,6 +106,7 @@ SEARCH_HISTORY_COLLECTION = "search_history"
 USERS_COLLECTION = "users"
 OTPS_COLLECTION = "otps"
 REFRESH_TOKENS_COLLECTION = "refresh_tokens"
+SCRAPING_HISTORY_COLLECTION = "scraping_history"
 
 
 class DatabaseManager:
@@ -202,6 +203,10 @@ class DatabaseManager:
     def get_refresh_tokens_collection(self) -> Collection:
         """Get the refresh tokens collection"""
         return self.get_collection(REFRESH_TOKENS_COLLECTION)
+    
+    def get_scraping_history_collection(self) -> Collection:
+        """Get the scraping history collection"""
+        return self.get_collection(SCRAPING_HISTORY_COLLECTION)
     
     def setup_auth_indexes(self):
         """
@@ -343,3 +348,13 @@ def get_refresh_tokens_collection() -> Collection:
         Refresh tokens collection
     """
     return db_manager.get_refresh_tokens_collection()
+
+
+def get_scraping_history_collection() -> Collection:
+    """
+    Get scraping history collection (sync)
+    
+    Returns:
+        Scraping history collection
+    """
+    return db_manager.get_scraping_history_collection()

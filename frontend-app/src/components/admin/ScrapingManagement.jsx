@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import axios from 'axios'
 
 function ScrapingManagement() {
@@ -8,38 +8,38 @@ function ScrapingManagement() {
   const [currentJob, setCurrentJob] = useState(null)
   const [jobStatus, setJobStatus] = useState(null)
   const [history, setHistory] = useState([])
-  const [brandType, setBrandType] = useState('local') // 'local', 'pakistani', or 'luxury'
+  const [historyPage, setHistoryPage] = useState(1)
+  const [historyTotalPages, setHistoryTotalPages] = useState(1)
+  const [historyTotal, setHistoryTotal] = useState(0)
+  const [deletingHistoryId, setDeletingHistoryId] = useState(null)
+  const [brandType, setBrandType] = useState('local') // Only 'local' is supported
+  const [loadingBrands, setLoadingBrands] = useState(false)
+  const [loadingHistory, setLoadingHistory] = useState(false)
+  
+  // Prevent multiple clicks
+  const isProcessingRef = useRef(false)
+  const lastClickTimeRef = useRef(0)
 
-  useEffect(() => {
-    fetchBrands()
-    fetchHistory()
-  }, [brandType])
-
-  useEffect(() => {
-    if (currentJob && scraping) {
-      const interval = setInterval(() => {
-        checkScrapingStatus()
-      }, 2000)
-      return () => clearInterval(interval)
-    }
-  }, [currentJob, scraping])
-
+  // Define functions first (before useEffects that use them)
   const fetchBrands = async () => {
+    setLoadingBrands(true)
     try {
       const token = localStorage.getItem('adminToken') || localStorage.getItem('token')
       
       if (!token) {
         alert('No admin token found. Please log out and log back in as admin.')
+        setLoadingBrands(false)
         return
       }
       
-      console.log('Fetching brands with token:', token.substring(0, 20) + '...')
-      
       const response = await axios.get(
         `http://localhost:8000/api/admin/scraping/brands?brand_type=${brandType}`,
-        { headers: { Authorization: `Bearer ${token}` } }
+        { 
+          headers: { Authorization: `Bearer ${token}` }
+          // Removed timeout to allow backend to take as long as needed
+        }
       )
-      setBrands(response.data.brands)
+      setBrands(response.data.brands || [])
     } catch (error) {
       console.error('Failed to fetch brands:', error)
       const errorMsg = error.response?.data?.detail || error.message
@@ -49,32 +49,93 @@ function ScrapingManagement() {
         // Clear invalid token
         localStorage.removeItem('adminToken')
         localStorage.removeItem('adminData')
+      } else if (error.code === 'ECONNABORTED') {
+        // Timeout error - don't show alert, just log
+        console.error('Request timeout - backend is taking too long')
       } else {
-        alert('Failed to load brands: ' + errorMsg)
+        // Only show alert for non-timeout errors
+        if (!error.code || error.code !== 'ECONNABORTED') {
+          alert('Failed to load brands: ' + errorMsg)
+        }
       }
+    } finally {
+      setLoadingBrands(false)
     }
   }
 
-  const fetchHistory = async () => {
+  const fetchHistory = useCallback(async () => {
+    setLoadingHistory(true)
     try {
       const token = localStorage.getItem('adminToken') || localStorage.getItem('token')
       
       if (!token) {
+        setLoadingHistory(false)
         return // Don't show error for history, just skip
       }
       
       const response = await axios.get(
-        'http://localhost:8000/api/admin/scraping/history?limit=5',
-        { headers: { Authorization: `Bearer ${token}` } }
+        `http://localhost:8000/api/admin/scraping/history?page=${historyPage}&page_size=10`,
+        { 
+          headers: { Authorization: `Bearer ${token}` }
+          // Removed timeout to allow backend to take as long as needed
+        }
       )
-      setHistory(response.data.jobs)
+      setHistory(response.data.jobs || [])
+      setHistoryTotalPages(response.data.total_pages || 1)
+      setHistoryTotal(response.data.total || 0)
     } catch (error) {
       console.error('Failed to fetch history:', error)
       // Don't show alert for history errors
+    } finally {
+      setLoadingHistory(false)
     }
-  }
+  }, [historyPage])
+  
+  const handleDeleteHistory = useCallback(async (jobId) => {
+    if (isProcessingRef.current) {
+      return
+    }
+    
+    if (!confirm('Are you sure you want to delete this scraping history? This action cannot be undone.')) {
+      return
+    }
+    
+    isProcessingRef.current = true
+    setDeletingHistoryId(jobId)
+    
+    try {
+      const token = localStorage.getItem('adminToken') || localStorage.getItem('token')
+      
+      await axios.delete(
+        `http://localhost:8000/api/admin/scraping/history/${jobId}`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      )
+      
+      // Refresh history
+      fetchHistory()
+    } catch (error) {
+      console.error('Failed to delete history:', error)
+      alert('Failed to delete history: ' + (error.response?.data?.detail || error.message))
+    } finally {
+      setDeletingHistoryId(null)
+      setTimeout(() => {
+        isProcessingRef.current = false
+      }, 300)
+    }
+  }, [fetchHistory])
 
-  const toggleBrandSelection = (brand) => {
+  const toggleBrandSelection = useCallback((brand) => {
+    // Prevent rapid clicks
+    const now = Date.now()
+    if (now - lastClickTimeRef.current < 200) {
+      return
+    }
+    lastClickTimeRef.current = now
+    
+    if (scraping || isProcessingRef.current) {
+      return
+    }
+    
     setSelectedBrands(prev => {
       const exists = prev.some(b => b.brand_name === brand.brand_name && b.brand_url === brand.brand_url)
       if (exists) {
@@ -83,14 +144,21 @@ function ScrapingManagement() {
         return [...prev, brand]
       }
     })
-  }
+  }, [scraping])
 
-  const startScraping = async () => {
+  const startScraping = useCallback(async () => {
+    // Prevent multiple clicks
+    if (isProcessingRef.current || scraping) {
+      return
+    }
+    
     if (selectedBrands.length === 0) {
       alert('Please select at least one brand')
       return
     }
 
+    isProcessingRef.current = true
+    
     try {
       const token = localStorage.getItem('adminToken') || localStorage.getItem('token')
       const response = await axios.post(
@@ -102,22 +170,29 @@ function ScrapingManagement() {
       setCurrentJob(response.data.job_id)
       setScraping(true)
       setJobStatus(null)
+      fetchHistory() // Refresh history only when starting new job
     } catch (error) {
       console.error('Failed to start scraping:', error)
       alert('Failed to start scraping: ' + (error.response?.data?.detail || error.message))
+      isProcessingRef.current = false
+    } finally {
+      // Reset after a short delay
+      setTimeout(() => {
+        isProcessingRef.current = false
+      }, 500)
     }
-  }
+  }, [selectedBrands, scraping, fetchHistory])
 
-  const checkScrapingStatus = async () => {
-    if (!currentJob) return
+  const checkScrapingStatus = useCallback(async () => {
+    if (!currentJob || isProcessingRef.current) return
     
     try {
       const token = localStorage.getItem('adminToken') || localStorage.getItem('token')
       const response = await axios.get(
         `http://localhost:8000/api/admin/scraping/status/${currentJob}`,
         { 
-          headers: { Authorization: `Bearer ${token}` },
-          timeout: 5000  // 5 second timeout
+          headers: { Authorization: `Bearer ${token}` }
+          // Removed timeout for status checks
         }
       )
 
@@ -127,13 +202,16 @@ function ScrapingManagement() {
         setScraping(false)
         alert(`Scraping completed! ${response.data.products_added} products added`)
         fetchBrands()
-        fetchHistory()
+        fetchHistory() // Refresh history only when job completes
         setSelectedBrands([])
         setCurrentJob(null)
+        isProcessingRef.current = false
       } else if (response.data.status === 'failed') {
         setScraping(false)
         alert('Scraping failed: ' + (response.data.error || 'Unknown error'))
+        fetchHistory() // Refresh history only when job fails
         setCurrentJob(null)
+        isProcessingRef.current = false
       }
     } catch (error) {
       // Don't spam console with network errors
@@ -144,9 +222,31 @@ function ScrapingManagement() {
       if (error.response?.status === 404) {
         setScraping(false)
         setCurrentJob(null)
+        isProcessingRef.current = false
       }
     }
-  }
+  }, [currentJob, fetchHistory])
+
+  // useEffects after function definitions
+  useEffect(() => {
+    fetchBrands()
+  }, [brandType])
+  
+  useEffect(() => {
+    fetchHistory()
+  }, [historyPage, fetchHistory])
+  
+  useEffect(() => {
+    if (currentJob && scraping) {
+      const interval = setInterval(() => {
+        checkScrapingStatus()
+      }, 3000) // Increased to 3 seconds to reduce load
+      return () => clearInterval(interval)
+    }
+  }, [currentJob, scraping, checkScrapingStatus])
+  
+  // Refresh history only when page changes or after scraping completes
+  // Removed periodic refresh to improve performance
 
   return (
     <div className="scraping-management">
@@ -164,30 +264,10 @@ function ScrapingManagement() {
               type="radio"
               value="local"
               checked={brandType === 'local'}
-              onChange={(e) => setBrandType(e.target.value)}
+              onChange={() => {}}
               disabled={scraping}
             />
             Local Affordable Brands
-          </label>
-          <label style={{ marginRight: '15px' }}>
-            <input
-              type="radio"
-              value="pakistani"
-              checked={brandType === 'pakistani'}
-              onChange={(e) => setBrandType(e.target.value)}
-              disabled={scraping}
-            />
-            Pakistani Designer Brands
-          </label>
-          <label>
-            <input
-              type="radio"
-              value="luxury"
-              checked={brandType === 'luxury'}
-              onChange={(e) => setBrandType(e.target.value)}
-              disabled={scraping}
-            />
-            Luxury/International Brands
           </label>
         </div>
       </div>
@@ -195,7 +275,11 @@ function ScrapingManagement() {
       {/* Brand Selection */}
       <div className="section-card">
         <h3>Select Brands to Rescrape ({brandType})</h3>
-        {brands.length === 0 ? (
+        {loadingBrands ? (
+          <p style={{ color: '#666', padding: '20px', textAlign: 'center' }}>
+            Loading brands... Please wait.
+          </p>
+        ) : brands.length === 0 ? (
           <p style={{ color: '#999', padding: '20px' }}>
             No brands found for this type. Make sure Excel files are in the project root.
           </p>
@@ -210,7 +294,14 @@ function ScrapingManagement() {
               <div
                 key={`${brand.brand_name}-${brand.brand_url}-${idx}`}
                 className={`brand-card ${isSelected ? 'selected' : ''}`}
-                onClick={() => !scraping && toggleBrandSelection(brand)}
+                onClick={(e) => {
+                  e.preventDefault()
+                  e.stopPropagation()
+                  if (!scraping && !isProcessingRef.current) {
+                    toggleBrandSelection(brand)
+                  }
+                }}
+                style={{ cursor: scraping ? 'not-allowed' : 'pointer' }}
               >
                 <div className="brand-checkbox">
                   <input
@@ -238,11 +329,18 @@ function ScrapingManagement() {
             <div className="selection-actions">
           <p>{selectedBrands.length} brand(s) selected</p>
           <button
-            onClick={startScraping}
-            disabled={scraping || selectedBrands.length === 0}
+            onClick={(e) => {
+              e.preventDefault()
+              e.stopPropagation()
+              if (!isProcessingRef.current && !scraping && selectedBrands.length > 0) {
+                startScraping()
+              }
+            }}
+            disabled={scraping || selectedBrands.length === 0 || isProcessingRef.current}
             className="scrape-btn"
+            style={{ pointerEvents: scraping || selectedBrands.length === 0 || isProcessingRef.current ? 'none' : 'auto' }}
           >
-            {scraping ? 'Scraping in Progress...' : 'Start Scraping'}
+            {scraping ? 'Scraping in Progress...' : isProcessingRef.current ? 'Starting...' : 'Start Scraping'}
           </button>
         </div>
           </>
@@ -295,31 +393,131 @@ function ScrapingManagement() {
 
       {/* History */}
       <div className="section-card">
-        <h3>Scraping History</h3>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+          <h3>Scraping History ({historyTotal} total)</h3>
+        </div>
         
-        {history.length === 0 ? (
+        {loadingHistory ? (
+          <p style={{ color: '#666', textAlign: 'center', padding: '20px' }}>
+            Loading history... Please wait.
+          </p>
+        ) : history.length === 0 ? (
           <p>No scraping history yet.</p>
         ) : (
-          <div className="history-list">
-            {history.map((job, idx) => (
-              <div key={job.job_id || idx} className="history-item">
-                <div className="history-header">
-                  <span className="history-date">
-                    {new Date(job.started_at).toLocaleString()}
-                  </span>
-                  <span className={`history-status ${job.status}`}>
-                    {job.status}
-                  </span>
-                </div>
-                <div className="history-details">
-                  <span>Brands: {job.brands?.join(', ')}</span>
-                  {job.products_added !== undefined && (
-                    <span>Products Added: {job.products_added}</span>
-                  )}
-                </div>
+          <>
+            <div className="history-list">
+              {history.map((job, idx) => {
+                // Format brand names properly
+                const brandNames = job.brands?.map(b => 
+                  typeof b === 'object' ? (b.brand_name || b) : b
+                ).join(', ') || 'N/A'
+                
+                return (
+                  <div key={job.job_id || idx} className="history-item" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px', padding: '15px', border: '1px solid #e0e0e0', borderRadius: '4px' }}>
+                    <div style={{ flex: 1 }}>
+                      <div className="history-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                        <span className={`history-status ${job.status}`} style={{ 
+                          padding: '4px 12px', 
+                          borderRadius: '4px', 
+                          background: job.status === 'completed' ? '#000' : job.status === 'failed' ? '#ef4444' : '#666',
+                          color: '#fff',
+                          fontSize: '0.85rem',
+                          fontWeight: '600'
+                        }}>
+                          {job.status?.toUpperCase() || 'UNKNOWN'}
+                        </span>
+                      </div>
+                      <div className="history-details" style={{ display: 'flex', gap: '15px', fontSize: '0.9rem', color: '#666' }}>
+                        <span>Brands: {brandNames}</span>
+                        {job.products_added !== undefined && (
+                          <span>Products Added: {job.products_added}</span>
+                        )}
+                      </div>
+                    </div>
+                    <button
+                      onClick={(e) => {
+                        e.preventDefault()
+                        e.stopPropagation()
+                        if (!isProcessingRef.current && deletingHistoryId !== job.job_id) {
+                          handleDeleteHistory(job.job_id)
+                        }
+                      }}
+                      disabled={deletingHistoryId === job.job_id || isProcessingRef.current}
+                      style={{
+                        marginLeft: '15px',
+                        padding: '6px 12px',
+                        background: '#000',
+                        color: '#fff',
+                        border: '1px solid #fff',
+                        borderRadius: '4px',
+                        cursor: deletingHistoryId === job.job_id || isProcessingRef.current ? 'not-allowed' : 'pointer',
+                        opacity: deletingHistoryId === job.job_id || isProcessingRef.current ? 0.6 : 1,
+                        fontSize: '0.85rem',
+                        fontWeight: '500',
+                        transition: 'none',
+                        pointerEvents: deletingHistoryId === job.job_id || isProcessingRef.current ? 'none' : 'auto'
+                      }}
+                    >
+                      {deletingHistoryId === job.job_id ? 'Deleting...' : 'Delete'}
+                    </button>
+                  </div>
+                )
+              })}
+            </div>
+            
+            {/* Pagination */}
+            {historyTotalPages > 1 && (
+              <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '10px', marginTop: '20px' }}>
+                <button
+                  onClick={(e) => {
+                    e.preventDefault()
+                    e.stopPropagation()
+                    if (!isProcessingRef.current && historyPage > 1) {
+                      setHistoryPage(p => Math.max(1, p - 1))
+                    }
+                  }}
+                  disabled={historyPage === 1 || isProcessingRef.current}
+                  style={{
+                    padding: '8px 16px',
+                    background: historyPage === 1 || isProcessingRef.current ? '#ccc' : '#000',
+                    color: '#fff',
+                    border: 'none',
+                    borderRadius: '4px',
+                    cursor: historyPage === 1 || isProcessingRef.current ? 'not-allowed' : 'pointer',
+                    transition: 'none',
+                    pointerEvents: historyPage === 1 || isProcessingRef.current ? 'none' : 'auto'
+                  }}
+                >
+                  Previous
+                </button>
+                <span style={{ padding: '8px 16px' }}>
+                  Page {historyPage} of {historyTotalPages}
+                </span>
+                <button
+                  onClick={(e) => {
+                    e.preventDefault()
+                    e.stopPropagation()
+                    if (!isProcessingRef.current && historyPage < historyTotalPages) {
+                      setHistoryPage(p => Math.min(historyTotalPages, p + 1))
+                    }
+                  }}
+                  disabled={historyPage === historyTotalPages || isProcessingRef.current}
+                  style={{
+                    padding: '8px 16px',
+                    background: historyPage === historyTotalPages || isProcessingRef.current ? '#ccc' : '#000',
+                    color: '#fff',
+                    border: 'none',
+                    borderRadius: '4px',
+                    cursor: historyPage === historyTotalPages || isProcessingRef.current ? 'not-allowed' : 'pointer',
+                    transition: 'none',
+                    pointerEvents: historyPage === historyTotalPages || isProcessingRef.current ? 'none' : 'auto'
+                  }}
+                >
+                  Next
+                </button>
               </div>
-            ))}
-          </div>
+            )}
+          </>
         )}
       </div>
     </div>

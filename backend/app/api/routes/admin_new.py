@@ -18,6 +18,7 @@ from app.dependencies.auth import get_current_user
 from app.core.database import (
     get_users_collection,
     get_products_collection,
+    get_scraping_history_collection,
     get_db
 )
 from app.services.scraper_service import scrape_from_excel_files
@@ -652,6 +653,33 @@ async def repair_broken_link(
         }
 
 
+@router.delete("/products/{product_id}")
+async def delete_product(
+    product_id: str,
+    admin: dict = Depends(require_admin)
+):
+    """
+    Delete a product permanently
+    
+    Module 2: Product Catalogue - Delete products
+    """
+    products = get_products_collection()
+    
+    if not ObjectId.is_valid(product_id):
+        raise HTTPException(status_code=400, detail="Invalid product ID")
+    
+    result = products.delete_one({"_id": ObjectId(product_id)})
+    
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Product not found")
+    
+    return {
+        "success": True,
+        "message": "Product deleted successfully",
+        "product_id": product_id
+    }
+
+
 @router.get("/categories")
 async def get_all_categories(
     admin: dict = Depends(require_admin)
@@ -1042,18 +1070,26 @@ async def start_rescraping(
         raise HTTPException(status_code=400, detail="No brands selected")
     
     job_id = str(uuid.uuid4())
+    started_at = datetime.utcnow()
     
-    # Store job
-    scraping_jobs[job_id] = {
+    # Prepare job data
+    job_data = {
         "job_id": job_id,
         "status": "pending",
         "brands": brand_list,
         "brands_completed": 0,
         "brands_total": len(brand_list),
         "products_added": 0,
-        "started_at": datetime.utcnow(),
+        "started_at": started_at,
         "logs": []
     }
+    
+    # Store job in memory for real-time status
+    scraping_jobs[job_id] = job_data.copy()
+    
+    # Store job in MongoDB for persistence
+    scraping_history = get_scraping_history_collection()
+    scraping_history.insert_one(job_data)
     
     # Start scraping in background
     asyncio.create_task(run_scraping_job(job_id, brand_list))
@@ -1072,10 +1108,17 @@ async def run_scraping_job(job_id: str, brand_list: List[dict]):
     from app.services.scraper_service import ProductScraper
     
     scraper = None
+    scraping_history = get_scraping_history_collection()
     
     try:
         scraping_jobs[job_id]["status"] = "running"
         total_products = 0
+        
+        # Update status in MongoDB
+        scraping_history.update_one(
+            {"job_id": job_id},
+            {"$set": {"status": "running"}}
+        )
         
         scraper = ProductScraper()
         
@@ -1170,6 +1213,16 @@ async def run_scraping_job(job_id: str, brand_list: List[dict]):
                     f"Completed {brand_name}: {stored} new products, {updated} updated, {len(products)} total found"
                 )
                 
+                # Update progress in MongoDB
+                scraping_history.update_one(
+                    {"job_id": job_id},
+                    {"$set": {
+                        "products_added": total_products,
+                        "brands_completed": idx + 1,
+                        "logs": scraping_jobs[job_id]["logs"]
+                    }}
+                )
+                
                 # Small delay between brands
                 await asyncio.sleep(2)
             
@@ -1180,15 +1233,43 @@ async def run_scraping_job(job_id: str, brand_list: List[dict]):
                 # Continue with next brand instead of failing completely
         
         # Complete
+        completed_at = datetime.utcnow()
         scraping_jobs[job_id]["status"] = "completed"
-        scraping_jobs[job_id]["completed_at"] = datetime.utcnow()
+        scraping_jobs[job_id]["completed_at"] = completed_at
         scraping_jobs[job_id]["logs"].append(f"Scraping completed! Total: {total_products} products")
         
+        # Update in MongoDB
+        scraping_history = get_scraping_history_collection()
+        scraping_history.update_one(
+            {"job_id": job_id},
+            {"$set": {
+                "status": "completed",
+                "completed_at": completed_at,
+                "products_added": total_products,
+                "brands_completed": scraping_jobs[job_id]["brands_completed"],
+                "logs": scraping_jobs[job_id]["logs"]
+            }}
+        )
+        
     except Exception as e:
+        failed_at = datetime.utcnow()
         scraping_jobs[job_id]["status"] = "failed"
         scraping_jobs[job_id]["error"] = str(e)
+        scraping_jobs[job_id]["failed_at"] = failed_at
         scraping_jobs[job_id]["logs"].append(f"Scraping failed: {str(e)}")
         logger.error(f"Scraping job {job_id} failed: {e}", exc_info=True)
+        
+        # Update in MongoDB
+        scraping_history = get_scraping_history_collection()
+        scraping_history.update_one(
+            {"job_id": job_id},
+            {"$set": {
+                "status": "failed",
+                "failed_at": failed_at,
+                "error": str(e),
+                "logs": scraping_jobs[job_id]["logs"]
+            }}
+        )
     finally:
         if scraper:
             try:
@@ -1221,23 +1302,73 @@ async def get_scraping_status(
 
 @router.get("/scraping/history")
 async def get_scraping_history(
-    limit: int = Query(10, ge=1, le=50),
+    page: int = Query(1, ge=1, description="Page number"),
+    page_size: int = Query(10, ge=1, le=50, description="Items per page"),
     admin: dict = Depends(require_admin)
 ):
     """
-    Get scraping job history
+    Get scraping job history from MongoDB (persistent storage) with pagination
     
     Module 4: Auto Sync - View history
     """
-    # Get all jobs sorted by start time
-    jobs = sorted(
-        scraping_jobs.values(),
-        key=lambda x: x.get("started_at", datetime.min),
-        reverse=True
-    )
+    scraping_history = get_scraping_history_collection()
+    
+    # Calculate skip
+    skip = (page - 1) * page_size
+    
+    # Get total count
+    total = scraping_history.count_documents({})
+    
+    # Get paginated jobs from MongoDB sorted by start time (newest first)
+    cursor = scraping_history.find().sort("started_at", -1).skip(skip).limit(page_size)
+    jobs = []
+    
+    for doc in cursor:
+        # Convert ObjectId to string
+        doc["_id"] = str(doc["_id"])
+        
+        # Convert datetime fields to ISO format strings for JSON serialization
+        if "started_at" in doc and isinstance(doc["started_at"], datetime):
+            doc["started_at"] = doc["started_at"].isoformat()
+        if "completed_at" in doc and isinstance(doc["completed_at"], datetime):
+            doc["completed_at"] = doc["completed_at"].isoformat()
+        if "failed_at" in doc and isinstance(doc["failed_at"], datetime):
+            doc["failed_at"] = doc["failed_at"].isoformat()
+        
+        jobs.append(doc)
+    
+    # Calculate total pages
+    total_pages = (total + page_size - 1) // page_size if total > 0 else 1
     
     return {
-        "jobs": jobs[:limit],
-        "total": len(jobs)
+        "jobs": jobs,
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "total_pages": total_pages
+    }
+
+
+@router.delete("/scraping/history/{job_id}")
+async def delete_scraping_history(
+    job_id: str,
+    admin: dict = Depends(require_admin)
+):
+    """
+    Delete a scraping job from history
+    
+    Module 4: Auto Sync - Delete history entry
+    """
+    scraping_history = get_scraping_history_collection()
+    
+    result = scraping_history.delete_one({"job_id": job_id})
+    
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Scraping job not found")
+    
+    return {
+        "success": True,
+        "message": "Scraping history deleted successfully",
+        "job_id": job_id
     }
 

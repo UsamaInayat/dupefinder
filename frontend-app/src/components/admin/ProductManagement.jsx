@@ -15,6 +15,7 @@ function ProductManagement() {
   const [brokenLinks, setBrokenLinks] = useState([])
   const [showBrokenLinks, setShowBrokenLinks] = useState(false)
   const [repairingId, setRepairingId] = useState(null)
+  const [deletingId, setDeletingId] = useState(null)
   const [recentlyImported, setRecentlyImported] = useState([])
   const [showImportedData, setShowImportedData] = useState(false)
 
@@ -201,17 +202,86 @@ function ProductManagement() {
       )
 
       if (response.data.success) {
+        // Show success notification
+        showNotification('Link repaired successfully!', 'success')
         // Remove from broken links list
         setBrokenLinks(prev => prev.filter(p => p._id !== productId))
         // Refresh products
         fetchProducts()
+      } else {
+        // Show failure notification
+        showNotification('This link cannot be repaired', 'error')
       }
     } catch (error) {
       console.error('Failed to repair link:', error)
-      alert('Failed to repair link: ' + (error.response?.data?.detail || error.message))
+      showNotification('This link cannot be repaired', 'error')
     } finally {
       setRepairingId(null)
     }
+  }
+
+  const handleDeleteLink = async (productId) => {
+    if (!confirm('Are you sure you want to delete this product? This action cannot be undone.')) {
+      return
+    }
+
+    try {
+      const token = localStorage.getItem('adminToken') || localStorage.getItem('token')
+      setDeletingId(productId)
+      
+      await axios.delete(
+        `http://localhost:8000/api/admin/products/${productId}`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      )
+
+      // Remove from broken links list
+      setBrokenLinks(prev => prev.filter(p => p._id !== productId))
+      // Refresh products
+      fetchProducts()
+      showNotification('Product deleted successfully', 'success')
+    } catch (error) {
+      console.error('Failed to delete product:', error)
+      showNotification('Failed to delete product', 'error')
+    } finally {
+      setDeletingId(null)
+    }
+  }
+
+  const showNotification = (message, type) => {
+    // Create notification element
+    const notification = document.createElement('div')
+    notification.className = `notification notification-${type}`
+    notification.textContent = message
+    notification.style.cssText = `
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      padding: 15px 20px;
+      background: ${type === 'success' ? '#10b981' : '#ef4444'};
+      color: #fff;
+      border: 2px solid ${type === 'success' ? '#059669' : '#dc2626'};
+      border-radius: 6px;
+      z-index: 10000;
+      font-size: 14px;
+      font-weight: 600;
+      box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);
+      animation: none;
+      transform: translateX(0);
+      opacity: 1;
+    `
+    
+    document.body.appendChild(notification)
+    
+    // Remove after 3 seconds (no animation delay)
+    setTimeout(() => {
+      notification.style.opacity = '0'
+      notification.style.transition = 'opacity 0.2s'
+      setTimeout(() => {
+        if (document.body.contains(notification)) {
+          document.body.removeChild(notification)
+        }
+      }, 200)
+    }, 3000)
   }
 
   return (
@@ -280,7 +350,7 @@ function ProductManagement() {
                     <td><strong>{product.name || 'N/A'}</strong></td>
                     <td>{product.brand || 'N/A'}</td>
                     <td>{product.category || 'N/A'}</td>
-                    <td>${product.price ? parseFloat(product.price).toFixed(2) : '0.00'}</td>
+                    <td>PKR {product.price ? (parseFloat(product.price) * 280).toFixed(2) : '0.00'}</td>
                     <td style={{ maxWidth: '200px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       {product.image_url || product.image_path || 'N/A'}
                     </td>
@@ -332,13 +402,31 @@ function ProductManagement() {
                       <td>{product.brand || 'N/A'}</td>
                       <td>{product.category || 'N/A'}</td>
                       <td>
-                        <button
-                          onClick={() => handleRepairLink(product._id)}
-                          className="repair-btn"
-                          disabled={repairingId === product._id}
-                        >
-                          {repairingId === product._id ? 'Repairing...' : 'Repair'}
-                        </button>
+                        <div style={{ display: 'flex', gap: '10px' }}>
+                          <button
+                            onClick={() => handleRepairLink(product._id)}
+                            className="repair-btn"
+                            disabled={repairingId === product._id || deletingId === product._id}
+                          >
+                            {repairingId === product._id ? 'Repairing...' : 'Repair'}
+                          </button>
+                          <button
+                            onClick={() => handleDeleteLink(product._id)}
+                            className="delete-btn"
+                            disabled={repairingId === product._id || deletingId === product._id}
+                            style={{
+                              background: '#000',
+                              color: '#fff',
+                              border: '1px solid #fff',
+                              padding: '6px 12px',
+                              borderRadius: '4px',
+                              cursor: deletingId === product._id ? 'not-allowed' : 'pointer',
+                              opacity: deletingId === product._id ? 0.6 : 1
+                            }}
+                          >
+                            {deletingId === product._id ? 'Deleting...' : 'Delete'}
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -419,7 +507,7 @@ function ProductManagement() {
                       <div className="product-brand-small">{product.brand || 'N/A'}</div>
                       <div className="product-meta">
                         <span className="product-category-small">{product.category}</span>
-                        <span className="product-price-small">${product.price || '0.00'}</span>
+                        <span className="product-price-small">PKR {product.price ? (parseFloat(product.price) * 280).toFixed(2) : '0.00'}</span>
                       </div>
                     </div>
                   </div>

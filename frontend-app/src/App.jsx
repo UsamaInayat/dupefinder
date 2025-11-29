@@ -227,7 +227,7 @@ function App() {
                     <span className="product-category">{product.category}</span>
                     <div className="product-details">
                       <span className="product-brand">{product.brand}</span>
-                      <span className="product-price">${product.price}</span>
+                      <span className="product-price">PKR {(parseFloat(product.price) * 280).toFixed(2)}</span>
                     </div>
                     <div className="similarity-badge">
                       {(product.similarity_score * 100).toFixed(1)}% Match
