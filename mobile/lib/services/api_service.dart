@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io' show Platform;
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
@@ -8,7 +9,15 @@ class ApiService {
   // For web (Chrome): use localhost
   // For Android emulator: use 10.0.2.2
   // For iOS simulator: use localhost
-  // For physical device: use your computer's IP (e.g., 192.168.1.100)
+  // For physical device: use your computer's local network IP (e.g., 192.168.1.108)
+  // 
+  // IMPORTANT: For physical devices, replace 'YOUR_COMPUTER_IP' with your actual IP
+  // Find your IP: Windows: ipconfig | findstr IPv4
+  //               Mac/Linux: ifconfig | grep inet
+  // Use the IP that starts with 192.168.x.x or 10.x.x.x (local network)
+  
+  // Change this to your computer's local network IP for physical device testing
+  static const String _physicalDeviceIP = '192.168.1.108'; // Update this with your IP
   
   static String get baseUrl {
     String url;
@@ -16,21 +25,41 @@ class ApiService {
       // Web platform (Chrome) - use localhost
       url = 'http://localhost:8000/api';
     } else {
-      // For mobile platforms, check if Android
-      try {
-        // Try to import Platform only when not on web
-        // For now, default to Android emulator address for mobile
-        // Change this to localhost if testing on iOS simulator
-        url = 'http://10.0.2.2:8000/api'; // Android emulator
-        // return 'http://localhost:8000/api'; // iOS simulator or physical device
-      } catch (e) {
-        // Fallback to localhost
+      // For mobile platforms
+      if (Platform.isAndroid) {
+        // For Android:
+        // - Emulator: use 10.0.2.2
+        // - Physical device: use local network IP (e.g., 192.168.1.108)
+        // 
+        // To switch between emulator and physical device:
+        // - For emulator: change _physicalDeviceIP to '10.0.2.2'
+        // - For physical device: use your computer's local network IP
+        url = 'http://$_physicalDeviceIP:8000/api';
+      } else if (Platform.isIOS) {
+        // For iOS:
+        // - Simulator: use localhost
+        // - Physical device: use local network IP
+        url = 'http://$_physicalDeviceIP:8000/api';
+      } else {
+        // Fallback
         url = 'http://localhost:8000/api';
       }
     }
     // Debug: print the URL being used (remove in production)
     print('[ApiService] Using baseUrl: $url (kIsWeb: $kIsWeb)');
     return url;
+  }
+  
+  // Method to set custom backend IP (for switching between emulator and physical device)
+  static Future<void> setBackendIP(String ip) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('backend_ip', ip);
+  }
+  
+  // Get saved backend IP
+  static Future<String?> getBackendIP() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString('backend_ip');
   }
 
   // Get stored access token
