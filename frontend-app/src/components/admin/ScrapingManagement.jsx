@@ -20,6 +20,130 @@ function ScrapingManagement() {
   const isProcessingRef = useRef(false)
   const lastClickTimeRef = useRef(0)
 
+  const showNotification = (message, type) => {
+    const notification = document.createElement('div')
+    notification.className = `notification notification-${type}`
+    notification.textContent = message
+    notification.style.cssText = `
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      padding: 15px 20px;
+      background: ${type === 'success' ? '#10b981' : '#ef4444'};
+      color: #fff;
+      border: 2px solid ${type === 'success' ? '#059669' : '#dc2626'};
+      border-radius: 6px;
+      z-index: 10000;
+      font-size: 14px;
+      font-weight: 600;
+      box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);
+      animation: none;
+      transform: translateX(0);
+      opacity: 1;
+    `
+    document.body.appendChild(notification)
+    setTimeout(() => {
+      notification.style.opacity = '0'
+      notification.style.transition = 'opacity 0.2s'
+      setTimeout(() => {
+        if (document.body.contains(notification)) {
+          document.body.removeChild(notification)
+        }
+      }, 200)
+    }, 3000)
+  }
+
+  const showConfirmDialog = (message, onConfirm, onCancel = null) => {
+    const overlay = document.createElement('div')
+    overlay.style.cssText = `
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(0, 0, 0, 0.5);
+      z-index: 10001;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    `
+    const dialog = document.createElement('div')
+    dialog.style.cssText = `
+      background: #fff;
+      border-radius: 8px;
+      padding: 24px;
+      max-width: 400px;
+      width: 90%;
+      box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
+      z-index: 10002;
+    `
+    const messageEl = document.createElement('div')
+    messageEl.textContent = message
+    messageEl.style.cssText = `
+      margin-bottom: 20px;
+      font-size: 16px;
+      color: #333;
+      line-height: 1.5;
+    `
+    const buttonsContainer = document.createElement('div')
+    buttonsContainer.style.cssText = `
+      display: flex;
+      gap: 10px;
+      justify-content: flex-end;
+    `
+    const cancelBtn = document.createElement('button')
+    cancelBtn.textContent = 'Cancel'
+    cancelBtn.style.cssText = `
+      padding: 10px 20px;
+      background: #f3f4f6;
+      color: #333;
+      border: 1px solid #d1d5db;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 500;
+    `
+    cancelBtn.onmouseover = () => cancelBtn.style.background = '#e5e7eb'
+    cancelBtn.onmouseout = () => cancelBtn.style.background = '#f3f4f6'
+    const confirmBtn = document.createElement('button')
+    confirmBtn.textContent = 'Confirm'
+    confirmBtn.style.cssText = `
+      padding: 10px 20px;
+      background: #ef4444;
+      color: #fff;
+      border: 1px solid #dc2626;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 600;
+    `
+    confirmBtn.onmouseover = () => confirmBtn.style.background = '#dc2626'
+    confirmBtn.onmouseout = () => confirmBtn.style.background = '#ef4444'
+    const close = () => {
+      document.body.removeChild(overlay)
+    }
+    cancelBtn.onclick = () => {
+      close()
+      if (onCancel) onCancel()
+    }
+    confirmBtn.onclick = () => {
+      close()
+      if (onConfirm) onConfirm()
+    }
+    buttonsContainer.appendChild(cancelBtn)
+    buttonsContainer.appendChild(confirmBtn)
+    dialog.appendChild(messageEl)
+    dialog.appendChild(buttonsContainer)
+    overlay.appendChild(dialog)
+    document.body.appendChild(overlay)
+    overlay.onclick = (e) => {
+      if (e.target === overlay) {
+        close()
+        if (onCancel) onCancel()
+      }
+    }
+  }
+
   // Define functions first (before useEffects that use them)
   const fetchBrands = async () => {
     setLoadingBrands(true)
@@ -27,7 +151,7 @@ function ScrapingManagement() {
       const token = localStorage.getItem('adminToken') || localStorage.getItem('token')
       
       if (!token) {
-        alert('No admin token found. Please log out and log back in as admin.')
+        showNotification('No admin token found. Please log out and log back in as admin.', 'error')
         setLoadingBrands(false)
         return
       }
@@ -45,7 +169,7 @@ function ScrapingManagement() {
       const errorMsg = error.response?.data?.detail || error.message
       
       if (error.response?.status === 401) {
-        alert('Authentication failed. Please log out and log back in as admin.\n\nError: ' + errorMsg)
+        showNotification('Authentication failed. Please log out and log back in as admin. Error: ' + errorMsg, 'error')
         // Clear invalid token
         localStorage.removeItem('adminToken')
         localStorage.removeItem('adminData')
@@ -55,7 +179,7 @@ function ScrapingManagement() {
       } else {
         // Only show alert for non-timeout errors
         if (!error.code || error.code !== 'ECONNABORTED') {
-          alert('Failed to load brands: ' + errorMsg)
+          showNotification('Failed to load brands: ' + errorMsg, 'error')
         }
       }
     } finally {
@@ -91,15 +215,7 @@ function ScrapingManagement() {
     }
   }, [historyPage])
   
-  const handleDeleteHistory = useCallback(async (jobId) => {
-    if (isProcessingRef.current) {
-      return
-    }
-    
-    if (!confirm('Are you sure you want to delete this scraping history? This action cannot be undone.')) {
-      return
-    }
-    
+  const performDeleteHistory = async (jobId) => {
     isProcessingRef.current = true
     setDeletingHistoryId(jobId)
     
@@ -113,16 +229,30 @@ function ScrapingManagement() {
       
       // Refresh history
       fetchHistory()
+      showNotification('Scraping history deleted successfully', 'success')
     } catch (error) {
       console.error('Failed to delete history:', error)
-      alert('Failed to delete history: ' + (error.response?.data?.detail || error.message))
+      showNotification('Failed to delete history: ' + (error.response?.data?.detail || error.message), 'error')
     } finally {
       setDeletingHistoryId(null)
       setTimeout(() => {
         isProcessingRef.current = false
       }, 300)
     }
-  }, [fetchHistory])
+  }
+
+  const handleDeleteHistory = useCallback(async (jobId) => {
+    if (isProcessingRef.current) {
+      return
+    }
+    
+    showConfirmDialog(
+      'Are you sure you want to delete this scraping history? This action cannot be undone.',
+      () => {
+        performDeleteHistory(jobId)
+      }
+    )
+  }, [])
 
   const toggleBrandSelection = useCallback((brand) => {
     // Prevent rapid clicks
@@ -153,7 +283,7 @@ function ScrapingManagement() {
     }
     
     if (selectedBrands.length === 0) {
-      alert('Please select at least one brand')
+      showNotification('Please select at least one brand', 'error')
       return
     }
 
@@ -173,7 +303,7 @@ function ScrapingManagement() {
       fetchHistory() // Refresh history only when starting new job
     } catch (error) {
       console.error('Failed to start scraping:', error)
-      alert('Failed to start scraping: ' + (error.response?.data?.detail || error.message))
+      showNotification('Failed to start scraping: ' + (error.response?.data?.detail || error.message), 'error')
       isProcessingRef.current = false
     } finally {
       // Reset after a short delay
@@ -200,7 +330,7 @@ function ScrapingManagement() {
 
       if (response.data.status === 'completed') {
         setScraping(false)
-        alert(`Scraping completed! ${response.data.products_added} products added`)
+        showNotification(`Scraping completed! ${response.data.products_added} products added`, 'success')
         fetchBrands()
         fetchHistory() // Refresh history only when job completes
         setSelectedBrands([])
@@ -208,7 +338,7 @@ function ScrapingManagement() {
         isProcessingRef.current = false
       } else if (response.data.status === 'failed') {
         setScraping(false)
-        alert('Scraping failed: ' + (response.data.error || 'Unknown error'))
+        showNotification('Scraping failed: ' + (response.data.error || 'Unknown error'), 'error')
         fetchHistory() // Refresh history only when job fails
         setCurrentJob(null)
         isProcessingRef.current = false
@@ -285,46 +415,177 @@ function ScrapingManagement() {
           </p>
         ) : (
           <>
-            <div className="brand-grid">
-          {brands.map((brand, idx) => {
-            const isSelected = selectedBrands.some(
-              b => b.brand_name === brand.brand_name && b.brand_url === brand.brand_url
-            )
-            return (
-              <div
-                key={`${brand.brand_name}-${brand.brand_url}-${idx}`}
-                className={`brand-card ${isSelected ? 'selected' : ''}`}
-                onClick={(e) => {
-                  e.preventDefault()
-                  e.stopPropagation()
-                  if (!scraping && !isProcessingRef.current) {
-                    toggleBrandSelection(brand)
-                  }
-                }}
-                style={{ cursor: scraping ? 'not-allowed' : 'pointer' }}
-              >
-                <div className="brand-checkbox">
-                  <input
-                    type="checkbox"
-                    checked={isSelected}
-                    onChange={() => {}}
-                    disabled={scraping}
-                  />
-                </div>
-                <div className="brand-info">
-                  <h4>{brand.brand_name}</h4>
-                  <p>{brand.product_count || 0} products</p>
-                  {brand.category && (
-                    <small>Category: {brand.category}</small>
+            {/* Separate Men's and Women's Brands */}
+            {(() => {
+              // Strict separation based on gender field only
+              // Women's dataset brands → gender="w"
+              // CSV brands → gender="m"
+              const mensBrands = brands.filter(b => b.gender === 'm')
+              const womensBrands = brands.filter(b => b.gender === 'w')
+              const otherBrands = brands.filter(b => b.gender !== 'm' && b.gender !== 'w')
+              
+              // Debug: log counts
+              console.log('Total brands:', brands.length)
+              console.log('Men\'s brands (gender="m"):', mensBrands.length)
+              console.log('Women\'s brands (gender="w"):', womensBrands.length)
+              if (mensBrands.length > 0) {
+                console.log('Sample men\'s brands:', mensBrands.slice(0, 3).map(b => ({ name: b.brand_name, gender: b.gender, category: b.category })))
+              }
+              if (womensBrands.length > 0) {
+                console.log('Sample women\'s brands:', womensBrands.slice(0, 3).map(b => ({ name: b.brand_name, gender: b.gender, category: b.category })))
+              }
+              
+              return (
+                <>
+                  {/* Women's Brands Section */}
+                  {womensBrands.length > 0 && (
+                    <div style={{ marginBottom: '30px' }}>
+                      <h4 style={{ marginBottom: '15px', fontSize: '1.2rem', fontWeight: '600', color: '#000', borderBottom: '2px solid #000', paddingBottom: '8px' }}>
+                        Women's Brands ({womensBrands.length})
+                      </h4>
+                      <div className="brand-grid">
+                        {womensBrands.map((brand, idx) => {
+                          const isSelected = selectedBrands.some(
+                            b => b.brand_name === brand.brand_name && b.brand_url === brand.brand_url
+                          )
+                          return (
+                            <div
+                              key={`${brand.brand_name}-${brand.brand_url}-${idx}`}
+                              className={`brand-card ${isSelected ? 'selected' : ''}`}
+                              onClick={(e) => {
+                                e.preventDefault()
+                                e.stopPropagation()
+                                if (!scraping && !isProcessingRef.current) {
+                                  toggleBrandSelection(brand)
+                                }
+                              }}
+                              style={{ cursor: scraping ? 'not-allowed' : 'pointer' }}
+                            >
+                              <div className="brand-checkbox">
+                                <input
+                                  type="checkbox"
+                                  checked={isSelected}
+                                  onChange={() => {}}
+                                  disabled={scraping}
+                                />
+                              </div>
+                              <div className="brand-info">
+                                <h4>{brand.brand_name}</h4>
+                                <p>{brand.product_count || 0} products</p>
+                                {brand.category && (
+                                  <small>Category: {brand.category}</small>
+                                )}
+                                {brand.last_scraped_at && (
+                                  <small>Last: {new Date(brand.last_scraped_at).toLocaleDateString()}</small>
+                                )}
+                              </div>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    </div>
                   )}
-                  {brand.last_scraped_at && (
-                    <small>Last: {new Date(brand.last_scraped_at).toLocaleDateString()}</small>
+                  
+                  {/* Men's Brands Section */}
+                  {mensBrands.length > 0 && (
+                    <div style={{ marginBottom: '30px' }}>
+                      <h4 style={{ marginBottom: '15px', fontSize: '1.2rem', fontWeight: '600', color: '#000', borderBottom: '2px solid #000', paddingBottom: '8px' }}>
+                        Men's Brands ({mensBrands.length})
+                      </h4>
+                      <div className="brand-grid">
+                        {mensBrands.map((brand, idx) => {
+                          const isSelected = selectedBrands.some(
+                            b => b.brand_name === brand.brand_name && b.brand_url === brand.brand_url
+                          )
+                          return (
+                            <div
+                              key={`${brand.brand_name}-${brand.brand_url}-${idx}`}
+                              className={`brand-card ${isSelected ? 'selected' : ''}`}
+                              onClick={(e) => {
+                                e.preventDefault()
+                                e.stopPropagation()
+                                if (!scraping && !isProcessingRef.current) {
+                                  toggleBrandSelection(brand)
+                                }
+                              }}
+                              style={{ cursor: scraping ? 'not-allowed' : 'pointer' }}
+                            >
+                              <div className="brand-checkbox">
+                                <input
+                                  type="checkbox"
+                                  checked={isSelected}
+                                  onChange={() => {}}
+                                  disabled={scraping}
+                                />
+                              </div>
+                              <div className="brand-info">
+                                <h4>{brand.brand_name}</h4>
+                                <p>{brand.product_count || 0} products</p>
+                                {brand.category && (
+                                  <small>Category: {brand.category}</small>
+                                )}
+                                {brand.last_scraped_at && (
+                                  <small>Last: {new Date(brand.last_scraped_at).toLocaleDateString()}</small>
+                                )}
+                              </div>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    </div>
                   )}
-                </div>
-              </div>
-            )
-          })}
-            </div>
+                  
+                  {/* Other Brands Section (if any) */}
+                  {otherBrands.length > 0 && (
+                    <div style={{ marginBottom: '30px' }}>
+                      <h4 style={{ marginBottom: '15px', fontSize: '1.2rem', fontWeight: '600', color: '#000', borderBottom: '2px solid #000', paddingBottom: '8px' }}>
+                        Other Brands ({otherBrands.length})
+                      </h4>
+                      <div className="brand-grid">
+                        {otherBrands.map((brand, idx) => {
+                          const isSelected = selectedBrands.some(
+                            b => b.brand_name === brand.brand_name && b.brand_url === brand.brand_url
+                          )
+                          return (
+                            <div
+                              key={`${brand.brand_name}-${brand.brand_url}-${idx}`}
+                              className={`brand-card ${isSelected ? 'selected' : ''}`}
+                              onClick={(e) => {
+                                e.preventDefault()
+                                e.stopPropagation()
+                                if (!scraping && !isProcessingRef.current) {
+                                  toggleBrandSelection(brand)
+                                }
+                              }}
+                              style={{ cursor: scraping ? 'not-allowed' : 'pointer' }}
+                            >
+                              <div className="brand-checkbox">
+                                <input
+                                  type="checkbox"
+                                  checked={isSelected}
+                                  onChange={() => {}}
+                                  disabled={scraping}
+                                />
+                              </div>
+                              <div className="brand-info">
+                                <h4>{brand.brand_name}</h4>
+                                <p>{brand.product_count || 0} products</p>
+                                {brand.category && (
+                                  <small>Category: {brand.category}</small>
+                                )}
+                                {brand.last_scraped_at && (
+                                  <small>Last: {new Date(brand.last_scraped_at).toLocaleDateString()}</small>
+                                )}
+                              </div>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  )}
+                </>
+              )
+            })()}
 
             <div className="selection-actions">
           <p>{selectedBrands.length} brand(s) selected</p>

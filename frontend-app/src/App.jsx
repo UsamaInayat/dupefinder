@@ -12,6 +12,7 @@ function App() {
   const [results, setResults] = useState(null)
   const [error, setError] = useState(null)
   const [dragging, setDragging] = useState(false)
+  const [failedImages, setFailedImages] = useState(new Set()) // Track products with failed image loads
 
   // Handle file selection
   const handleFileSelect = (event) => {
@@ -212,14 +213,25 @@ function App() {
             </div>
 
             <div className="results-grid">
-              {results.results.map((product, index) => (
+              {results.results
+                .filter(product => {
+                  const productId = product.product_id || product._id || product.name
+                  return !failedImages.has(productId)
+                })
+                .map((product, index) => (
                 <div key={product._id} className="product-card">
                   <img 
                     src={`http://localhost:8000/data/${product.image_path.replace(/\\/g, '/')}`}
                     alt={product.name}
                     className="product-image"
                     onError={(e) => {
-                      e.target.src = 'https://via.placeholder.com/300x300?text=No+Image'
+                      // If image fails to load, hide the product from display
+                      const productId = product.product_id || product._id || product.name
+                      setFailedImages(prev => new Set([...prev, productId]))
+                      // Hide the product card immediately
+                      if (e.target.closest('.product-card')) {
+                        e.target.closest('.product-card').style.display = 'none'
+                      }
                     }}
                   />
                   <div className="product-info">
@@ -227,7 +239,7 @@ function App() {
                     <span className="product-category">{product.category}</span>
                     <div className="product-details">
                       <span className="product-brand">{product.brand}</span>
-                      <span className="product-price">PKR {(parseFloat(product.price) * 280).toFixed(2)}</span>
+                      <span className="product-price">PKR {parseFloat(product.price).toFixed(2)}</span>
                     </div>
                     <div className="similarity-badge">
                       {(product.similarity_score * 100).toFixed(1)}% Match

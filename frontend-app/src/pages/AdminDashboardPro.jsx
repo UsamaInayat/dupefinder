@@ -338,7 +338,7 @@ function AdminDashboardPro({ admin, token, onLogout }) {
                           <h4 className="product-pro-name">{product.name}</h4>
                           <p className="product-pro-brand">{product.brand}</p>
                           <div className="product-pro-footer">
-                            <span className="product-pro-price">PKR {(parseFloat(product.price) * 280).toFixed(2)}</span>
+                            <span className="product-pro-price">PKR {parseFloat(product.price).toFixed(2)}</span>
                             <button
                               onClick={() => deleteProduct(product._id)}
                               className="btn-delete-pro"

@@ -34,7 +34,43 @@ function MLTraining() {
     }
   }
 
+  const showNotification = (message, type) => {
+    const notification = document.createElement('div')
+    notification.className = `notification notification-${type}`
+    notification.textContent = message
+    notification.style.cssText = `
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      padding: 15px 20px;
+      background: ${type === 'success' ? '#10b981' : '#ef4444'};
+      color: #fff;
+      border: 2px solid ${type === 'success' ? '#059669' : '#dc2626'};
+      border-radius: 6px;
+      z-index: 10000;
+      font-size: 14px;
+      font-weight: 600;
+      box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);
+      animation: none;
+      transform: translateX(0);
+      opacity: 1;
+    `
+    document.body.appendChild(notification)
+    setTimeout(() => {
+      notification.style.opacity = '0'
+      notification.style.transition = 'opacity 0.2s'
+      setTimeout(() => {
+        if (document.body.contains(notification)) {
+          document.body.removeChild(notification)
+        }
+      }, 200)
+    }, 3000)
+  }
+
   const startTraining = async () => {
+    // Deactivated - show coming soon notification
+    showNotification('ML Training feature coming soon!', 'error')
+    return
     try {
       const token = localStorage.getItem('adminToken') || localStorage.getItem('token')
       const response = await axios.post(
@@ -111,10 +147,10 @@ function MLTraining() {
 
         <button
           onClick={startTraining}
-          disabled={training}
           className="train-btn"
+          style={{ opacity: 0.6, cursor: 'not-allowed' }}
         >
-          {training ? 'Training in Progress...' : 'Start Training'}
+          Start Training
         </button>
 
         {training && (

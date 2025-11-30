@@ -653,6 +653,51 @@ async def repair_broken_link(
         }
 
 
+@router.delete("/products/clear-all")
+async def clear_all_products(
+    admin: dict = Depends(require_admin)
+):
+    """
+    Clear all products from the catalogue
+    
+    **WARNING:** This will delete ALL products from the database.
+    Use with caution! This action cannot be undone.
+    
+    Module 2: Product Catalogue - Clear all products
+    """
+    try:
+        products = get_products_collection()
+        
+        # Count products before deletion
+        total_count = products.count_documents({})
+        
+        if total_count == 0:
+            return {
+                "success": True,
+                "message": "Product catalogue is already empty",
+                "deleted_count": 0
+            }
+        
+        # Delete all products
+        result = products.delete_many({})
+        deleted_count = result.deleted_count
+        
+        logger.info(f"Cleared all products from catalogue. Deleted {deleted_count} products.")
+        
+        return {
+            "success": True,
+            "message": f"Successfully cleared all products from catalogue",
+            "deleted_count": deleted_count
+        }
+        
+    except Exception as e:
+        logger.error(f"Error clearing products: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to clear products: {str(e)}"
+        )
+
+
 @router.delete("/products/{product_id}")
 async def delete_product(
     product_id: str,
@@ -745,6 +790,7 @@ async def get_products_admin(
     page_size: int = Query(20, ge=1, le=100),
     category: Optional[str] = None,
     brand: Optional[str] = None,
+    gender: Optional[str] = None,
     broken_links_only: bool = False,
     search: Optional[str] = None,
     admin: dict = Depends(require_admin)
@@ -758,17 +804,70 @@ async def get_products_admin(
     
     # Build query
     query = {}
+    
+    # Filter by gender if provided (for Men's Catalogue)
+    if gender:
+        query["gender"] = gender
+    
     if category:
-        query["category"] = category
+        # Support filtering by category - handle "Men → Eastern" format
+        # Check if category contains gender info
+        category_lower = category.lower()
+        if "men" in category_lower or "man" in category_lower:
+            # For men's categories, filter by category field and gender
+            query["$and"] = [
+                {
+                    "$or": [
+                        {"category": category},
+                        {"category": {"$regex": category.replace("→", ".*").replace("->", ".*"), "$options": "i"}},
+                        {"normalized_category": category},
+                        {"product_category": category}
+                    ]
+                },
+                {"gender": "m"}  # Ensure it's a men's product
+            ]
+        elif "women" in category_lower or "woman" in category_lower:
+            # For women's categories, filter by category field and gender
+            query["$and"] = [
+                {
+                    "$or": [
+                        {"category": category},
+                        {"category": {"$regex": category.replace("→", ".*").replace("->", ".*"), "$options": "i"}},
+                        {"normalized_category": category},
+                        {"product_category": category}
+                    ]
+                },
+                {"gender": "w"}  # Ensure it's a women's product
+            ]
+        else:
+            # For other categories, just match the category field
+            query["$or"] = [
+                {"category": category},
+                {"category": {"$regex": category.replace("→", ".*").replace("->", ".*"), "$options": "i"}},
+                {"normalized_category": category},
+                {"product_category": category}
+            ]
     if brand:
-        query["brand"] = brand
+        if "$and" in query:
+            query["$and"].append({"brand": brand})
+        else:
+            query["brand"] = brand
     if broken_links_only:
-        query["broken_link"] = True
+        if "$and" in query:
+            query["$and"].append({"broken_link": True})
+        else:
+            query["broken_link"] = True
     if search:
-        query["$or"] = [
-            {"name": {"$regex": search, "$options": "i"}},
-            {"description": {"$regex": search, "$options": "i"}}
-        ]
+        search_query = {
+            "$or": [
+                {"name": {"$regex": search, "$options": "i"}},
+                {"description": {"$regex": search, "$options": "i"}}
+            ]
+        }
+        if "$and" in query:
+            query["$and"].append(search_query)
+        else:
+            query["$or"] = search_query["$or"]
     
     # Get total
     total = products.count_documents(query)
@@ -939,6 +1038,7 @@ async def get_available_brands(
     """
     brands = []
     seen_brands = {}  # Track unique brands by (brand_name, brand_url)
+    brand_names_list = []  # Collect all brand names first for batch query
     
     try:
         # Get project root directory (2 levels up from app/api/routes)
@@ -948,6 +1048,7 @@ async def get_available_brands(
         women_file = os.path.join(project_root, "women links dataset.xlsx")
         if os.path.exists(women_file):
             df = pd.read_excel(women_file)
+            logger.info(f"Reading women's dataset: {women_file}, rows: {len(df)}")
             
             # Determine which link column to use
             link_column = None
@@ -975,20 +1076,24 @@ async def get_available_brands(
                         
                         # Skip if we've already seen this brand
                         if brand_key not in seen_brands:
-                            # Check if we already have products for this brand
-                            products = get_products_collection()
-                            product_count = products.count_documents({"brand": brand_name})
+                            # ALL brands from women's dataset are women's brands
+                            gender = "w"  # Always women for women's dataset
                             
                             brand_data = {
                                 "brand_name": brand_name,
                                 "brand_url": brand_url_str,
                                 "category": main_category,
-                                "product_count": product_count,
-                                "last_scraped_at": None  # TODO: Track last scrape time
+                                "product_count": 0,  # Will be set later in batch
+                                "last_scraped_at": None,
+                                "gender": gender  # Always "w" for women's dataset
                             }
                             
                             brands.append(brand_data)
                             seen_brands[brand_key] = True
+                            if brand_name not in brand_names_list:
+                                brand_names_list.append(brand_name)
+                            
+                            logger.debug(f"Added women's brand: {brand_name}, gender: {gender}, category: {main_category}")
         
         # Read men dataset (check if it has link columns)
         men_file = os.path.join(project_root, "men dataset.xlsx")
@@ -1023,27 +1128,106 @@ async def get_available_brands(
                             
                             # Skip if we've already seen this brand
                             if brand_key not in seen_brands:
-                                # Check if we already have products for this brand
-                                products = get_products_collection()
-                                product_count = products.count_documents({"brand": brand_name})
+                                # Since this is from men's dataset, explicitly set gender to "m"
+                                # Only override if category explicitly says "women"
+                                if "women" in main_category.lower() or "woman" in main_category.lower():
+                                    gender = "w"
+                                else:
+                                    gender = "m"  # Default to men for men's dataset
                                 
                                 brand_data = {
                                     "brand_name": brand_name,
                                     "brand_url": brand_url_str,
                                     "category": main_category,
-                                    "product_count": product_count,
-                                    "last_scraped_at": None  # TODO: Track last scrape time
+                                    "product_count": 0,  # Will be set later in batch
+                                    "last_scraped_at": None,
+                                    "gender": gender
                                 }
                                 
                                 brands.append(brand_data)
                                 seen_brands[brand_key] = True
+                                if brand_name not in brand_names_list:
+                                    brand_names_list.append(brand_name)
             except Exception as e:
                 logger.warning(f"Error reading men dataset: {e}")
                 # Don't fail completely if men dataset has issues
         
+        # Read men's brands from local_brands_links.csv (for local brand type only)
+        if brand_type == "local":
+            csv_file = os.path.join(project_root, "local_brands_links.csv")
+            if os.path.exists(csv_file):
+                try:
+                    df_csv = pd.read_csv(csv_file)
+                    logger.info(f"Read {len(df_csv)} rows from local_brands_links.csv")
+                    
+                    # CSV has Brand and Website columns
+                    if "Brand" in df_csv.columns and "Website" in df_csv.columns:
+                        for idx, row in df_csv.iterrows():
+                            brand_name = row.get("Brand", "")
+                            brand_url = row.get("Website", "")
+                            
+                            if pd.notna(brand_name) and pd.notna(brand_url) and brand_url and str(brand_url).startswith("http"):
+                                # Default category for men's brands from CSV
+                                main_category = "Men → Eastern"
+                                brand_url_str = str(brand_url)
+                                
+                                # Create unique key for deduplication
+                                brand_key = (brand_name, brand_url_str)
+                                
+                                # Skip if we've already seen this brand
+                                if brand_key not in seen_brands:
+                                    # Men's brands from CSV
+                                    gender = "m"
+                                    
+                                    brand_data = {
+                                        "brand_name": brand_name,
+                                        "brand_url": brand_url_str,
+                                        "category": main_category,
+                                        "product_count": 0,  # Will be set later in batch
+                                        "last_scraped_at": None,
+                                        "gender": gender  # Men's brands
+                                    }
+                                    
+                                    brands.append(brand_data)
+                                    seen_brands[brand_key] = True
+                                    if brand_name not in brand_names_list:
+                                        brand_names_list.append(brand_name)
+                                    
+                                    logger.debug(f"Added men's brand from CSV: {brand_name}, gender: {gender}, category: {main_category}")
+                except Exception as e:
+                    logger.warning(f"Error reading local_brands_links.csv: {e}")
+                    # Don't fail completely if CSV has issues
+        
+        # Batch query product counts for all brands at once (optimization)
+        if brands and brand_names_list:
+            try:
+                products = get_products_collection()
+                # Use aggregation pipeline to get counts for all brands in one query
+                pipeline = [
+                    {"$match": {"brand": {"$in": brand_names_list}}},
+                    {"$group": {"_id": "$brand", "count": {"$sum": 1}}}
+                ]
+                brand_counts = {item["_id"]: item["count"] for item in products.aggregate(pipeline)}
+                
+                # Update product counts in brands list
+                for brand in brands:
+                    brand["product_count"] = brand_counts.get(brand["brand_name"], 0)
+            except Exception as e:
+                logger.warning(f"Error getting product counts: {e}")
+                # If batch query fails, set all to 0 (better than failing completely)
+                for brand in brands:
+                    brand["product_count"] = 0
+        
     except Exception as e:
         logger.error(f"Error reading brands from Excel: {e}")
         raise HTTPException(status_code=500, detail=f"Error reading brands: {str(e)}")
+    
+    # Log summary for debugging
+    gender_counts = {}
+    for brand in brands:
+        gender = brand.get("gender", "unknown")
+        gender_counts[gender] = gender_counts.get(gender, 0) + 1
+    logger.info(f"Brand loading complete. Total: {len(brands)}, Gender breakdown: {gender_counts}")
     
     return {
         "brands": brands,
@@ -1126,9 +1310,17 @@ async def run_scraping_job(job_id: str, brand_list: List[dict]):
             brand_name = brand_info.get("brand_name", "Unknown")
             brand_url = brand_info.get("brand_url", "")
             category = brand_info.get("category", "")
+            # Extract gender from brand_info if available, otherwise infer from category
+            gender = brand_info.get("gender")
+            if not gender:
+                # Infer gender from category
+                if "men" in category.lower() or "man" in category.lower():
+                    gender = "m"
+                elif "women" in category.lower() or "woman" in category.lower():
+                    gender = "w"
             
             try:
-                scraping_jobs[job_id]["logs"].append(f"Starting scrape for {brand_name}...")
+                scraping_jobs[job_id]["logs"].append(f"Starting scrape for {brand_name} (Category: {category}, Gender: {gender})...")
                 
                 # Scrape products from this brand with timeout
                 scraping_jobs[job_id]["logs"].append(f"Scraping {brand_url}...")
@@ -1136,7 +1328,7 @@ async def run_scraping_job(job_id: str, brand_list: List[dict]):
                 try:
                     # Add timeout to scraping (60 seconds per brand)
                     products = await asyncio.wait_for(
-                        scraper.scrape_brand_website(brand_url, brand_name, category),
+                        scraper.scrape_brand_website(brand_url, brand_name, category, gender),
                         timeout=60.0
                     )
                 except asyncio.TimeoutError:

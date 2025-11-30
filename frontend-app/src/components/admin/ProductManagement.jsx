@@ -18,11 +18,22 @@ function ProductManagement() {
   const [deletingId, setDeletingId] = useState(null)
   const [recentlyImported, setRecentlyImported] = useState([])
   const [showImportedData, setShowImportedData] = useState(false)
+  const [failedImages, setFailedImages] = useState(new Set()) // Track products with failed image loads
 
   useEffect(() => {
     fetchProducts()
     fetchCategories()
   }, [page, categoryFilter, brokenLinksOnly])
+  
+  // Reset failed images when products change (e.g., after repair)
+  useEffect(() => {
+    // Clear failed images for products that are no longer in the list
+    // This helps show repaired products
+    setFailedImages(prev => {
+      const productIds = new Set(products.map(p => p._id))
+      return new Set([...prev].filter(id => productIds.has(id)))
+    })
+  }, [products])
 
   const fetchProducts = async () => {
     setLoading(true)
@@ -42,7 +53,12 @@ function ProductManagement() {
         page_size: '20'
       })
       
-      if (categoryFilter) params.append('category', categoryFilter)
+      if (categoryFilter === 'mens_catalogue') {
+        // Special filter for men's catalogue - filter by gender
+        params.append('gender', 'm')
+      } else if (categoryFilter) {
+        params.append('category', categoryFilter)
+      }
       if (brokenLinksOnly) params.append('broken_links_only', 'true')
 
       console.log('ProductManagement - Making request to:', `http://localhost:8000/api/admin/products?${params}`)
@@ -52,7 +68,11 @@ function ProductManagement() {
         { headers: { Authorization: `Bearer ${token}` } }
       )
 
-      setProducts(response.data.products || [])
+      const allProducts = response.data.products || []
+      // Filter out broken links for display
+      const validProducts = allProducts.filter(p => !p.broken_link)
+      setProducts(validProducts)
+      // Count only valid products (without broken links)
       setTotalProducts(response.data.total || 0)
       // Calculate total pages if not provided
       const calculatedTotalPages = response.data.total_pages || 
@@ -115,17 +135,17 @@ function ProductManagement() {
       setUploadProgress(null)
       
       // Show detailed results
-      let message = `Import completed!\n\nTotal Rows: ${response.data.total_rows}\nImported: ${response.data.imported}\nFailed: ${response.data.failed}`
+      let message = `Import completed! Total Rows: ${response.data.total_rows}, Imported: ${response.data.imported}, Failed: ${response.data.failed}`
       
       // Show errors if any
       if (response.data.errors && response.data.errors.length > 0) {
-        message += `\n\nErrors:\n${response.data.errors.slice(0, 10).join('\n')}`
-        if (response.data.errors.length > 10) {
-          message += `\n... and ${response.data.errors.length - 10} more errors`
+        message += `. Errors: ${response.data.errors.slice(0, 5).join(', ')}`
+        if (response.data.errors.length > 5) {
+          message += ` and ${response.data.errors.length - 5} more`
         }
       }
       
-      alert(message)
+      showNotification(message, response.data.failed > 0 ? 'error' : 'success')
       setCsvFile(null)
       
       // Fetch and show recently imported products
@@ -151,12 +171,21 @@ function ProductManagement() {
       setUploadProgress(null)
       console.error('Failed to upload CSV:', error)
       const errorMsg = error.response?.data?.detail || error.message
-      alert(`Failed to upload CSV:\n${errorMsg}`)
+      showNotification(`Failed to upload CSV: ${errorMsg}`, 'error')
     }
   }
 
   const handleCleanupLinks = async () => {
-    if (!confirm('This will check all product image URLs. Continue?')) return
+    showConfirmDialog(
+      'This will check all product image URLs. Continue?',
+      async () => {
+        // User confirmed, proceed with cleanup
+        await performCleanupLinks()
+      }
+    )
+  }
+
+  const performCleanupLinks = async () => {
 
     try {
       const token = localStorage.getItem('adminToken') || localStorage.getItem('token')
@@ -184,7 +213,7 @@ function ProductManagement() {
       fetchProducts()
     } catch (error) {
       console.error('Failed to cleanup links:', error)
-      alert('Failed to cleanup links')
+      showNotification('Failed to cleanup links', 'error')
     } finally {
       setLoading(false)
     }
@@ -203,11 +232,19 @@ function ProductManagement() {
 
       if (response.data.success) {
         // Show success notification
-        showNotification('Link repaired successfully!', 'success')
+        showNotification('Link repaired successfully! Product will now appear in catalogue.', 'success')
         // Remove from broken links list
         setBrokenLinks(prev => prev.filter(p => p._id !== productId))
-        // Refresh products
+        // Clear from failed images so product can show up again
+        setFailedImages(prev => {
+          const newSet = new Set(prev)
+          newSet.delete(productId)
+          return newSet
+        })
+        // Refresh products to show the repaired product
         fetchProducts()
+        // Also refresh categories to update counts
+        fetchCategories()
       } else {
         // Show failure notification
         showNotification('This link cannot be repaired', 'error')
@@ -220,10 +257,55 @@ function ProductManagement() {
     }
   }
 
-  const handleDeleteLink = async (productId) => {
-    if (!confirm('Are you sure you want to delete this product? This action cannot be undone.')) {
+  const handleClearAllProducts = async () => {
+    const confirmMessage = `Are you absolutely sure you want to delete ALL products from the catalogue?\n\nThis action cannot be undone!\n\nTotal products: ${totalProducts}`
+    
+    if (!confirm(confirmMessage)) {
       return
     }
+    
+    // Double confirmation
+    if (!confirm('This is your last chance. Are you 100% sure you want to delete ALL products?')) {
+      return
+    }
+    try {
+      const token = localStorage.getItem('adminToken') || localStorage.getItem('token')
+      
+      if (!token) {
+        showNotification('Authentication required', 'error')
+        return
+      }
+      
+      const response = await axios.delete(
+        'http://localhost:8000/api/admin/products/clear-all',
+        { headers: { Authorization: `Bearer ${token}` } }
+      )
+      
+      if (response.data.success) {
+        showNotification(`Successfully cleared ${response.data.deleted_count} products from catalogue`, 'success')
+        // Refresh products list
+        setPage(1)
+        fetchProducts()
+        fetchCategories()
+      } else {
+        showNotification('Failed to clear products', 'error')
+      }
+    } catch (error) {
+      console.error('Failed to clear products:', error)
+      showNotification('Failed to clear products: ' + (error.response?.data?.detail || error.message), 'error')
+    }
+  }
+
+  const handleDeleteLink = async (productId) => {
+    showConfirmDialog(
+      'Are you sure you want to delete this product? This action cannot be undone.',
+      async () => {
+        await performDeleteLink(productId)
+      }
+    )
+  }
+
+  const performDeleteLink = async (productId) => {
 
     try {
       const token = localStorage.getItem('adminToken') || localStorage.getItem('token')
@@ -284,11 +366,148 @@ function ProductManagement() {
     }, 3000)
   }
 
+  const showConfirmDialog = (message, onConfirm, onCancel = null) => {
+    // Create overlay
+    const overlay = document.createElement('div')
+    overlay.style.cssText = `
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(0, 0, 0, 0.5);
+      z-index: 10001;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    `
+    
+    // Create dialog
+    const dialog = document.createElement('div')
+    dialog.style.cssText = `
+      background: #fff;
+      border-radius: 8px;
+      padding: 24px;
+      max-width: 400px;
+      width: 90%;
+      box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
+      z-index: 10002;
+    `
+    
+    // Message
+    const messageEl = document.createElement('div')
+    messageEl.textContent = message
+    messageEl.style.cssText = `
+      margin-bottom: 20px;
+      font-size: 16px;
+      color: #333;
+      line-height: 1.5;
+    `
+    
+    // Buttons container
+    const buttonsContainer = document.createElement('div')
+    buttonsContainer.style.cssText = `
+      display: flex;
+      gap: 10px;
+      justify-content: flex-end;
+    `
+    
+    // Cancel button
+    const cancelBtn = document.createElement('button')
+    cancelBtn.textContent = 'Cancel'
+    cancelBtn.style.cssText = `
+      padding: 10px 20px;
+      background: #f3f4f6;
+      color: #333;
+      border: 1px solid #d1d5db;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 500;
+    `
+    cancelBtn.onmouseover = () => cancelBtn.style.background = '#e5e7eb'
+    cancelBtn.onmouseout = () => cancelBtn.style.background = '#f3f4f6'
+    
+    // Confirm button
+    const confirmBtn = document.createElement('button')
+    confirmBtn.textContent = 'Confirm'
+    confirmBtn.style.cssText = `
+      padding: 10px 20px;
+      background: #ef4444;
+      color: #fff;
+      border: 1px solid #dc2626;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 600;
+    `
+    confirmBtn.onmouseover = () => confirmBtn.style.background = '#dc2626'
+    confirmBtn.onmouseout = () => confirmBtn.style.background = '#ef4444'
+    
+    // Event handlers
+    const close = () => {
+      document.body.removeChild(overlay)
+    }
+    
+    cancelBtn.onclick = () => {
+      close()
+      if (onCancel) onCancel()
+    }
+    
+    confirmBtn.onclick = () => {
+      close()
+      if (onConfirm) onConfirm()
+    }
+    
+    // Assemble
+    buttonsContainer.appendChild(cancelBtn)
+    buttonsContainer.appendChild(confirmBtn)
+    dialog.appendChild(messageEl)
+    dialog.appendChild(buttonsContainer)
+    overlay.appendChild(dialog)
+    document.body.appendChild(overlay)
+    
+    // Close on overlay click
+    overlay.onclick = (e) => {
+      if (e.target === overlay) {
+        close()
+        if (onCancel) onCancel()
+      }
+    }
+  }
+
   return (
     <div className="product-management">
       <div className="module-header">
-        <h2>Product Catalogue Management</h2>
-        <p>Import products, manage categories, and check image links</p>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
+          <div>
+            <h2>Product Catalogue Management</h2>
+            <p>Import products, manage categories, and check image links</p>
+          </div>
+          <button
+            onClick={handleClearAllProducts}
+            className="action-btn"
+            style={{
+              backgroundColor: '#ef4444',
+              color: '#fff',
+              border: '2px solid #dc2626',
+              padding: '10px 20px',
+              fontSize: '0.9rem',
+              fontWeight: '600',
+              borderRadius: '6px',
+              cursor: 'pointer',
+              transition: 'all 0.2s'
+            }}
+            onMouseOver={(e) => {
+              e.target.style.backgroundColor = '#dc2626'
+            }}
+            onMouseOut={(e) => {
+              e.target.style.backgroundColor = '#ef4444'
+            }}
+          >
+            Clear All Products ({totalProducts})
+          </button>
+        </div>
       </div>
 
       {/* CSV Upload Section */}
@@ -350,7 +569,7 @@ function ProductManagement() {
                     <td><strong>{product.name || 'N/A'}</strong></td>
                     <td>{product.brand || 'N/A'}</td>
                     <td>{product.category || 'N/A'}</td>
-                    <td>PKR {product.price ? (parseFloat(product.price) * 280).toFixed(2) : '0.00'}</td>
+                    <td>PKR {product.price ? parseFloat(product.price).toFixed(2) : '0.00'}</td>
                     <td style={{ maxWidth: '200px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       {product.image_url || product.image_path || 'N/A'}
                     </td>
@@ -456,6 +675,21 @@ function ProductManagement() {
           >
             All ({totalProducts})
           </button>
+          <button
+            className={`category-tag ${categoryFilter === 'mens_catalogue' ? 'active' : ''}`}
+            onClick={async () => {
+              // Set a special filter for men's catalogue
+              setCategoryFilter('mens_catalogue')
+              setPage(1)
+            }}
+            style={{ 
+              backgroundColor: categoryFilter === 'mens_catalogue' ? '#667eea' : '#f0f0f0',
+              color: categoryFilter === 'mens_catalogue' ? '#fff' : '#000',
+              fontWeight: categoryFilter === 'mens_catalogue' ? '600' : '400'
+            }}
+          >
+            Men's Catalogue
+          </button>
           {categories.map(cat => (
             <button
               key={cat.name}
@@ -482,7 +716,10 @@ function ProductManagement() {
         ) : (
           <>
             <div className="products-grid">
-              {products.map(product => {
+              {products
+                .filter(product => !product.broken_link && !failedImages.has(product._id)) // Hide products with broken links AND failed image loads
+                .map(product => {
+                // Build image URL for valid products only
                 const imageUrl = product.image_url || 
                   (product.image_path ? `http://localhost:8000/data/${product.image_path.replace(/\\/g, '/')}` : null) ||
                   'https://via.placeholder.com/200?text=No+Image'
@@ -495,19 +732,22 @@ function ProductManagement() {
                         alt={product.name}
                         className="product-image-small"
                         onError={(e) => {
-                          e.target.src = 'https://via.placeholder.com/200?text=No+Image'
+                          // If image fails to load, hide the product from display
+                          setFailedImages(prev => new Set([...prev, product._id]))
+                          // Hide the product card immediately
+                          if (e.target.closest('.product-card-item')) {
+                            e.target.closest('.product-card-item').style.display = 'none'
+                          }
                         }}
+                        loading="lazy"
                       />
-                      {product.broken_link && (
-                        <span className="broken-link-badge">Broken</span>
-                      )}
                     </div>
                     <div className="product-info-wrapper">
                       <div className="product-name-small">{product.name}</div>
                       <div className="product-brand-small">{product.brand || 'N/A'}</div>
                       <div className="product-meta">
                         <span className="product-category-small">{product.category}</span>
-                        <span className="product-price-small">PKR {product.price ? (parseFloat(product.price) * 280).toFixed(2) : '0.00'}</span>
+                        <span className="product-price-small">PKR {product.price ? parseFloat(product.price).toFixed(2) : '0.00'}</span>
                       </div>
                     </div>
                   </div>
