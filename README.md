@@ -113,13 +113,12 @@ dupefinder/
 │   ├── tests/             # Backend tests
 │   └── main.py            # Entry point
 │
-├── frontend/              # React web app
-│   ├── public/
+├── frontend-app/          # React admin dashboard (Vite)
 │   ├── src/
 │   │   ├── components/    # UI components
-│   │   ├── pages/         # Page components
+│   │   ├── pages/         # Page components (AdminDashboard, AdminLogin)
 │   │   ├── services/      # API services
-│   │   └── utils/         # Utilities
+│   │   └── styles/        # CSS styles
 │   └── package.json
 │
 ├── mobile/                # Flutter app
@@ -130,9 +129,6 @@ dupefinder/
 │   │   └── services/      # API services
 │   └── pubspec.yaml
 │
-├── admin-dashboard/       # Admin React app
-│   └── src/
-│
 ├── ml-engine/             # ML models
 │   ├── models/            # Trained models
 │   ├── preprocessing/     # Image preprocessing
@@ -140,9 +136,7 @@ dupefinder/
 │   └── similarity/        # Similarity search
 │
 ├── database/
-│   ├── schemas/           # Database schemas
-│   ├── migrations/        # Migration scripts
-│   └── seeds/             # Seed data
+│   └── schemas/           # Database schemas
 │
 ├── docker/                # Dockerfiles
 ├── docs/                  # Documentation
@@ -173,8 +167,7 @@ cd dupefinder
 2. **Set up environment variables**:
 ```bash
 cp backend/.env.example backend/.env
-cp frontend/.env.example frontend/.env
-cp admin-dashboard/.env.example admin-dashboard/.env
+cp frontend-app/.env.example frontend-app/.env  # If exists
 # Edit .env files with your configurations
 ```
 
@@ -186,17 +179,15 @@ docker-compose up -d
 4. **Access the applications**:
 - Backend API: http://localhost:8000
 - API Docs: http://localhost:8000/docs
-- Frontend: http://localhost:3000
-- Admin Dashboard: http://localhost:3001
+- Admin Dashboard: http://localhost:5173 (run `cd frontend-app && npm run dev`)
 
 ### Manual Setup
 
 See individual README files in each module:
 - [Backend Setup](backend/README.md)
-- [Frontend Setup](frontend/README.md)
 - [Mobile Setup](mobile/README.md)
 - [ML Engine Setup](ml-engine/README.md)
-- [Admin Dashboard Setup](admin-dashboard/README.md)
+- Admin Dashboard: See `frontend-app/` directory
 
 ## 💻 Development
 
@@ -209,11 +200,11 @@ pip install -r requirements.txt
 uvicorn main:app --reload
 ```
 
-### Frontend Development
+### Admin Dashboard Development
 ```bash
-cd frontend
+cd frontend-app
 npm install
-npm start
+npm run dev
 ```
 
 ### Mobile Development
@@ -237,8 +228,8 @@ pip install -r requirements.txt
 cd backend
 pytest
 
-# Frontend tests
-cd frontend
+# Admin Dashboard tests (if configured)
+cd frontend-app
 npm test
 
 # Mobile tests

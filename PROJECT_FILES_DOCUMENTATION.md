@@ -179,32 +179,20 @@ This document provides a one-line description of each file in the project (Backe
 
 ### Root Level Data Files
 - `local_brands_links.csv` - CSV file containing local brand links for scraping
-- `men dataset.xlsx` - Excel file with men's fashion product data
-- `women links dataset.xlsx` - Excel file with women's fashion product links
-- `Untitled spreadsheet - Sheet1.csv` - Additional product data CSV file
+- `men dataset.xlsx` - Excel file with men's fashion product data (used by scraper)
+- `women links dataset.xlsx` - Excel file with women's fashion product links (used by scraper)
 
 ---
 
 ## 📁 Other Directories
 
-### admin-dashboard/
-- `admin-dashboard/package.json` - Separate admin dashboard package configuration
-- `admin-dashboard/src/App.js` - Admin dashboard React app entry point
-- `admin-dashboard/src/index.js` - Admin dashboard React app initialization
-- `admin-dashboard/README.md` - Admin dashboard documentation
-
-### frontend/
-- `frontend/package.json` - Alternative frontend package configuration
-- `frontend/src/App.js` - Alternative frontend React app entry point
-- `frontend/src/index.js` - Alternative frontend React app initialization
-- `frontend/README.md` - Frontend documentation
-
-### mobile-app/
-- `mobile-app/App.js` - React Native mobile app entry point
-- `mobile-app/package.json` - React Native mobile app dependencies
-
 ### tests/
 - `tests/test_e2e_workflow.py` - End-to-end workflow testing script
+
+**Note**: The following directories have been removed as they were unused/placeholder:
+- `admin-dashboard/` - Old placeholder admin dashboard (replaced by `frontend-app/`)
+- `frontend/` - Old placeholder frontend (replaced by `frontend-app/`)
+- `mobile-app/` - React Native app (replaced by Flutter `mobile/`)
 
 ---
 
