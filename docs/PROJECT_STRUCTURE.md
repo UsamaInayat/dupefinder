@@ -22,22 +22,19 @@ dupefinder/
 │   ├── requirements.txt            # Python dependencies
 │   └── README.md                   # Backend documentation
 │
-├── frontend/                        # React Web Application
-│   ├── public/
-│   │   └── index.html             # HTML template
+├── frontend-app/                    # React Admin Dashboard (Vite)
 │   ├── src/
-│   │   ├── assets/                # Static assets
-│   │   ├── components/            # Reusable components
-│   │   ├── pages/                 # Page components
+│   │   ├── components/            # UI components (admin modules)
+│   │   ├── pages/                 # Page components (AdminDashboard, AdminLogin)
 │   │   ├── services/              # API services
 │   │   ├── styles/                # CSS styles
-│   │   │   ├── App.css
-│   │   │   └── index.css
-│   │   ├── utils/                 # Utility functions
-│   │   ├── App.js                 # Main app component
-│   │   └── index.js               # Entry point
+│   │   ├── context/               # React context
+│   │   ├── App.jsx                # Main app component
+│   │   ├── AppWithAuth.jsx        # Auth wrapper
+│   │   └── main.jsx               # Entry point
+│   ├── index.html                 # HTML template
 │   ├── package.json               # Node dependencies
-│   └── README.md                  # Frontend documentation
+│   └── vite.config.js             # Vite configuration
 │
 ├── mobile/                          # Flutter Mobile App
 │   ├── lib/
@@ -58,35 +55,20 @@ dupefinder/
 │   ├── similarity/                # Similarity search
 │   ├── models/                    # Trained models
 │   ├── data/                      # Training data
-│   ├── tests/                     # ML tests
 │   ├── config.yaml                # ML configuration
 │   ├── requirements.txt           # Python dependencies
 │   └── README.md                  # ML documentation
 │
-├── admin-dashboard/                 # Admin React App
-│   ├── public/
-│   │   └── index.html
-│   ├── src/
-│   │   ├── components/            # UI components
-│   │   ├── pages/                 # Dashboard pages
-│   │   ├── services/              # API services
-│   │   ├── utils/                 # Utilities
-│   │   ├── App.js
-│   │   └── index.js
-│   ├── package.json
-│   └── README.md
-│
 ├── database/                        # Database Schemas
-│   ├── schemas/
-│   │   ├── postgresql_schema.sql  # PostgreSQL tables
-│   │   └── mongodb_schema.js      # MongoDB collections
-│   ├── migrations/                # Database migrations
-│   └── seeds/                     # Seed data
+│   └── schemas/
+│       ├── postgresql_schema.sql  # PostgreSQL tables
+│       ├── mongodb_schema.js      # MongoDB collections
+│       └── sqlite_schema.sql      # SQLite schema
 │
 ├── docker/                          # Docker Configuration
 │   ├── Dockerfile.backend         # Backend container
-│   ├── Dockerfile.frontend        # Frontend container
-│   └── Dockerfile.admin           # Admin container
+│   ├── Dockerfile.frontend        # Frontend container (legacy)
+│   └── Dockerfile.admin           # Admin container (legacy)
 │
 ├── docs/                            # Documentation
 │   ├── ARCHITECTURE.md            # System architecture
@@ -226,9 +208,8 @@ See individual README.md files in each module for detailed setup instructions.
 
 ### Code Skeleton
 ✅ Backend API entry point
-✅ Frontend React app skeleton
+✅ Admin Dashboard React app (frontend-app)
 ✅ Mobile Flutter app skeleton
-✅ Admin dashboard skeleton
 ✅ Python package structure (__init__.py files)
 
 ### Documentation
@@ -249,7 +230,7 @@ See individual README.md files in each module for detailed setup instructions.
 ## Technology Stack
 
 - **Backend**: FastAPI (Python)
-- **Frontend**: React 18.x
+- **Admin Dashboard**: React 18.x (Vite)
 - **Mobile**: Flutter 3.x
 - **ML**: PyTorch, FAISS
 - **Databases**: PostgreSQL, MongoDB
@@ -261,7 +242,7 @@ See individual README.md files in each module for detailed setup instructions.
 
 **Phase 1**: ✅ Complete (Project Setup & Infrastructure)
 **Phase 2**: ⏳ Pending (Backend Foundation)
-**Phase 3**: ⏳ Pending (Frontend Foundation)
+**Phase 3**: ✅ Complete (Admin Dashboard Foundation)
 **Phase 4**: ⏳ Pending (ML Engine)
 **Phase 5**: ⏳ Pending (Admin Dashboard)
 **Phase 6**: ⏳ Pending (Testing & Deployment)

@@ -56,18 +56,13 @@ if (!(Test-Path "backend\.env")) {
     Write-Host "✓ backend\.env already exists" -ForegroundColor Green
 }
 
-if (!(Test-Path "frontend\.env")) {
-    Copy-Item "frontend\.env.example" "frontend\.env"
-    Write-Host "✓ Created frontend\.env" -ForegroundColor Green
+if (!(Test-Path "frontend-app\.env")) {
+    if (Test-Path "frontend-app\.env.example") {
+        Copy-Item "frontend-app\.env.example" "frontend-app\.env"
+        Write-Host "✓ Created frontend-app\.env" -ForegroundColor Green
+    }
 } else {
-    Write-Host "✓ frontend\.env already exists" -ForegroundColor Green
-}
-
-if (!(Test-Path "admin-dashboard\.env")) {
-    Copy-Item "admin-dashboard\.env.example" "admin-dashboard\.env"
-    Write-Host "✓ Created admin-dashboard\.env" -ForegroundColor Green
-} else {
-    Write-Host "✓ admin-dashboard\.env already exists" -ForegroundColor Green
+    Write-Host "✓ frontend-app\.env already exists" -ForegroundColor Green
 }
 
 Write-Host ""
@@ -84,15 +79,9 @@ pip install -r requirements.txt
 deactivate
 Set-Location ..
 
-# Frontend dependencies
-Write-Host "Installing frontend dependencies..." -ForegroundColor Yellow
-Set-Location frontend
-npm install
-Set-Location ..
-
-# Admin dashboard dependencies
-Write-Host "Installing admin dashboard dependencies..." -ForegroundColor Yellow
-Set-Location admin-dashboard
+# Frontend/Admin Dashboard dependencies (frontend-app)
+Write-Host "Installing frontend-app dependencies..." -ForegroundColor Yellow
+Set-Location frontend-app
 npm install
 Set-Location ..
 
@@ -121,8 +110,7 @@ Write-Host "1. Edit .env files with your configuration"
 Write-Host "2. Start services with: docker-compose up"
 Write-Host "3. Or run individual services:"
 Write-Host "   - Backend: cd backend; uvicorn main:app --reload"
-Write-Host "   - Frontend: cd frontend; npm start"
+Write-Host "   - Frontend/Admin: cd frontend-app; npm run dev"
 Write-Host "   - Mobile: cd mobile; flutter run"
-Write-Host "   - Admin: cd admin-dashboard; npm start"
 Write-Host ""
 

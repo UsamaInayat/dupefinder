@@ -54,18 +54,13 @@ else
     echo "✓ backend/.env already exists"
 fi
 
-if [ ! -f frontend/.env ]; then
-    cp frontend/.env.example frontend/.env
-    echo "✓ Created frontend/.env"
+if [ ! -f frontend-app/.env ]; then
+    if [ -f frontend-app/.env.example ]; then
+        cp frontend-app/.env.example frontend-app/.env
+        echo "✓ Created frontend-app/.env"
+    fi
 else
-    echo "✓ frontend/.env already exists"
-fi
-
-if [ ! -f admin-dashboard/.env ]; then
-    cp admin-dashboard/.env.example admin-dashboard/.env
-    echo "✓ Created admin-dashboard/.env"
-else
-    echo "✓ admin-dashboard/.env already exists"
+    echo "✓ frontend-app/.env already exists"
 fi
 
 echo ""
@@ -82,15 +77,9 @@ pip install -r requirements.txt
 deactivate
 cd ..
 
-# Frontend dependencies
-echo "Installing frontend dependencies..."
-cd frontend
-npm install
-cd ..
-
-# Admin dashboard dependencies
-echo "Installing admin dashboard dependencies..."
-cd admin-dashboard
+# Frontend/Admin Dashboard dependencies (frontend-app)
+echo "Installing frontend-app dependencies..."
+cd frontend-app
 npm install
 cd ..
 
@@ -119,8 +108,7 @@ echo "1. Edit .env files with your configuration"
 echo "2. Start services with: docker-compose up"
 echo "3. Or run individual services:"
 echo "   - Backend: cd backend && uvicorn main:app --reload"
-echo "   - Frontend: cd frontend && npm start"
+echo "   - Frontend/Admin: cd frontend-app && npm run dev"
 echo "   - Mobile: cd mobile && flutter run"
-echo "   - Admin: cd admin-dashboard && npm start"
 echo ""
 

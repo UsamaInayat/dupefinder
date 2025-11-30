@@ -80,43 +80,9 @@ services:
     restart: unless-stopped
     command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
 
-  # Frontend Web App
-  frontend:
-    build:
-      context: ./frontend
-      dockerfile: ../docker/Dockerfile.frontend
-    container_name: dupefinder-frontend
-    environment:
-      - REACT_APP_API_URL=http://localhost:8000
-    ports:
-      - "3000:3000"
-    volumes:
-      - ./frontend:/app
-      - /app/node_modules
-    depends_on:
-      - backend
-    networks:
-      - dupefinder-network
-    restart: unless-stopped
-
-  # Admin Dashboard
-  admin-dashboard:
-    build:
-      context: ./admin-dashboard
-      dockerfile: ../docker/Dockerfile.admin
-    container_name: dupefinder-admin
-    environment:
-      - REACT_APP_API_URL=http://localhost:8000
-    ports:
-      - "3001:3000"
-    volumes:
-      - ./admin-dashboard:/app
-      - /app/node_modules
-    depends_on:
-      - backend
-    networks:
-      - dupefinder-network
-    restart: unless-stopped
+  # Frontend/Admin Dashboard (frontend-app)
+  # Note: frontend-app serves as the admin dashboard
+  # Run manually with: cd frontend-app && npm run dev
 
 networks:
   dupefinder-network:
