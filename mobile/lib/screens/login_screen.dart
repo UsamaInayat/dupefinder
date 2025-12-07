@@ -15,7 +15,7 @@ class _LoginScreenState extends State<LoginScreen> {
   final _apiService = ApiService();
   bool _isLoading = false;
   bool _obscurePassword = true;
-  
+
   // Real-time error messages for each field
   String? _emailError;
   String? _passwordError;
@@ -372,7 +372,7 @@ class _LoginScreenState extends State<LoginScreen> {
                           fontSize: 12,
                           fontWeight: FontWeight.w500,
                         ),
-                      ),
+                  ),
                     ),
                   ],
                   const SizedBox(height: 16),
@@ -448,7 +448,7 @@ class _LoginScreenState extends State<LoginScreen> {
                           _buildRequirementRow('One digit (0-9)', _hasDigit),
                           _buildRequirementRow('One special character (!@#\$%...)', _hasSpecialChar),
                         ],
-                      ),
+                  ),
                     ),
                   ],
                   const SizedBox(height: 24),

@@ -163,7 +163,7 @@ class ProductScraper:
         except Exception as e:
             logger.error(f"Error scraping brand {brand_url}: {e}")
             self.errors.append(f"{brand_url}: {str(e)}")
-            return products
+        return products
     
     async def _find_product_pages(self, base_url: str, prefer_men: bool = False) -> List[str]:
         """
@@ -800,7 +800,7 @@ class ProductScraper:
                 # First, try high-res attributes
                 for attr in high_res_attributes:
                     img_url = element.get(attr)
-                    if img_url:
+                if img_url:
                         img_url_lower = img_url.lower()
                         # Skip placeholder/logo images
                         if any(pattern in img_url_lower for pattern in ['logo', 'icon', 'banner', 'placeholder', 'default', 'no-image', 'not-found', '404']):
