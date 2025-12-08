@@ -42,16 +42,16 @@ function MainApp() {
 
   // Admin Dashboard View
   if (view === 'adminDashboard') {
-    const adminToken = localStorage.getItem('adminToken')
-    const adminData = adminToken ? JSON.parse(localStorage.getItem('adminData') || '{}') : null
-    
+  const adminToken = localStorage.getItem('adminToken')
+  const adminData = adminToken ? JSON.parse(localStorage.getItem('adminData') || '{}') : null
+  
     if (adminToken && adminData) {
-      return <AdminDashboard onLogout={() => {
-        localStorage.removeItem('adminToken')
-        localStorage.removeItem('adminData')
+    return <AdminDashboard onLogout={() => {
+      localStorage.removeItem('adminToken')
+      localStorage.removeItem('adminData')
         setView('adminLogin')
-      }} />
-    }
+    }} />
+  }
   }
 
   // Fallback to admin login
