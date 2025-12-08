@@ -51,7 +51,6 @@ function AdminDashboard({ onLogout }) {
               className={`nav-item ${activeModule === module.id ? 'active' : ''}`}
               onClick={() => setActiveModule(module.id)}
             >
-              <span className="nav-icon">{module.icon}</span>
               <span className="nav-text">{module.name}</span>
             </button>
           ))}
@@ -67,7 +66,6 @@ function AdminDashboard({ onLogout }) {
       {/* Main Content */}
       <div className="admin-main">
         <div className="admin-header">
-          <h1>{modules.find(m => m.id === activeModule)?.name}</h1>
           <div className="admin-user-info">
             <span>Admin Panel</span>
           </div>

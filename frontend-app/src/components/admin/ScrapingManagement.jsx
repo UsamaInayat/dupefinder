@@ -15,6 +15,7 @@ function ScrapingManagement() {
   const [brandType, setBrandType] = useState('local') // Only 'local' is supported
   const [loadingBrands, setLoadingBrands] = useState(false)
   const [loadingHistory, setLoadingHistory] = useState(false)
+  const [selectedGender, setSelectedGender] = useState('women') // 'women' or 'men'
   
   // Prevent multiple clicks
   const isProcessingRef = useRef(false)
@@ -29,9 +30,9 @@ function ScrapingManagement() {
       top: 20px;
       right: 20px;
       padding: 15px 20px;
-      background: ${type === 'success' ? '#10b981' : '#ef4444'};
+      background: ${type === 'success' ? '#10b981' : '#EF4444'};
       color: #fff;
-      border: 2px solid ${type === 'success' ? '#059669' : '#dc2626'};
+      border: 2px solid ${type === 'success' ? '#059669' : '#EF4444'};
       border-radius: 6px;
       z-index: 10000;
       font-size: 14px;
@@ -109,16 +110,16 @@ function ScrapingManagement() {
     confirmBtn.textContent = 'Confirm'
     confirmBtn.style.cssText = `
       padding: 10px 20px;
-      background: #ef4444;
+      background: #EF4444;
       color: #fff;
-      border: 1px solid #dc2626;
+      border: 1px solid #EF4444;
       border-radius: 6px;
       cursor: pointer;
       font-size: 14px;
       font-weight: 600;
     `
-    confirmBtn.onmouseover = () => confirmBtn.style.background = '#dc2626'
-    confirmBtn.onmouseout = () => confirmBtn.style.background = '#ef4444'
+    confirmBtn.onmouseover = () => confirmBtn.style.background = '#EF4444'
+    confirmBtn.onmouseout = () => confirmBtn.style.background = '#EF4444'
     const close = () => {
       document.body.removeChild(overlay)
     }
@@ -276,6 +277,35 @@ function ScrapingManagement() {
     })
   }, [scraping])
 
+  // Select all brands for a specific gender
+  const selectAllBrands = useCallback((gender) => {
+    if (scraping || isProcessingRef.current) {
+      return
+    }
+    
+    const filteredBrands = brands.filter(b => b.gender === gender)
+    setSelectedBrands(prev => {
+      const existingBrandKeys = new Set(
+        prev.map(b => `${b.brand_name}-${b.brand_url}`)
+      )
+      const newBrands = filteredBrands.filter(
+        b => !existingBrandKeys.has(`${b.brand_name}-${b.brand_url}`)
+      )
+      return [...prev, ...newBrands]
+    })
+  }, [brands, scraping])
+
+  // Deselect all brands for a specific gender
+  const deselectAllBrands = useCallback((gender) => {
+    if (scraping || isProcessingRef.current) {
+      return
+    }
+    
+    setSelectedBrands(prev => 
+      prev.filter(b => b.gender !== gender)
+    )
+  }, [scraping])
+
   const startScraping = useCallback(async () => {
     // Prevent multiple clicks
     if (isProcessingRef.current || scraping) {
@@ -385,26 +415,9 @@ function ScrapingManagement() {
         <p>Select brands to rescrape and add new products</p>
       </div>
 
-      {/* Brand Type Selector */}
-      <div className="section-card">
-        <h3>Brand Type</h3>
-        <div style={{ marginBottom: '20px' }}>
-          <label style={{ marginRight: '15px' }}>
-            <input
-              type="radio"
-              value="local"
-              checked={brandType === 'local'}
-              onChange={() => {}}
-              disabled={scraping}
-            />
-            Local Affordable Brands
-          </label>
-        </div>
-      </div>
-
       {/* Brand Selection */}
       <div className="section-card">
-        <h3>Select Brands to Rescrape ({brandType})</h3>
+        <h3>Select Brands to Rescrape</h3>
         {loadingBrands ? (
           <p style={{ color: '#666', padding: '20px', textAlign: 'center' }}>
             Loading brands... Please wait.
@@ -415,6 +428,76 @@ function ScrapingManagement() {
           </p>
         ) : (
           <>
+            {/* Gender Toggle - Oval Shape with Line Separator */}
+            <div style={{ 
+              display: 'flex', 
+              justifyContent: 'center', 
+              alignItems: 'center', 
+              margin: '30px 0'
+            }}>
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                background: '#EF4444 !important',
+                border: '1px solid #EF4444 !important',
+                borderRadius: '50px',
+                padding: '0',
+                overflow: 'hidden',
+                boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)'
+              }}>
+                <button
+                  onClick={() => setSelectedGender('women')}
+                  className="action-btn danger"
+                  style={{
+                    padding: '10px 35px !important',
+                    background: selectedGender === 'women' ? '#DC2626 !important' : '#EF4444 !important', /* Darker when active */
+                    borderColor: selectedGender === 'women' ? '#DC2626 !important' : '#EF4444 !important',
+                    color: '#fff !important',
+                    border: `1px solid ${selectedGender === 'women' ? '#DC2626' : '#EF4444'} !important`,
+                    cursor: 'pointer',
+                    fontSize: '1rem',
+                    fontWeight: '600',
+                    transition: 'none',
+                    borderRadius: '50px 0 0 50px',
+                    opacity: '1 !important',
+                    boxShadow: selectedGender === 'women' ? '0 2px 6px rgba(220, 38, 38, 0.4)' : 'none'
+                  }}
+                  disabled={scraping}
+                >
+                  Women
+                </button>
+                
+                <div style={{
+                  width: '1px',
+                  height: '25px',
+                  background: 'rgba(255, 255, 255, 0.6)',
+                  flexShrink: 0
+                }}></div>
+                
+                <button
+                  onClick={() => setSelectedGender('men')}
+                  className="action-btn danger"
+                  style={{
+                    padding: '10px 35px !important',
+                    background: selectedGender === 'men' ? '#DC2626 !important' : '#EF4444 !important', /* Darker when active */
+                    borderColor: selectedGender === 'men' ? '#DC2626 !important' : '#EF4444 !important',
+                    color: '#fff !important',
+                    border: `1px solid ${selectedGender === 'men' ? '#DC2626' : '#EF4444'} !important`,
+                    cursor: 'pointer',
+                    fontSize: '1rem',
+                    fontWeight: '600',
+                    transition: 'none',
+                    borderRadius: '0 50px 50px 0',
+                    opacity: '1 !important',
+                    boxShadow: selectedGender === 'men' ? '0 2px 6px rgba(220, 38, 38, 0.4)' : 'none'
+                  }}
+                  disabled={scraping}
+                >
+                  Men
+                </button>
+              </div>
+            </div>
+
             {/* Separate Men's and Women's Brands */}
             {(() => {
               // Strict separation based on gender field only
@@ -423,6 +506,11 @@ function ScrapingManagement() {
               const mensBrands = brands.filter(b => b.gender === 'm')
               const womensBrands = brands.filter(b => b.gender === 'w')
               const otherBrands = brands.filter(b => b.gender !== 'm' && b.gender !== 'w')
+              
+              // Filter based on selected gender
+              const displayBrands = selectedGender === 'women' ? womensBrands : 
+                                   selectedGender === 'men' ? mensBrands : 
+                                   [...womensBrands, ...mensBrands]
               
               // Debug: log counts
               console.log('Total brands:', brands.length)
@@ -437,112 +525,59 @@ function ScrapingManagement() {
               
               return (
                 <>
-                  {/* Women's Brands Section */}
-                  {womensBrands.length > 0 && (
+                  {/* Display selected gender brands */}
+                  {displayBrands.length > 0 && (
                     <div style={{ marginBottom: '30px' }}>
-                      <h4 style={{ marginBottom: '15px', fontSize: '1.2rem', fontWeight: '600', color: '#000', borderBottom: '2px solid #000', paddingBottom: '8px' }}>
-                        Women's Brands ({womensBrands.length})
-                      </h4>
-                      <div className="brand-grid">
-                        {womensBrands.map((brand, idx) => {
-                          const isSelected = selectedBrands.some(
-                            b => b.brand_name === brand.brand_name && b.brand_url === brand.brand_url
-                          )
-                          return (
-                            <div
-                              key={`${brand.brand_name}-${brand.brand_url}-${idx}`}
-                              className={`brand-card ${isSelected ? 'selected' : ''}`}
-                              onClick={(e) => {
-                                e.preventDefault()
-                                e.stopPropagation()
-                                if (!scraping && !isProcessingRef.current) {
-                                  toggleBrandSelection(brand)
-                                }
-                              }}
-                              style={{ cursor: scraping ? 'not-allowed' : 'pointer' }}
-                            >
-                              <div className="brand-checkbox">
-                                <input
-                                  type="checkbox"
-                                  checked={isSelected}
-                                  onChange={() => {}}
-                                  disabled={scraping}
-                                />
-                              </div>
-                              <div className="brand-info">
-                                <h4>{brand.brand_name}</h4>
-                                <p>{brand.product_count || 0} products</p>
-                                {brand.category && (
-                                  <small>Category: {brand.category}</small>
-                                )}
-                                {brand.last_scraped_at && (
-                                  <small>Last: {new Date(brand.last_scraped_at).toLocaleDateString()}</small>
-                                )}
-                              </div>
-                            </div>
-                          )
-                        })}
+                      <div style={{ 
+                        display: 'flex', 
+                        justifyContent: 'space-between', 
+                        alignItems: 'center',
+                        marginBottom: '15px'
+                      }}>
+                        <h4 style={{ 
+                          fontSize: '1.2rem', 
+                          fontWeight: '600', 
+                          color: '#fff', 
+                          borderBottom: '2px solid #C98DB7', 
+                          paddingBottom: '8px',
+                          margin: 0
+                        }}>
+                          {selectedGender === 'women' ? 'Women' : 'Men'}'s Brands ({displayBrands.length})
+                        </h4>
+                        <button
+                          onClick={() => {
+                            const gender = selectedGender === 'women' ? 'w' : 'm'
+                            const allSelected = displayBrands.every(brand => 
+                              selectedBrands.some(sb => 
+                                sb.brand_name === brand.brand_name && sb.brand_url === brand.brand_url
+                              )
+                            )
+                            if (allSelected) {
+                              deselectAllBrands(gender)
+                            } else {
+                              selectAllBrands(gender)
+                            }
+                          }}
+                          disabled={scraping}
+                          className="action-btn danger"
+                          style={{ 
+                            padding: '6px 12px',
+                            fontSize: '0.875rem',
+                            marginLeft: '15px',
+                            background: '#EF4444 !important',
+                            borderColor: '#EF4444 !important',
+                            borderRadius: '50px !important'
+                          }}
+                        >
+                          {displayBrands.every(brand => 
+                            selectedBrands.some(sb => 
+                              sb.brand_name === brand.brand_name && sb.brand_url === brand.brand_url
+                            )
+                          ) ? 'Deselect All' : 'Select All'}
+                        </button>
                       </div>
-                    </div>
-                  )}
-                  
-                  {/* Men's Brands Section */}
-                  {mensBrands.length > 0 && (
-                    <div style={{ marginBottom: '30px' }}>
-                      <h4 style={{ marginBottom: '15px', fontSize: '1.2rem', fontWeight: '600', color: '#000', borderBottom: '2px solid #000', paddingBottom: '8px' }}>
-                        Men's Brands ({mensBrands.length})
-                      </h4>
                       <div className="brand-grid">
-                        {mensBrands.map((brand, idx) => {
-                          const isSelected = selectedBrands.some(
-                            b => b.brand_name === brand.brand_name && b.brand_url === brand.brand_url
-                          )
-                          return (
-                            <div
-                              key={`${brand.brand_name}-${brand.brand_url}-${idx}`}
-                              className={`brand-card ${isSelected ? 'selected' : ''}`}
-                              onClick={(e) => {
-                                e.preventDefault()
-                                e.stopPropagation()
-                                if (!scraping && !isProcessingRef.current) {
-                                  toggleBrandSelection(brand)
-                                }
-                              }}
-                              style={{ cursor: scraping ? 'not-allowed' : 'pointer' }}
-                            >
-                              <div className="brand-checkbox">
-                                <input
-                                  type="checkbox"
-                                  checked={isSelected}
-                                  onChange={() => {}}
-                                  disabled={scraping}
-                                />
-                              </div>
-                              <div className="brand-info">
-                                <h4>{brand.brand_name}</h4>
-                                <p>{brand.product_count || 0} products</p>
-                                {brand.category && (
-                                  <small>Category: {brand.category}</small>
-                                )}
-                                {brand.last_scraped_at && (
-                                  <small>Last: {new Date(brand.last_scraped_at).toLocaleDateString()}</small>
-                                )}
-                              </div>
-                            </div>
-                          )
-                        })}
-                      </div>
-                    </div>
-                  )}
-                  
-                  {/* Other Brands Section (if any) */}
-                  {otherBrands.length > 0 && (
-                    <div style={{ marginBottom: '30px' }}>
-                      <h4 style={{ marginBottom: '15px', fontSize: '1.2rem', fontWeight: '600', color: '#000', borderBottom: '2px solid #000', paddingBottom: '8px' }}>
-                        Other Brands ({otherBrands.length})
-                      </h4>
-                      <div className="brand-grid">
-                        {otherBrands.map((brand, idx) => {
+                        {displayBrands.map((brand, idx) => {
                           const isSelected = selectedBrands.some(
                             b => b.brand_name === brand.brand_name && b.brand_url === brand.brand_url
                           )
@@ -598,8 +633,13 @@ function ScrapingManagement() {
               }
             }}
             disabled={scraping || selectedBrands.length === 0 || isProcessingRef.current}
-            className="scrape-btn"
-            style={{ pointerEvents: scraping || selectedBrands.length === 0 || isProcessingRef.current ? 'none' : 'auto' }}
+            className="action-btn danger"
+            style={{ 
+              pointerEvents: scraping || selectedBrands.length === 0 || isProcessingRef.current ? 'none' : 'auto',
+              background: '#EF4444 !important',
+              borderColor: '#EF4444 !important',
+              borderRadius: '50px !important' /* Round/Oval shape */
+            }}
           >
             {scraping ? 'Scraping in Progress...' : isProcessingRef.current ? 'Starting...' : 'Start Scraping'}
           </button>
@@ -674,13 +714,13 @@ function ScrapingManagement() {
                 ).join(', ') || 'N/A'
                 
                 return (
-                  <div key={job.job_id || idx} className="history-item" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px', padding: '15px', border: '1px solid #e0e0e0', borderRadius: '4px' }}>
+                  <div key={job.job_id || idx} className="history-item" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
                     <div style={{ flex: 1 }}>
                       <div className="history-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
                         <span className={`history-status ${job.status}`} style={{ 
                           padding: '4px 12px', 
                           borderRadius: '4px', 
-                          background: job.status === 'completed' ? '#000' : job.status === 'failed' ? '#ef4444' : '#666',
+                          background: job.status === 'completed' ? '#82CE59' : job.status === 'failed' ? '#EF4444' : '#6B63CB',
                           color: '#fff',
                           fontSize: '0.85rem',
                           fontWeight: '600'
@@ -688,7 +728,7 @@ function ScrapingManagement() {
                           {job.status?.toUpperCase() || 'UNKNOWN'}
                         </span>
                       </div>
-                      <div className="history-details" style={{ display: 'flex', gap: '15px', fontSize: '0.9rem', color: '#666' }}>
+                      <div className="history-details" style={{ display: 'flex', gap: '15px', fontSize: '0.9rem', color: '#fff', opacity: 0.9 }}>
                         <span>Brands: {brandNames}</span>
                         {job.products_added !== undefined && (
                           <span>Products Added: {job.products_added}</span>
@@ -704,17 +744,18 @@ function ScrapingManagement() {
                         }
                       }}
                       disabled={deletingHistoryId === job.job_id || isProcessingRef.current}
+                      className="action-btn danger"
                       style={{
                         marginLeft: '15px',
-                        padding: '6px 12px',
-                        background: '#000',
-                        color: '#fff',
-                        border: '1px solid #fff',
-                        borderRadius: '4px',
+                        padding: '6px 12px !important',
+                        background: '#EF4444 !important',
+                        color: '#fff !important',
+                        border: '1px solid #EF4444 !important',
+                        borderRadius: '50px !important', /* Round/Oval shape */
                         cursor: deletingHistoryId === job.job_id || isProcessingRef.current ? 'not-allowed' : 'pointer',
-                        opacity: deletingHistoryId === job.job_id || isProcessingRef.current ? 0.6 : 1,
-                        fontSize: '0.85rem',
-                        fontWeight: '500',
+                        opacity: deletingHistoryId === job.job_id || isProcessingRef.current ? 0.5 : 1,
+                        fontSize: '0.875rem !important',
+                        fontWeight: '600',
                         transition: 'none',
                         pointerEvents: deletingHistoryId === job.job_id || isProcessingRef.current ? 'none' : 'auto'
                       }}
@@ -728,7 +769,7 @@ function ScrapingManagement() {
             
             {/* Pagination */}
             {historyTotalPages > 1 && (
-              <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '10px', marginTop: '20px' }}>
+              <div className="pagination" style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '20px', marginTop: '30px' }}>
                 <button
                   onClick={(e) => {
                     e.preventDefault()
@@ -738,21 +779,12 @@ function ScrapingManagement() {
                     }
                   }}
                   disabled={historyPage === 1 || isProcessingRef.current}
-                  style={{
-                    padding: '8px 16px',
-                    background: historyPage === 1 || isProcessingRef.current ? '#ccc' : '#000',
-                    color: '#fff',
-                    border: 'none',
-                    borderRadius: '4px',
-                    cursor: historyPage === 1 || isProcessingRef.current ? 'not-allowed' : 'pointer',
-                    transition: 'none',
-                    pointerEvents: historyPage === 1 || isProcessingRef.current ? 'none' : 'auto'
-                  }}
+                  className="pagination-btn"
                 >
                   Previous
                 </button>
-                <span style={{ padding: '8px 16px' }}>
-                  Page {historyPage} of {historyTotalPages}
+                <span className="pagination-info">
+                  Page {historyPage} of {historyTotalPages} ({historyTotal} total)
                 </span>
                 <button
                   onClick={(e) => {
@@ -763,16 +795,7 @@ function ScrapingManagement() {
                     }
                   }}
                   disabled={historyPage === historyTotalPages || isProcessingRef.current}
-                  style={{
-                    padding: '8px 16px',
-                    background: historyPage === historyTotalPages || isProcessingRef.current ? '#ccc' : '#000',
-                    color: '#fff',
-                    border: 'none',
-                    borderRadius: '4px',
-                    cursor: historyPage === historyTotalPages || isProcessingRef.current ? 'not-allowed' : 'pointer',
-                    transition: 'none',
-                    pointerEvents: historyPage === historyTotalPages || isProcessingRef.current ? 'none' : 'auto'
-                  }}
+                  className="pagination-btn"
                 >
                   Next
                 </button>

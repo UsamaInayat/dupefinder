@@ -43,9 +43,9 @@ function MLTraining() {
       top: 20px;
       right: 20px;
       padding: 15px 20px;
-      background: ${type === 'success' ? '#10b981' : '#ef4444'};
+      background: ${type === 'success' ? '#10b981' : '#EF4444'};
       color: #fff;
-      border: 2px solid ${type === 'success' ? '#059669' : '#dc2626'};
+      border: 2px solid ${type === 'success' ? '#059669' : '#EF4444'};
       border-radius: 6px;
       z-index: 10000;
       font-size: 14px;

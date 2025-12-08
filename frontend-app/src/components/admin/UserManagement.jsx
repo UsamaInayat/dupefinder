@@ -100,7 +100,7 @@ function UserManagement() {
               <tbody>
                 {users.length === 0 ? (
                   <tr>
-                    <td colSpan="5" style={{ textAlign: 'center', padding: '40px', color: '#666' }}>
+                    <td colSpan="5" style={{ textAlign: 'center', padding: '40px', color: '#fff', opacity: 0.9 }}>
                       No verified users found
                     </td>
                   </tr>
@@ -130,7 +130,7 @@ function UserManagement() {
             </table>
           </div>
 
-          <div className="pagination">
+          <div className="pagination" style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '20px', marginTop: '30px' }}>
             <button
               onClick={() => setPage(p => Math.max(1, p - 1))}
               disabled={page === 1}

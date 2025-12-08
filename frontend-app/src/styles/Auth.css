@@ -1,13 +1,29 @@
+@import './theme.css';
+
 .auth-container {
   min-height: 100vh;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(135deg, rgba(0, 0, 0, 0.7) 0%, rgba(0, 0, 0, 0.5) 100%),
-              url('https://images.unsplash.com/photo-1441986300917-64674bd600d8?ixlib=rb-4.0.3&auto=format&fit=crop&w=2070&q=80') center/cover no-repeat;
-  background-attachment: fixed;
+  background: linear-gradient(135deg, var(--primary-purple) 0%, var(--accent-pink) 100%);
   padding: 20px;
   position: relative;
+  overflow: hidden;
+}
+
+.auth-container::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 800"><defs><linearGradient id="grad" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" style="stop-color:%236B63CB;stop-opacity:1" /><stop offset="50%" style="stop-color:%23C98DB7;stop-opacity:1" /><stop offset="100%" style="stop-color:%236B63CB;stop-opacity:1" /></linearGradient></defs><rect width="1200" height="800" fill="url(%23grad)"/><circle cx="200" cy="150" r="100" fill="rgba(255,255,255,0.1)"/><circle cx="800" cy="300" r="150" fill="rgba(255,255,255,0.08)"/><circle cx="1000" cy="600" r="120" fill="rgba(255,255,255,0.1)"/><circle cx="300" cy="650" r="80" fill="rgba(255,255,255,0.08)"/><path d="M0,400 Q300,200 600,400 T1200,400" stroke="rgba(255,255,255,0.1)" stroke-width="2" fill="none"/><path d="M0,200 Q400,100 800,200 T1200,200" stroke="rgba(255,255,255,0.08)" stroke-width="2" fill="none"/></svg>');
+  background-size: cover;
+  background-position: center;
+  filter: blur(8px);
+  opacity: 0.6;
+  z-index: 0;
 }
 
 .auth-container::before {
@@ -29,16 +45,16 @@
 }
 
 .auth-box {
-  background: rgba(255, 255, 255, 0.98);
+  background: var(--bg-secondary);
   backdrop-filter: blur(10px);
   border-radius: 12px;
-  border: 2px solid #000;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+  border: 2px solid var(--border-light);
+  box-shadow: 0 8px 32px var(--shadow-lg);
   padding: 40px;
   max-width: 450px;
   width: 100%;
   position: relative;
-  z-index: 1;
+  z-index: 2; /* Above the blurred background */
   animation: scaleIn 0.5s cubic-bezier(0.4, 0, 0.2, 1);
   transition: all 0.3s ease;
 }
@@ -56,7 +72,7 @@
 
 .auth-header h2 {
   font-size: 2rem;
-  color: #000;
+  color: var(--text-primary);
   margin-bottom: 10px;
   font-weight: 700;
   position: relative;
@@ -71,7 +87,7 @@
   transform: translateX(-50%);
   width: 0;
   height: 3px;
-  background: #000;
+  background: var(--primary-purple);
   transition: width 0.3s ease;
 }
 
@@ -99,7 +115,7 @@
 
 .form-group label {
   font-weight: 600;
-  color: #000;
+  color: var(--text-primary);
   font-size: 0.95rem;
 }
 
@@ -122,9 +138,9 @@
 }
 
 .form-group input:hover {
-  border-color: #333;
+  border-color: var(--primary-purple);
   transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  box-shadow: 0 4px 12px var(--shadow-sm);
 }
 
 .form-group input:focus {
@@ -141,9 +157,9 @@
 }
 
 .auth-button {
-  background: #000;
-  color: white;
-  border: 2px solid #000;
+  background: var(--primary-purple);
+  color: var(--text-light);
+  border: 2px solid var(--primary-purple);
   padding: 15px;
   border-radius: 4px;
   font-size: 1.1rem;
@@ -197,29 +213,29 @@
 }
 
 .auth-error {
-  background: #f5f5f5;
-  color: #000;
+  background: var(--bg-primary);
+  color: var(--text-primary);
   padding: 12px;
   border-radius: 4px;
   font-size: 0.95rem;
-  border: 2px solid #000;
-  border-left: 4px solid #000;
+  border: 2px solid var(--danger-red);
+  border-left: 4px solid var(--danger-red);
 }
 
 .auth-success {
-  background: #f5f5f5;
-  color: #000;
+  background: var(--bg-primary);
+  color: var(--text-primary);
   padding: 12px;
   border-radius: 4px;
   font-size: 0.95rem;
-  border: 2px solid #000;
-  border-left: 4px solid #000;
+  border: 2px solid var(--success-green);
+  border-left: 4px solid var(--success-green);
 }
 
 .auth-footer {
   text-align: center;
   margin-top: 30px;
-  color: #666;
+  color: var(--text-secondary);
 }
 
 .auth-footer p {
@@ -229,7 +245,7 @@
 .auth-link-button {
   background: none;
   border: none;
-  color: #000;
+  color: var(--primary-purple);
   font-weight: 600;
   font-size: 1rem;
   cursor: pointer;
@@ -237,7 +253,7 @@
 }
 
 .auth-link-button:hover {
-  color: #333;
+  color: var(--accent-pink);
 }
 
 

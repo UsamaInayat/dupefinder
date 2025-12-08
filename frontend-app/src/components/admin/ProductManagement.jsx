@@ -54,8 +54,11 @@ function ProductManagement() {
       })
       
       if (categoryFilter === 'mens_catalogue') {
-        // Special filter for men's catalogue - filter by gender
+        // Filter for men's catalogue - filter by gender 'm'
         params.append('gender', 'm')
+      } else if (categoryFilter === 'womens_catalogue') {
+        // Filter for women's catalogue - filter by gender 'w'
+        params.append('gender', 'w')
       } else if (categoryFilter) {
         params.append('category', categoryFilter)
       }
@@ -198,16 +201,37 @@ function ProductManagement() {
       )
 
       // Fetch broken links
-      if (response.data.broken > 0 && response.data.broken_ids) {
-        const brokenProductsResponse = await axios.get(
-          `http://localhost:8000/api/admin/products?broken_links_only=true&page_size=100`,
-          { headers: { Authorization: `Bearer ${token}` } }
-        )
-        setBrokenLinks(brokenProductsResponse.data.products || [])
-        setShowBrokenLinks(true)
+      console.log('Cleanup response:', response.data)
+      if (response.data.broken > 0) {
+        try {
+          // Fetch broken links with retry
+          const brokenProductsResponse = await axios.get(
+            `http://localhost:8000/api/admin/products?broken_links_only=true&page_size=1000`,
+            { headers: { Authorization: `Bearer ${token}` } }
+          )
+          console.log('Broken links fetched:', brokenProductsResponse.data.products?.length || 0)
+          const brokenProducts = brokenProductsResponse.data.products || []
+          setBrokenLinks(brokenProducts)
+          setShowBrokenLinks(true)
+          
+          // Show notification
+          if (brokenProducts.length > 0) {
+            showNotification(`Found ${brokenProducts.length} broken image links`, 'info')
+          } else {
+            showNotification(`Found ${response.data.broken} broken links but couldn't fetch details`, 'warning')
+            setShowBrokenLinks(true) // Still show section
+          }
+        } catch (err) {
+          console.error('Failed to fetch broken links:', err)
+          // Show broken links section even if fetch fails, with count from response
+          setBrokenLinks([])
+          setShowBrokenLinks(true)
+          showNotification(`Found ${response.data.broken} broken links but couldn't fetch details. Please try again.`, 'warning')
+        }
       } else {
         setBrokenLinks([])
         setShowBrokenLinks(false)
+        showNotification('All image URLs are working!', 'success')
       }
       
       fetchProducts()
@@ -339,9 +363,9 @@ function ProductManagement() {
       top: 20px;
       right: 20px;
       padding: 15px 20px;
-      background: ${type === 'success' ? '#10b981' : '#ef4444'};
+      background: ${type === 'success' ? '#10b981' : '#EF4444'};
       color: #fff;
-      border: 2px solid ${type === 'success' ? '#059669' : '#dc2626'};
+      border: 2px solid ${type === 'success' ? '#059669' : '#EF4444'};
       border-radius: 6px;
       z-index: 10000;
       font-size: 14px;
@@ -433,16 +457,16 @@ function ProductManagement() {
     confirmBtn.textContent = 'Confirm'
     confirmBtn.style.cssText = `
       padding: 10px 20px;
-      background: #ef4444;
+      background: #EF4444;
       color: #fff;
-      border: 1px solid #dc2626;
+      border: 1px solid #EF4444;
       border-radius: 6px;
       cursor: pointer;
       font-size: 14px;
       font-weight: 600;
     `
-    confirmBtn.onmouseover = () => confirmBtn.style.background = '#dc2626'
-    confirmBtn.onmouseout = () => confirmBtn.style.background = '#ef4444'
+    confirmBtn.onmouseover = () => confirmBtn.style.background = '#EF4444'
+    confirmBtn.onmouseout = () => confirmBtn.style.background = '#EF4444'
     
     // Event handlers
     const close = () => {
@@ -486,24 +510,7 @@ function ProductManagement() {
           </div>
           <button
             onClick={handleClearAllProducts}
-            className="action-btn"
-            style={{
-              backgroundColor: '#ef4444',
-              color: '#fff',
-              border: '2px solid #dc2626',
-              padding: '10px 20px',
-              fontSize: '0.9rem',
-              fontWeight: '600',
-              borderRadius: '6px',
-              cursor: 'pointer',
-              transition: 'all 0.2s'
-            }}
-            onMouseOver={(e) => {
-              e.target.style.backgroundColor = '#dc2626'
-            }}
-            onMouseOut={(e) => {
-              e.target.style.backgroundColor = '#ef4444'
-            }}
+            className="action-btn danger"
           >
             Clear All Products ({totalProducts})
           </button>
@@ -588,16 +595,21 @@ function ProductManagement() {
       <div className="section-card">
         <h3>Image Link Cleanup</h3>
         <p>Check all product image URLs and mark broken links</p>
-        <button onClick={handleCleanupLinks} className="cleanup-btn" disabled={loading}>
+        <button onClick={handleCleanupLinks} className="action-btn danger" disabled={loading}>
           {loading ? 'Checking...' : 'Check Broken Links'}
         </button>
         
         {/* Broken Links List */}
-        {showBrokenLinks && brokenLinks.length > 0 && (
+        {showBrokenLinks && (
           <div className="broken-links-section" style={{ marginTop: '20px' }}>
-            <h4 style={{ marginBottom: '15px', fontSize: '1.1rem' }}>
-              Broken Links ({brokenLinks.length})
-            </h4>
+            {brokenLinks.length > 0 ? (
+              <>
+                <h4 style={{ marginBottom: '15px', fontSize: '1.1rem', color: '#fff' }}>
+                  Broken Image Links ({brokenLinks.length})
+                </h4>
+                <p style={{ marginBottom: '15px', fontSize: '0.9rem', color: '#fff', opacity: 0.8 }}>
+                  These products have broken image URLs and are hidden from the product catalogue. You can repair or delete them.
+                </p>
             <div className="broken-links-table">
               <table className="data-table">
                 <thead>
@@ -652,12 +664,18 @@ function ProductManagement() {
                 </tbody>
               </table>
             </div>
-          </div>
-        )}
-        
-        {showBrokenLinks && brokenLinks.length === 0 && (
-          <div style={{ marginTop: '15px', padding: '15px', background: '#f5f5f5', borderRadius: '4px', color: '#000' }}>
-            No broken links found! All image URLs are working.
+              </>
+            ) : (
+              <div style={{ padding: '15px', background: 'rgba(255, 255, 255, 0.1)', borderRadius: '4px', color: '#fff', opacity: 0.9 }}>
+                <h4 style={{ marginBottom: '10px', fontSize: '1.1rem', color: '#fff' }}>
+                  Broken Links Check Completed
+                </h4>
+                <p>No broken links found in the database. All image URLs are working.</p>
+                <p style={{ marginTop: '10px', fontSize: '0.9rem', opacity: 0.8 }}>
+                  Note: Products with broken image links are automatically hidden from the product catalogue.
+                </p>
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -677,31 +695,24 @@ function ProductManagement() {
           </button>
           <button
             className={`category-tag ${categoryFilter === 'mens_catalogue' ? 'active' : ''}`}
-            onClick={async () => {
-              // Set a special filter for men's catalogue
+            onClick={() => {
+              // Filter for men's catalogue - products from men's brands
               setCategoryFilter('mens_catalogue')
               setPage(1)
             }}
-            style={{ 
-              backgroundColor: categoryFilter === 'mens_catalogue' ? '#667eea' : '#f0f0f0',
-              color: categoryFilter === 'mens_catalogue' ? '#fff' : '#000',
-              fontWeight: categoryFilter === 'mens_catalogue' ? '600' : '400'
+          >
+            Men
+          </button>
+          <button
+            className={`category-tag ${categoryFilter === 'womens_catalogue' ? 'active' : ''}`}
+            onClick={() => {
+              // Filter for women's catalogue - products from women's brands
+              setCategoryFilter('womens_catalogue')
+              setPage(1)
             }}
           >
-            Men's Catalogue
+            Women
           </button>
-          {categories.map(cat => (
-            <button
-              key={cat.name}
-              className={`category-tag ${categoryFilter === cat.name ? 'active' : ''}`}
-              onClick={() => {
-                setCategoryFilter(cat.name)
-                setPage(1) // Reset to first page when filter changes
-              }}
-            >
-              {cat.name} ({cat.count})
-            </button>
-          ))}
         </div>
       </div>
 
@@ -754,70 +765,24 @@ function ProductManagement() {
                 )
               })}
             </div>
-            <div className="pagination-controls">
-              <button
-                onClick={() => setPage(1)}
-                disabled={page === 1 || loading}
-                className="pagination-btn"
-                title="First page"
-              >
-                ««
-              </button>
+            <div className="pagination" style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '20px', marginTop: '30px' }}>
               <button
                 onClick={() => setPage(p => Math.max(1, p - 1))}
                 disabled={page === 1 || loading}
                 className="pagination-btn"
-                title="Previous page"
               >
-                «
+                Previous
               </button>
-              
-              <div className="page-numbers">
-                {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
-                  let pageNum;
-                  if (totalPages <= 5) {
-                    pageNum = i + 1;
-                  } else if (page <= 3) {
-                    pageNum = i + 1;
-                  } else if (page >= totalPages - 2) {
-                    pageNum = totalPages - 4 + i;
-                  } else {
-                    pageNum = page - 2 + i;
-                  }
-                  
-                  return (
-                    <button
-                      key={pageNum}
-                      onClick={() => setPage(pageNum)}
-                      disabled={loading}
-                      className={`page-number-btn ${page === pageNum ? 'active' : ''}`}
-                    >
-                      {pageNum}
-                    </button>
-                  );
-                })}
-              </div>
-              
+              <span className="pagination-info">
+                Page {page} of {totalPages} ({totalProducts} total)
+              </span>
               <button
                 onClick={() => setPage(p => Math.min(totalPages, p + 1))}
                 disabled={page === totalPages || loading}
                 className="pagination-btn"
-                title="Next page"
               >
-                »
+                Next
               </button>
-              <button
-                onClick={() => setPage(totalPages)}
-                disabled={page === totalPages || loading}
-                className="pagination-btn"
-                title="Last page"
-              >
-                »»
-              </button>
-              
-              <span className="page-info">
-                Page {page} of {totalPages} ({totalProducts} total)
-              </span>
             </div>
           </>
         )}

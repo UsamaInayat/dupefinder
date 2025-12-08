@@ -17,9 +17,9 @@ sys.path.insert(0, str(PROJECT_ROOT))
 sys.path.insert(0, str(PROJECT_ROOT / "ml-engine"))
 
 from embeddings.feature_extractor import FeatureExtractor
-from backend.app.models.schemas import SearchResponse, ProductWithSimilarity
-from backend.app.core.database import get_products_collection, get_search_history_collection
-from backend.app.core.security import get_current_user
+from app.models.schemas import SearchResponse, ProductWithSimilarity
+from app.core.database import get_products_collection, get_search_history_collection
+from app.core.security import get_current_user
 
 router = APIRouter()
 

@@ -10,7 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 import logging
 
-from app.core.database import connect_to_mongo, close_mongo_connection, check_connection
+from app.core.database import connect_to_mongo, close_mongo_connection, check_connection, db_manager
 from app.core.config import settings
 
 # Configure logging
@@ -29,8 +29,13 @@ async def lifespan(app: FastAPI):
     # Startup
     logger.info("🚀 Starting DupeFinder API...")
     try:
+        # Connect async MongoDB (for async routes)
         await connect_to_mongo()
-        logger.info("✅ MongoDB Atlas connected successfully")
+        logger.info("✅ MongoDB Atlas connected successfully (async)")
+        
+        # Connect sync MongoDB (for admin dashboard routes)
+        db_manager.connect()
+        logger.info("✅ MongoDB Atlas connected successfully (sync)")
     except Exception as e:
         logger.error(f"❌ Failed to connect to MongoDB: {e}")
         raise
@@ -40,7 +45,9 @@ async def lifespan(app: FastAPI):
     # Shutdown
     logger.info("🛑 Shutting down DupeFinder API...")
     await close_mongo_connection()
-    logger.info("✅ MongoDB connection closed")
+    if db_manager.is_connected():
+        db_manager.disconnect()
+    logger.info("✅ MongoDB connections closed")
 
 
 # Create FastAPI app instance
@@ -85,15 +92,17 @@ async def health_check():
     }
 
 # Import and include routers
-from app.api.routes import database
+from app.api.routes import database, admin_new, products, auth, search
 
 # Include routers
 app.include_router(database.router)
+app.include_router(auth.router, prefix="/api/auth", tags=["Authentication"])
+app.include_router(admin_new.router, prefix="/api/admin", tags=["Admin Dashboard"])
+app.include_router(products.router, prefix="/api/products", tags=["Products"])
+app.include_router(search.router, prefix="/api/search", tags=["Search"])
 
 # TODO: Add more routers as they are implemented
-# from app.api.routes import products, search, users, reviews, analytics
-# app.include_router(products.router)
-# app.include_router(search.router)
+# from app.api.routes import users, reviews, analytics
 # app.include_router(users.router)
 # app.include_router(reviews.router)
 # app.include_router(analytics.router)

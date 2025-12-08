@@ -1,0 +1,65 @@
+/* Light Pastel Theme Variables - Professional Dashboard Palette */
+
+:root {
+  /* Primary Colors */
+  --primary-purple: #6B63CB;
+  --secondary-purple-light: #CEC7F7;
+  --secondary-purple-medium: #B5B0DA;
+  --accent-pink: #C98DB7;
+  
+  /* Background Colors */
+  --bg-primary: #FBFBFB;
+  --bg-secondary: #FFFFFF;
+  --bg-dark: #020202;
+  
+  /* Text Colors */
+  --text-primary: #020202;
+  --text-secondary: #6C757D;
+  --text-muted: #A0AEC0;
+  --text-light: #FFFFFF;
+  
+  /* Accent Colors */
+  --success-green: #82CE59;
+  --success-green-alt: #4CAF50;
+  --danger-red: #EF4444;
+  --chart-blue: #A7D9FF;
+  --chart-yellow: #F7C75C;
+  
+  /* Border Colors */
+  --border-light: #E0E0E0;
+  --border-medium: #D0D0D0;
+  --border-dark: #333333;
+  
+  /* Shadow Colors */
+  --shadow-sm: rgba(0, 0, 0, 0.05);
+  --shadow-md: rgba(0, 0, 0, 0.1);
+  --shadow-lg: rgba(0, 0, 0, 0.15);
+  --shadow-purple: rgba(107, 99, 203, 0.2);
+  
+  /* Status Colors */
+  --status-busy-bg: #FFE0EE;
+  --status-busy-text: #C98DB7;
+  --status-crowded-bg: #FCE7F6;
+  --status-crowded-text: #C98DB7;
+  
+  /* Chart Colors */
+  --chart-purple-light: #B5B0DA;
+  --chart-pink-solid: #C98DB7;
+  --chart-pink-light: #CEC7F7;
+  --chart-pink-faded: #B5B0DA;
+  
+  /* Notification Badge */
+  --notification-red: #EF4444;
+  --notification-red-alt: #E44A4A;
+  
+  /* Progress Bar */
+  --progress-fill: #6B63CB;
+  --progress-track: #F0F0F0;
+  
+  /* Legacy aliases for compatibility */
+  --secondary-pink: #C98DB7;
+  --light-purple: #B5B0DA;
+  --light-purple-bg: #CEC7F7;
+}
+
+

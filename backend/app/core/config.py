@@ -43,9 +43,9 @@ class Settings(BaseSettings):
     # JWT Authentication
     JWT_SECRET_KEY: str = "dupefinder-super-secret-key-change-in-production-12345"
     JWT_ALGORITHM: str = "HS256"
-    JWT_ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
-    JWT_REFRESH_TOKEN_EXPIRE_DAYS: int = 7
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
+    JWT_ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 30  # 30 days for admin dashboard
+    JWT_REFRESH_TOKEN_EXPIRE_DAYS: int = 30  # 30 days
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 30  # 30 days
     
     # Email (SMTP)
     SMTP_HOST: str = "smtp.gmail.com"

@@ -79,7 +79,7 @@ function Overview({ onNavigate }) {
         <div className="stat-card">
           <div className="stat-icon">▸</div>
           <div className="stat-info">
-            <h3>Active</h3>
+            <h3>Inactive</h3>
             <p>ML Model Status</p>
           </div>
         </div>
