@@ -226,6 +226,34 @@ This is an automated email. Please do not reply.
 # ============================================
 
 
+async def store_otp(email: str, otp: str) -> bool:
+    """
+    Store OTP in database with expiration
+    
+    Args:
+        email: User email
+        otp: OTP code
+        
+    Returns:
+        True if stored successfully, False otherwise
+    """
+    try:
+        otps_collection = get_otps_collection()
+        
+        # Delete any existing OTPs for this email
+        otps_collection.delete_many({"email": email})
+        
+        # Calculate expiration time
+        expires_at = datetime.utcnow() + timedelta(minutes=settings.OTP_EXPIRY_MINUTES)
+        
+        # Store new OTP
+        otps_collection.insert_one({
+            "email": email,
+            "otp_code": otp,
+            "expires_at": expires_at,
+            "is_used": False,
+            "created_at": datetime.utcnow()
+        })
         
         print(f"[OK] OTP stored for {email}, expires at {expires_at}")
         return True
