@@ -1,4 +1,4 @@
-# DupeFinder Project - Scratchpad
+dont# DupeFinder Project - Scratchpad
 
 ## Background and Motivation
 
