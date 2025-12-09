@@ -474,80 +474,89 @@ function ScrapingManagement() {
           </p>
         ) : (
           <>
-            {/* Gender Toggle - Oval Shape with Line Separator */}
+            {/* Gender Toggle - Separate Rounded Buttons */}
             <div style={{ 
               display: 'flex', 
               justifyContent: 'center', 
               alignItems: 'center', 
+              gap: '15px',
               margin: '30px 0'
             }}>
-              <div style={{
-                display: 'flex',
-                alignItems: 'center',
-                background: '#EF4444 !important',
-                border: '1px solid #EF4444 !important',
-                borderRadius: '50px',
-                padding: '0',
-                overflow: 'hidden',
-                boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)'
-              }}>
                 <button
                   onClick={() => {
                     setSelectedGender('women')
                     setBrandsPage(1)
                   }}
-                  className="action-btn danger"
+                  onMouseEnter={(e) => {
+                    if (selectedGender === 'women') {
+                      e.target.style.background = '#EF4444'
+                    } else {
+                      e.target.style.background = '#D94848'
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    if (selectedGender === 'women') {
+                      e.target.style.background = '#EF4444'
+                    } else {
+                      e.target.style.background = '#C74242'
+                    }
+                  }}
                   style={{
-                    padding: '10px 35px !important',
-                    background: selectedGender === 'women' ? '#DC2626 !important' : '#EF4444 !important', /* Darker when active */
-                    borderColor: selectedGender === 'women' ? '#DC2626 !important' : '#EF4444 !important',
-                    color: '#fff !important',
-                    border: `1px solid ${selectedGender === 'women' ? '#DC2626' : '#EF4444'} !important`,
+                    padding: '10px 30px',
+                    background: selectedGender === 'women' ? '#EF4444' : '#C74242',
+                    color: '#fff',
+                    border: 'none',
                     cursor: 'pointer',
                     fontSize: '1rem',
                     fontWeight: '600',
-                    transition: 'none',
-                    borderRadius: '50px 0 0 50px',
-                    opacity: '1 !important',
-                    boxShadow: selectedGender === 'women' ? '0 2px 6px rgba(220, 38, 38, 0.4)' : 'none'
+                    borderRadius: '50px',
+                    transition: 'all 0.2s ease',
+                    boxShadow: selectedGender === 'women' ? '0 2px 8px rgba(239, 68, 68, 0.5)' : 'none',
+                    transform: selectedGender === 'women' ? 'scale(1.05)' : 'scale(1)',
+                    opacity: selectedGender === 'women' ? '1' : '0.8'
                   }}
                   disabled={scraping}
                 >
                   Women
                 </button>
                 
-                <div style={{
-                  width: '1px',
-                  height: '25px',
-                  background: 'rgba(255, 255, 255, 0.6)',
-                  flexShrink: 0
-                }}></div>
-                
                 <button
                   onClick={() => {
                     setSelectedGender('men')
                     setBrandsPage(1)
                   }}
-                  className="action-btn danger"
+                  onMouseEnter={(e) => {
+                    if (selectedGender === 'men') {
+                      e.target.style.background = '#EF4444'
+                    } else {
+                      e.target.style.background = '#D94848'
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    if (selectedGender === 'men') {
+                      e.target.style.background = '#EF4444'
+                    } else {
+                      e.target.style.background = '#C74242'
+                    }
+                  }}
                   style={{
-                    padding: '10px 35px !important',
-                    background: selectedGender === 'men' ? '#DC2626 !important' : '#EF4444 !important', /* Darker when active */
-                    borderColor: selectedGender === 'men' ? '#DC2626 !important' : '#EF4444 !important',
-                    color: '#fff !important',
-                    border: `1px solid ${selectedGender === 'men' ? '#DC2626' : '#EF4444'} !important`,
+                    padding: '10px 30px',
+                    background: selectedGender === 'men' ? '#EF4444' : '#C74242',
+                    color: '#fff',
+                    border: 'none',
                     cursor: 'pointer',
                     fontSize: '1rem',
                     fontWeight: '600',
-                    transition: 'none',
-                    borderRadius: '0 50px 50px 0',
-                    opacity: '1 !important',
-                    boxShadow: selectedGender === 'men' ? '0 2px 6px rgba(220, 38, 38, 0.4)' : 'none'
+                    borderRadius: '50px',
+                    transition: 'all 0.2s ease',
+                    boxShadow: selectedGender === 'men' ? '0 2px 8px rgba(239, 68, 68, 0.5)' : 'none',
+                    transform: selectedGender === 'men' ? 'scale(1.05)' : 'scale(1)',
+                    opacity: selectedGender === 'men' ? '1' : '0.8'
                   }}
                   disabled={scraping}
                 >
                   Men
                 </button>
-              </div>
             </div>
 
             {/* Separate Men's and Women's Brands */}

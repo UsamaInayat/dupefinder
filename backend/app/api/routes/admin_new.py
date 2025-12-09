@@ -1229,6 +1229,9 @@ async def get_available_brands(
         gender_counts[gender] = gender_counts.get(gender, 0) + 1
     logger.info(f"Brand loading complete. Total: {len(brands)}, Gender breakdown: {gender_counts}")
     
+    # Sort brands by product_count (descending) - brands with most products first
+    brands.sort(key=lambda x: x.get("product_count", 0), reverse=True)
+    
     return {
         "brands": brands,
         "total": len(brands),

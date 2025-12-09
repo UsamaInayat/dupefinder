@@ -1,6 +1,4 @@
-// MongoDB Schema for DupeFinder - 40% Milestone
-// Database: dupefinder
-// Updated: November 9, 2025 - Switched from PostgreSQL to MongoDB
+
 
 // ============================================
 // Collection: products
