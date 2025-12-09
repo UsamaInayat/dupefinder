@@ -736,7 +736,33 @@ function ProductManagement() {
                   'https://via.placeholder.com/200?text=No+Image'
                 
                 return (
-                  <div key={product._id} className="product-card-item">
+                  <div key={product._id} className="product-card-item" style={{ position: 'relative' }}>
+                    <button
+                      onClick={() => handleDeleteLink(product._id)}
+                      className="product-delete-icon"
+                      title="Delete product"
+                      style={{
+                        position: 'absolute',
+                        top: '8px',
+                        right: '8px',
+                        background: 'linear-gradient(135deg, #dc2626, #b91c1c)',
+                        border: 'none',
+                        borderRadius: '50%',
+                        width: '32px',
+                        height: '32px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        cursor: 'pointer',
+                        zIndex: 10,
+                        boxShadow: '0 2px 4px rgba(0,0,0,0.3)',
+                        color: '#fff',
+                        fontSize: '16px',
+                        fontWeight: 'bold'
+                      }}
+                    >
+                      ×
+                    </button>
                     <div className="product-image-wrapper">
                       <img
                         src={imageUrl}

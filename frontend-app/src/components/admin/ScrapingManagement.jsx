@@ -16,6 +16,8 @@ function ScrapingManagement() {
   const [loadingBrands, setLoadingBrands] = useState(false)
   const [loadingHistory, setLoadingHistory] = useState(false)
   const [selectedGender, setSelectedGender] = useState('women') // 'women' or 'men'
+  const [brandsPage, setBrandsPage] = useState(1)
+  const brandsPerPage = 20
   
   // Prevent multiple clicks
   const isProcessingRef = useRef(false)
@@ -396,6 +398,38 @@ function ScrapingManagement() {
     fetchHistory()
   }, [historyPage, fetchHistory])
   
+  // Load saved job status on mount
+  useEffect(() => {
+    const savedJob = localStorage.getItem('scrapingJob')
+    const savedStatus = localStorage.getItem('scrapingStatus')
+    if (savedJob && savedStatus) {
+      setCurrentJob(savedJob)
+      setJobStatus(JSON.parse(savedStatus))
+      // Check if job is still running
+      const status = JSON.parse(savedStatus)
+      if (status.status === 'running') {
+        setScraping(true)
+      }
+    }
+  }, [])
+  
+  // Save job status to localStorage
+  useEffect(() => {
+    if (currentJob) {
+      localStorage.setItem('scrapingJob', currentJob)
+    }
+    if (jobStatus) {
+      localStorage.setItem('scrapingStatus', JSON.stringify(jobStatus))
+      // Clear if completed
+      if (jobStatus.status === 'completed') {
+        setTimeout(() => {
+          localStorage.removeItem('scrapingJob')
+          localStorage.removeItem('scrapingStatus')
+        }, 10000) // Clear after 10 seconds
+      }
+    }
+  }, [currentJob, jobStatus])
+  
   useEffect(() => {
     if (currentJob && scraping) {
       const interval = setInterval(() => {
@@ -446,7 +480,10 @@ function ScrapingManagement() {
                 boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)'
               }}>
                 <button
-                  onClick={() => setSelectedGender('women')}
+                  onClick={() => {
+                    setSelectedGender('women')
+                    setBrandsPage(1)
+                  }}
                   className="action-btn danger"
                   style={{
                     padding: '10px 35px !important',
@@ -475,7 +512,10 @@ function ScrapingManagement() {
                 }}></div>
                 
                 <button
-                  onClick={() => setSelectedGender('men')}
+                  onClick={() => {
+                    setSelectedGender('men')
+                    setBrandsPage(1)
+                  }}
                   className="action-btn danger"
                   style={{
                     padding: '10px 35px !important',
@@ -508,9 +548,15 @@ function ScrapingManagement() {
               const otherBrands = brands.filter(b => b.gender !== 'm' && b.gender !== 'w')
               
               // Filter based on selected gender
-              const displayBrands = selectedGender === 'women' ? womensBrands : 
-                                   selectedGender === 'men' ? mensBrands : 
-                                   [...womensBrands, ...mensBrands]
+              const allDisplayBrands = selectedGender === 'women' ? womensBrands : 
+                                      selectedGender === 'men' ? mensBrands : 
+                                      [...womensBrands, ...mensBrands]
+              
+              // Pagination
+              const totalBrandsPages = Math.ceil(allDisplayBrands.length / brandsPerPage)
+              const startIdx = (brandsPage - 1) * brandsPerPage
+              const endIdx = startIdx + brandsPerPage
+              const displayBrands = allDisplayBrands.slice(startIdx, endIdx)
               
               // Debug: log counts
               console.log('Total brands:', brands.length)
@@ -542,12 +588,12 @@ function ScrapingManagement() {
                           paddingBottom: '8px',
                           margin: 0
                         }}>
-                          {selectedGender === 'women' ? 'Women' : 'Men'}'s Brands ({displayBrands.length})
+                          {selectedGender === 'women' ? 'Women' : 'Men'}'s Brands ({allDisplayBrands.length})
                         </h4>
                         <button
                           onClick={() => {
                             const gender = selectedGender === 'women' ? 'w' : 'm'
-                            const allSelected = displayBrands.every(brand => 
+                            const allSelected = allDisplayBrands.every(brand => 
                               selectedBrands.some(sb => 
                                 sb.brand_name === brand.brand_name && sb.brand_url === brand.brand_url
                               )
@@ -569,7 +615,7 @@ function ScrapingManagement() {
                             borderRadius: '50px !important'
                           }}
                         >
-                          {displayBrands.every(brand => 
+                          {allDisplayBrands.every(brand => 
                             selectedBrands.some(sb => 
                               sb.brand_name === brand.brand_name && sb.brand_url === brand.brand_url
                             )
@@ -616,6 +662,29 @@ function ScrapingManagement() {
                           )
                         })}
                       </div>
+                      
+                      {/* Pagination for brands */}
+                      {allDisplayBrands.length > brandsPerPage && (
+                        <div className="pagination" style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '20px', marginTop: '30px' }}>
+                          <button
+                            onClick={() => setBrandsPage(p => Math.max(1, p - 1))}
+                            disabled={brandsPage === 1}
+                            className="pagination-btn"
+                          >
+                            Previous
+                          </button>
+                          <span style={{ color: 'var(--text-light)', fontWeight: '500' }}>
+                            Page {brandsPage} of {totalBrandsPages}
+                          </span>
+                          <button
+                            onClick={() => setBrandsPage(p => Math.min(totalBrandsPages, p + 1))}
+                            disabled={brandsPage === totalBrandsPages}
+                            className="pagination-btn"
+                          >
+                            Next
+                          </button>
+                        </div>
+                      )}
                     </div>
                   )}
                 </>
@@ -649,7 +718,7 @@ function ScrapingManagement() {
       </div>
 
       {/* Progress Display */}
-      {scraping && jobStatus && (
+      {jobStatus && (scraping || jobStatus.status === 'running') && (
         <div className="section-card">
           <h3>Scraping Progress</h3>
           

@@ -541,8 +541,9 @@
 }
 
 .data-table thead {
-  background: var(--primary-purple);
+  background: linear-gradient(135deg, #dc2626, #b91c1c);
   color: var(--text-light);
+  box-shadow: 0 2px 4px rgba(185, 28, 28, 0.3);
 }
 
 .data-table th {
@@ -574,7 +575,11 @@
 }
 
 .data-table tbody tr:nth-child(even) {
-  background: rgba(255, 255, 255, 0.5);
+  background: rgba(254, 202, 202, 0.3);
+}
+
+.data-table tbody tr:nth-child(odd) {
+  background: rgba(254, 226, 226, 0.3);
 }
 
 .data-table tbody tr:nth-child(1) { animation: none !important; }
@@ -584,9 +589,9 @@
 .data-table tbody tr:nth-child(5) { animation: none !important; }
 
 .data-table tbody tr:hover {
-  background: rgba(201, 141, 183, 0.4) !important;
+  background: rgba(252, 165, 165, 0.4) !important;
   transform: none !important;
-  box-shadow: none !important;
+  box-shadow: 0 2px 4px rgba(248, 113, 113, 0.2) !important;
   cursor: pointer;
   overflow: hidden;
 }
@@ -609,26 +614,27 @@
 }
 
 .status-badge.active {
-  background: var(--primary-purple);
+  background: linear-gradient(135deg, #ef4444, #dc2626);
   color: var(--text-light);
+  box-shadow: 0 2px 4px rgba(220, 38, 38, 0.3);
 }
 
 .status-badge.inactive {
-  background: var(--secondary-purple-medium);
-  color: var(--text-light);
-  opacity: 0.7;
+  background: linear-gradient(135deg, rgba(252, 165, 165, 0.7), rgba(254, 202, 202, 0.7));
+  color: #991b1b;
+  border: 1px solid rgba(248, 113, 113, 0.5);
 }
 
 .status-badge.verified {
-  background: var(--primary-purple);
+  background: linear-gradient(135deg, #dc2626, #b91c1c);
   color: var(--text-light);
+  box-shadow: 0 2px 4px rgba(185, 28, 28, 0.3);
 }
 
 .status-badge.unverified {
-  background: var(--secondary-purple-medium);
-  color: var(--text-light);
-  border: 1px solid var(--accent-pink);
-  opacity: 0.7;
+  background: linear-gradient(135deg, rgba(254, 202, 202, 0.8), rgba(254, 226, 226, 0.8));
+  color: #dc2626;
+  border: 1px solid #f87171;
 }
 
 .status-badge.broken {
@@ -685,10 +691,11 @@ button,
 .search-btn,
 .pagination-btn,
 .page-number-btn {
-  background: #EF4444 !important;
+  background: linear-gradient(135deg, #f87171, #ef4444) !important;
   color: #fff !important;
-  border-color: #EF4444 !important;
+  border-color: #dc2626 !important;
   border-radius: 50px !important; /* Round/Oval shape */
+  box-shadow: 0 2px 4px rgba(220, 38, 38, 0.3) !important;
 }
 
 button:hover,
@@ -700,9 +707,10 @@ button:hover,
 .search-btn:hover,
 .pagination-btn:hover,
 .page-number-btn:hover {
-  background: #EF4444 !important;
-  border-color: #EF4444 !important;
-  opacity: 0.9;
+  background: linear-gradient(135deg, #ef4444, #dc2626) !important;
+  border-color: #b91c1c !important;
+  opacity: 0.95;
+  box-shadow: 0 3px 6px rgba(185, 28, 28, 0.4) !important;
 }
 
 /* Destructive Buttons - Red (for delete/clear actions) */
@@ -712,7 +720,7 @@ button[style*="background-color: #ef4444"],
 button[style*="background-color: #EF4444"],
 button[style*="background-color: #dc2626"] {
   padding: 6px 12px !important;
-  background: #EF4444 !important;
+  background: linear-gradient(135deg, #dc2626, #b91c1c) !important;
   color: #fff !important;
   border: 1px solid #EF4444 !important;
   border-radius: 50px !important; /* Round/Oval shape */
@@ -725,8 +733,9 @@ button[style*="background-color: #dc2626"] {
 button[style*="background-color: #ef4444"]:hover,
 button[style*="background-color: #EF4444"]:hover,
 button[style*="background-color: #dc2626"]:hover {
-  background: #EF4444 !important;
-  border-color: #EF4444 !important;
+  background: linear-gradient(135deg, #b91c1c, #991b1b) !important;
+  border-color: #7f1d1d !important;
+  box-shadow: 0 3px 6px rgba(127, 29, 29, 0.4) !important;
   opacity: 0.9;
 }
 
@@ -1132,15 +1141,16 @@ button[style*="backgroundColor"] {
 .file-label {
   display: block;
   padding: 12px 20px;
-  background: var(--secondary-purple-light);
-  border: 2px dashed var(--secondary-purple-medium);
+  background: rgba(254, 202, 202, 0.3);
+  border: 2px dashed rgba(248, 113, 113, 0.5);
   border-radius: 4px;
   cursor: pointer;
   text-align: center;
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   position: relative;
   overflow: hidden;
-  color: var(--text-primary);
+  color: #991b1b;
+  font-weight: 500;
 }
 
 .file-label::before {
@@ -1150,7 +1160,7 @@ button[style*="backgroundColor"] {
   left: -100%;
   width: 100%;
   height: 100%;
-  background: linear-gradient(90deg, transparent, rgba(0, 0, 0, 0.05), transparent);
+  background: linear-gradient(90deg, transparent, rgba(239, 68, 68, 0.1), transparent);
   transition: left 0.5s;
 }
 
@@ -1159,8 +1169,8 @@ button[style*="backgroundColor"] {
 }
 
 .file-label:hover {
-  background: var(--light-purple-bg);
-  border-color: var(--secondary-pink);
+  background: rgba(252, 165, 165, 0.4);
+  border-color: #f87171;
   transform: translateY(-2px);
   box-shadow: 0 4px 12px var(--shadow-sm);
 }
@@ -1349,18 +1359,18 @@ button[style*="backgroundColor"] {
   width: 100%;
   height: 8px;
   border-radius: 4px;
-  background: var(--progress-track);
+  background: rgba(254, 202, 202, 0.5);
   outline: none;
   -webkit-appearance: none;
   transition: all 0.3s ease;
 }
 
 .slider:hover {
-  background: #d0d0d0;
+  background: rgba(252, 165, 165, 0.6);
 }
 
 .slider:active {
-  background: #c0c0c0;
+  background: rgba(248, 113, 113, 0.7);
 }
 
 .slider::-webkit-slider-thumb {
@@ -1369,15 +1379,16 @@ button[style*="backgroundColor"] {
   width: 24px;
   height: 24px;
   border-radius: 50%;
-  background: var(--primary-purple);
+  background: linear-gradient(135deg, #ef4444, #dc2626);
   cursor: pointer;
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  box-shadow: 0 2px 4px var(--shadow-md);
+  box-shadow: 0 2px 4px rgba(220, 38, 38, 0.4);
 }
 
 .slider::-webkit-slider-thumb:hover {
   transform: scale(1.2);
-  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+  box-shadow: 0 4px 8px rgba(185, 28, 28, 0.5);
+  background: linear-gradient(135deg, #dc2626, #b91c1c);
 }
 
 .slider::-webkit-slider-thumb:active {
@@ -1388,16 +1399,17 @@ button[style*="backgroundColor"] {
   width: 24px;
   height: 24px;
   border-radius: 50%;
-  background: var(--primary-purple);
+  background: linear-gradient(135deg, #ef4444, #dc2626);
   cursor: pointer;
   border: none;
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  box-shadow: 0 2px 4px var(--shadow-md);
+  box-shadow: 0 2px 4px rgba(220, 38, 38, 0.4);
 }
 
 .slider::-moz-range-thumb:hover {
   transform: scale(1.2);
-  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+  box-shadow: 0 4px 8px rgba(185, 28, 28, 0.5);
+  background: linear-gradient(135deg, #dc2626, #b91c1c);
 }
 
 .slider::-moz-range-thumb:active {
@@ -1609,10 +1621,10 @@ button[style*="backgroundColor"] {
 }
 
 .brand-card {
-  background: var(--secondary-purple-light);
+  background: linear-gradient(135deg, rgba(252, 165, 165, 0.3), rgba(254, 202, 202, 0.3));
   padding: 20px;
   border-radius: 6px;
-  border: 2px solid var(--secondary-purple-medium);
+  border: 2px solid rgba(248, 113, 113, 0.4);
   cursor: pointer;
   transition: none;
   display: flex;
@@ -1621,7 +1633,7 @@ button[style*="backgroundColor"] {
   position: relative;
   overflow: hidden;
   animation: none;
-  box-shadow: 0 2px 8px var(--shadow-sm);
+  box-shadow: 0 2px 8px rgba(248, 113, 113, 0.2);
 }
 
 .brand-card::before {
@@ -1629,19 +1641,19 @@ button[style*="backgroundColor"] {
 }
 
 .brand-card:hover {
-  border-color: var(--primary-purple);
+  border-color: #f87171;
   transform: none;
-  box-shadow: 0 2px 8px var(--shadow-sm);
-  background: var(--light-purple-bg);
+  box-shadow: 0 3px 10px rgba(248, 113, 113, 0.3);
+  background: linear-gradient(135deg, rgba(252, 165, 165, 0.4), rgba(254, 202, 202, 0.4));
 }
 
 .brand-card.selected {
-  background: var(--primary-purple);
+  background: linear-gradient(135deg, #ef4444, #dc2626);
   color: var(--text-light);
-  border-color: var(--accent-pink);
+  border-color: #b91c1c;
   border-width: 3px;
   animation: none;
-  box-shadow: 0 4px 12px var(--shadow-purple);
+  box-shadow: 0 4px 16px rgba(220, 38, 38, 0.5);
 }
 
 .brand-card.selected .brand-info h4,
@@ -1885,20 +1897,21 @@ button[style*="backgroundColor"] {
 }
 
 .product-card-item {
-  background: var(--secondary-purple-light);
-  border: 2px solid var(--secondary-purple-medium);
+  background: linear-gradient(135deg, rgba(255, 182, 193, 0.3), rgba(255, 160, 180, 0.2));
+  border: 2px solid rgba(255, 105, 135, 0.4);
   border-radius: 8px;
   overflow: hidden;
   display: flex;
   flex-direction: column;
   transition: all 0.2s;
   max-width: 100%;
-  box-shadow: 0 2px 8px var(--shadow-sm);
+  box-shadow: 0 2px 8px rgba(255, 105, 135, 0.2);
 }
 
 .product-card-item:hover {
-  box-shadow: 0 4px 8px var(--shadow-md);
-  border-color: var(--primary-purple);
+  box-shadow: 0 4px 12px rgba(255, 105, 135, 0.3);
+  border-color: #ff6987;
+  background: linear-gradient(135deg, rgba(255, 182, 193, 0.4), rgba(255, 160, 180, 0.3));
 }
 
 .product-image-wrapper {
@@ -1966,10 +1979,11 @@ button[style*="backgroundColor"] {
 
 .product-category-small {
   font-size: 0.8rem;
-  color: var(--text-primary);
-  background: var(--secondary-purple-medium);
+  color: #fff;
+  background: linear-gradient(135deg, #f87171, #ef4444);
   padding: 2px 8px;
   border-radius: 12px;
+  box-shadow: 0 1px 3px rgba(220, 38, 38, 0.3);
 }
 
 .product-price-small {
