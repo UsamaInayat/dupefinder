@@ -5,7 +5,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(135deg, var(--primary-purple) 0%, var(--accent-pink) 100%);
+  background: transparent;
   padding: 20px;
   position: relative;
   overflow: hidden;
@@ -13,16 +13,20 @@
 
 .auth-container::after {
   content: '';
-  position: absolute;
+  position: fixed;
   top: 0;
   left: 0;
   right: 0;
   bottom: 0;
-  background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 800"><defs><linearGradient id="grad" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" style="stop-color:%236B63CB;stop-opacity:1" /><stop offset="50%" style="stop-color:%23C98DB7;stop-opacity:1" /><stop offset="100%" style="stop-color:%236B63CB;stop-opacity:1" /></linearGradient></defs><rect width="1200" height="800" fill="url(%23grad)"/><circle cx="200" cy="150" r="100" fill="rgba(255,255,255,0.1)"/><circle cx="800" cy="300" r="150" fill="rgba(255,255,255,0.08)"/><circle cx="1000" cy="600" r="120" fill="rgba(255,255,255,0.1)"/><circle cx="300" cy="650" r="80" fill="rgba(255,255,255,0.08)"/><path d="M0,400 Q300,200 600,400 T1200,400" stroke="rgba(255,255,255,0.1)" stroke-width="2" fill="none"/><path d="M0,200 Q400,100 800,200 T1200,200" stroke="rgba(255,255,255,0.08)" stroke-width="2" fill="none"/></svg>');
+  width: 100vw;
+  height: 100vh;
+  /* Fashion-themed background image - clothing rack/fashion items for DupeFinder project */
+  background-image: url('https://images.unsplash.com/photo-1445205170230-053b83016050?ixlib=rb-4.0.3&auto=format&fit=crop&w=2000&q=80');
   background-size: cover;
   background-position: center;
-  filter: blur(8px);
-  opacity: 0.6;
+  background-repeat: no-repeat;
+  filter: blur(3px) brightness(0.6);
+  opacity: 0.85;
   z-index: 0;
 }
 
