@@ -112,24 +112,74 @@
   background: var(--secondary-purple-light);
   color: var(--text-primary);
   animation: fadeIn 0.5s ease-in;
+  padding-top: 60px; /* Space for fixed navbar */
+}
+
+/* Fixed Navbar */
+.admin-navbar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 60px;
+  background: #5A52B8;
+  display: flex;
+  align-items: center;
+  padding: 0 20px;
+  z-index: 1000;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+  border-bottom: 2px solid var(--accent-pink);
+}
+
+.hamburger-btn {
+  background: none;
+  border: none;
+  color: #fff;
+  cursor: pointer;
+  padding: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  transition: background 0.2s;
+}
+
+.hamburger-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.navbar-logo {
+  margin: 0;
+  margin-left: 15px;
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: #fff;
+}
+
+.navbar-spacer {
+  flex: 1;
 }
 
 /* Sidebar */
 .admin-sidebar {
+  position: fixed;
+  top: 60px; /* Below navbar */
+  left: 0;
   width: 260px;
+  height: calc(100vh - 60px);
   background: #5A52B8; /* Slightly darker purple for better differentiation */
   color: var(--text-light);
   display: flex;
   flex-direction: column;
-  position: fixed;
-  height: 100vh;
-  left: 0;
-  top: 0;
-  z-index: 1000;
+  transition: transform 0.3s ease;
+  z-index: 999;
   animation: slideInLeft 0.4s ease-out;
   box-shadow: 4px 0 20px var(--shadow-purple);
-  transition: transform 0.3s ease;
   overflow: hidden;
+}
+
+.admin-sidebar.collapsed {
+  transform: translateX(-100%);
 }
 
 .admin-logo {
@@ -260,7 +310,14 @@
   flex: 1;
   margin-left: 260px;
   min-height: 100vh;
+  width: calc(100% - 260px);
   animation: slideInRight 0.5s ease-out;
+  transition: margin-left 0.3s ease, width 0.3s ease;
+}
+
+.admin-main.expanded {
+  margin-left: 0;
+  width: 100%;
 }
 
 .admin-header {
@@ -273,7 +330,7 @@
   animation: slideInRight 0.4s ease-out;
   box-shadow: 0 2px 8px var(--shadow-sm);
   position: sticky;
-  top: 0;
+  top: 60px;
   z-index: 100;
 }
 
@@ -294,13 +351,15 @@
 .admin-content {
   padding: 40px;
   background: var(--secondary-purple-light);
-  min-height: calc(100vh - 90px);
+  min-height: calc(100vh - 150px); /* Account for navbar (60px) + header */
   animation: fadeIn 0.5s ease-out;
+  width: 100%;
 }
 
 /* Overview Module */
 .overview-module {
-  max-width: 1200px;
+  max-width: 100%;
+  width: 100%;
 }
 
 .welcome-section {
@@ -310,6 +369,7 @@
   border: 2px solid var(--accent-pink);
   margin-bottom: 30px;
   animation: scaleIn 0.5s ease-out;
+  width: 100%;
   transition: all 0.3s ease;
   box-shadow: 0 2px 8px var(--shadow-sm);
 }
@@ -338,6 +398,7 @@
   grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
   gap: 20px;
   margin-bottom: 30px;
+  width: 100%;
 }
 
 .stat-card {
@@ -404,6 +465,7 @@
   border-radius: 8px;
   border: 2px solid var(--accent-pink);
   box-shadow: 0 2px 8px var(--shadow-sm);
+  width: 100%;
 }
 
 .quick-actions h3 {
@@ -416,6 +478,7 @@
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
   gap: 15px;
+  width: 100%;
 }
 
 .action-btn {
@@ -483,6 +546,8 @@
   position: relative;
   overflow: hidden;
   box-shadow: 0 2px 8px var(--shadow-sm);
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .section-card::before {

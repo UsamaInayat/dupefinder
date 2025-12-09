@@ -367,24 +367,36 @@ function ScrapingManagement() {
         fetchHistory() // Refresh history only when job completes
         setSelectedBrands([])
         setCurrentJob(null)
+        setJobStatus(null)
         isProcessingRef.current = false
+        // Clear localStorage
+        localStorage.removeItem('scrapingJob')
+        localStorage.removeItem('scrapingStatus')
       } else if (response.data.status === 'failed') {
         setScraping(false)
         showNotification('Scraping failed: ' + (response.data.error || 'Unknown error'), 'error')
         fetchHistory() // Refresh history only when job fails
         setCurrentJob(null)
+        setJobStatus(null)
         isProcessingRef.current = false
+        // Clear localStorage
+        localStorage.removeItem('scrapingJob')
+        localStorage.removeItem('scrapingStatus')
       }
     } catch (error) {
       // Don't spam console with network errors
       if (error.code !== 'ERR_NETWORK' && error.code !== 'ECONNABORTED') {
         console.error('Failed to check status:', error)
       }
-      // If job doesn't exist or server is down, stop checking
-      if (error.response?.status === 404) {
+      // If job doesn't exist (404 or 500), stop checking and clear localStorage
+      if (error.response?.status === 404 || error.response?.status === 500) {
         setScraping(false)
         setCurrentJob(null)
+        setJobStatus(null)
         isProcessingRef.current = false
+        // Clear localStorage
+        localStorage.removeItem('scrapingJob')
+        localStorage.removeItem('scrapingStatus')
       }
     }
   }, [currentJob, fetchHistory])

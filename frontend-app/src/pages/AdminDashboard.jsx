@@ -10,6 +10,7 @@ import Overview from '../components/admin/Overview'
 
 function AdminDashboard({ onLogout }) {
   const [activeModule, setActiveModule] = useState('overview')
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
 
   const modules = [
     { id: 'overview', name: 'Overview', icon: '■' },
@@ -38,12 +39,25 @@ function AdminDashboard({ onLogout }) {
 
   return (
     <div className="admin-dashboard">
-      {/* Sidebar */}
-      <div className="admin-sidebar">
-        <div className="admin-logo">
-          <h2>DupeFinder Admin</h2>
-        </div>
+      {/* Fixed Header/Navbar */}
+      <div className="admin-navbar">
+        <button 
+          className="hamburger-btn"
+          onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
+          aria-label="Toggle sidebar"
+        >
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <line x1="3" y1="12" x2="21" y2="12"></line>
+            <line x1="3" y1="6" x2="21" y2="6"></line>
+            <line x1="3" y1="18" x2="21" y2="18"></line>
+          </svg>
+        </button>
+        <h2 className="navbar-logo">DupeFinder Admin</h2>
+        <div className="navbar-spacer"></div>
+      </div>
 
+      {/* Sidebar */}
+      <div className={`admin-sidebar ${sidebarCollapsed ? 'collapsed' : ''}`}>
         <nav className="admin-nav">
           {modules.map(module => (
             <button
@@ -64,7 +78,7 @@ function AdminDashboard({ onLogout }) {
       </div>
 
       {/* Main Content */}
-      <div className="admin-main">
+      <div className={`admin-main ${sidebarCollapsed ? 'expanded' : ''}`}>
         <div className="admin-header">
           <div className="admin-user-info">
             <span>Admin Panel</span>

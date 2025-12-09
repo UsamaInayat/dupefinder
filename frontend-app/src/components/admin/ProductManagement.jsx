@@ -19,6 +19,7 @@ function ProductManagement() {
   const [recentlyImported, setRecentlyImported] = useState([])
   const [showImportedData, setShowImportedData] = useState(false)
   const [failedImages, setFailedImages] = useState(new Set()) // Track products with failed image loads
+  const [cleanupProgress, setCleanupProgress] = useState(null) // Track cleanup progress
 
   useEffect(() => {
     fetchProducts()
@@ -193,12 +194,15 @@ function ProductManagement() {
     try {
       const token = localStorage.getItem('adminToken') || localStorage.getItem('token')
       setLoading(true)
+      setCleanupProgress({ status: 'checking', message: 'Checking all product image URLs...' })
       
       const response = await axios.post(
         'http://localhost:8000/api/admin/products/cleanup-links',
         {},
         { headers: { Authorization: `Bearer ${token}` } }
       )
+      
+      setCleanupProgress({ status: 'processing', message: `Checked ${response.data.total} products...` })
 
       // Fetch broken links
       console.log('Cleanup response:', response.data)
@@ -238,8 +242,10 @@ function ProductManagement() {
     } catch (error) {
       console.error('Failed to cleanup links:', error)
       showNotification('Failed to cleanup links', 'error')
+      setCleanupProgress(null)
     } finally {
       setLoading(false)
+      setTimeout(() => setCleanupProgress(null), 2000) // Clear progress after 2 seconds
     }
   }
 
@@ -598,6 +604,42 @@ function ProductManagement() {
         <button onClick={handleCleanupLinks} className="action-btn danger" disabled={loading}>
           {loading ? 'Checking...' : 'Check Broken Links'}
         </button>
+        
+        {/* Cleanup Progress */}
+        {cleanupProgress && (
+          <div className="cleanup-progress-section" style={{ 
+            marginTop: '20px',
+            padding: '20px',
+            background: 'rgba(255, 255, 255, 0.05)',
+            borderRadius: '8px',
+            border: '1px solid rgba(255, 255, 255, 0.1)'
+          }}>
+            <h4 style={{ marginBottom: '15px', fontSize: '1.1rem', color: '#fff' }}>
+              Cleanup Progress
+            </h4>
+            <p style={{ color: '#fff', marginBottom: '15px', opacity: 0.9 }}>
+              {cleanupProgress.message}
+            </p>
+            <div className="progress-bar" style={{ 
+              width: '100%',
+              height: '8px',
+              background: 'rgba(255, 255, 255, 0.1)',
+              borderRadius: '4px',
+              overflow: 'hidden'
+            }}>
+              <div 
+                className="progress-fill" 
+                style={{ 
+                  width: cleanupProgress.status === 'checking' ? '50%' : '100%',
+                  height: '100%',
+                  background: 'linear-gradient(90deg, #ef4444, #dc2626)',
+                  transition: 'width 0.5s ease',
+                  animation: cleanupProgress.status === 'checking' ? 'pulse 1.5s ease-in-out infinite' : 'none'
+                }}
+              />
+            </div>
+          </div>
+        )}
         
         {/* Broken Links List */}
         {showBrokenLinks && (
