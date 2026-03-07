@@ -772,10 +772,23 @@ function ProductManagement() {
               {products
                 .filter(product => !product.broken_link && !failedImages.has(product._id)) // Hide products with broken links AND failed image loads
                 .map(product => {
-                // Build image URL for valid products only
-                const imageUrl = product.image_url || 
-                  (product.image_path ? `http://localhost:8000/data/${product.image_path.replace(/\\/g, '/')}` : null) ||
-                  'https://via.placeholder.com/200?text=No+Image'
+                // Inline placeholder (no network) so it works when DNS/proxy fails
+                const NO_IMAGE_DATA_URI = 'data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200" viewBox="0 0 200 200"><rect fill="#374151" width="200" height="200"/><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" fill="#9ca3af" font-size="14" font-family="sans-serif">No image</text></svg>')
+                // Prefer local downloaded image; then image_url + proxy; never use external placeholder URL (causes proxy/DNS errors)
+                const localPath = product.image_path && (product.image_path.startsWith('product_images/') || product.image_path.includes('product_images'))
+                const localUrl = localPath ? `http://localhost:8000/data/${product.image_path.replace(/\\/g, '/')}` : null
+                let rawUrl = localUrl || product.image_url || (product.image_path && !product.image_path.startsWith('http') ? `http://localhost:8000/data/${product.image_path.replace(/\\/g, '/')}` : product.image_path) || null
+                if (rawUrl && (rawUrl.toLowerCase().includes('loader') || rawUrl.toLowerCase().includes('lazyload') || rawUrl.endsWith('.gif'))) rawUrl = null
+                if (rawUrl && (rawUrl.includes('via.placeholder.com') || rawUrl.includes('placeholder'))) rawUrl = null
+                const isExternal = rawUrl && /^https?:\/\//i.test(rawUrl) && !rawUrl.includes('localhost:8000')
+                const imageUrl = isExternal
+                  ? `http://localhost:8000/api/products/image-proxy?url=${encodeURIComponent(rawUrl)}`
+                  : (rawUrl || NO_IMAGE_DATA_URI)
+                // Fallback: if primary image fails, try product.image_url via proxy (when not placeholder/loader)
+                const fallbackRaw = product.image_url && !/loader|lazyload|\.gif|via\.placeholder|placeholder/i.test(product.image_url)
+                const fallbackProxyUrl = fallbackRaw && /^https?:\/\//i.test(product.image_url)
+                  ? `http://localhost:8000/api/products/image-proxy?url=${encodeURIComponent(product.image_url)}`
+                  : null
                 
                 return (
                   <div key={product._id} className="product-card-item" style={{ position: 'relative' }}>
@@ -811,12 +824,14 @@ function ProductManagement() {
                         alt={product.name}
                         className="product-image-small"
                         onError={(e) => {
-                          // If image fails to load, hide the product from display
-                          setFailedImages(prev => new Set([...prev, product._id]))
-                          // Hide the product card immediately
-                          if (e.target.closest('.product-card-item')) {
-                            e.target.closest('.product-card-item').style.display = 'none'
+                          const img = e.target
+                          img.onerror = null
+                          // If local/proxy failed, try product.image_url via proxy once before "No image"
+                          if (fallbackProxyUrl && img.src !== fallbackProxyUrl) {
+                            img.src = fallbackProxyUrl
+                            return
                           }
+                          img.src = NO_IMAGE_DATA_URI
                         }}
                         loading="lazy"
                       />

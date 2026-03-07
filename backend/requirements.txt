@@ -8,7 +8,7 @@ python-multipart>=0.0.6
 
 # Database
 sqlalchemy==2.0.23
-psycopg2-binary==2.9.9
+# psycopg2-binary: optional (no wheel for Python 3.14 yet; project uses MongoDB)
 pymongo>=4.6.0
 motor>=3.3.2  # Async MongoDB driver for Atlas
 alembic>=1.13.0
@@ -20,7 +20,7 @@ python-dotenv>=1.0.0
 PyJWT>=2.8.0
 python-jose[cryptography]>=3.3.0
 passlib[bcrypt]>=1.7.4
-bcrypt>=4.1.0
+bcrypt>=4.0.1,<4.1  # 4.1+ breaks passlib (no __about__)
 
 # Email (for OTP)
 aiosmtplib>=3.0.0
@@ -30,11 +30,12 @@ email-validator>=2.1.0
 Pillow>=10.1.0
 opencv-python>=4.8.0
 
-# ML & AI (for embedding extraction)
+# ML & AI (for embedding extraction; search route loads ml-engine)
 torch>=2.2.0
 torchvision>=0.17.0
 numpy>=1.26.0
 scipy>=1.10.0
+tqdm>=4.65.0
 
 # API & Data Validation
 pydantic>=2.5.0
@@ -44,7 +45,8 @@ pydantic-settings>=2.1.0
 httpx>=0.25.0
 aiohttp>=3.9.0
 
-# Web Scraping
+# Web Scraping (Playwright for JS-rendered pages; BeautifulSoup for parsing)
+playwright>=1.40.0
 beautifulsoup4>=4.12.0
 lxml>=4.9.0
 

@@ -6,6 +6,7 @@ Scrapes products from brand websites and stores in MongoDB with normalized categ
 import pandas as pd
 import asyncio
 import httpx
+import json
 from typing import List, Dict, Optional
 from datetime import datetime
 from bs4 import BeautifulSoup
@@ -24,10 +25,25 @@ class ProductScraper:
     """Scrapes products from brand websites"""
     
     def __init__(self):
-        # Reduced timeout to prevent hanging
+        # Browser-like headers so sites return full HTML and don't block with 403 (e.g. naviforcewatches.pk)
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+            "Accept-Language": "en-US,en;q=0.9",
+            "Accept-Encoding": "gzip, deflate, br",
+            "Sec-Ch-Ua": '"Google Chrome";v="131", "Chromium";v="131", "Not_A Brand";v="24"',
+            "Sec-Ch-Ua-Mobile": "?0",
+            "Sec-Ch-Ua-Platform": '"Windows"',
+            "Sec-Fetch-Dest": "document",
+            "Sec-Fetch-Mode": "navigate",
+            "Sec-Fetch-Site": "none",
+            "Sec-Fetch-User": "?1",
+            "Upgrade-Insecure-Requests": "1",
+        }
         self.client = httpx.AsyncClient(
             timeout=httpx.Timeout(15.0, connect=10.0),
             follow_redirects=True,
+            headers=headers,
             limits=httpx.Limits(max_keepalive_connections=5, max_connections=10)
         )
         self.scraped_count = 0
@@ -163,6 +179,247 @@ class ProductScraper:
         except Exception as e:
             logger.error(f"Error scraping brand {brand_url}: {e}")
             self.errors.append(f"{brand_url}: {str(e)}")
+        return products
+    
+    def _get_next_listing_page_url(self, soup: BeautifulSoup, current_url: str) -> Optional[str]:
+        """
+        Find the next pagination URL from a listing page (e.g. ?p=2, page=2, or Next link).
+        Returns None if no next page.
+        """
+        try:
+            from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
+            parsed = urlparse(current_url)
+            base_path = parsed.path or "/"
+            query = parse_qs(parsed.query)
+            scheme_netloc = f"{parsed.scheme or 'https'}://{parsed.netloc}"
+            
+            # 1) Look for rel="next" or link with text containing "Next", "Load More", "Show more"
+            next_link = soup.find('a', rel='next', href=True)
+            if not next_link:
+                for a in soup.find_all('a', href=True):
+                    link_text = a.get_text(strip=True).lower()
+                    if 'next' in link_text or link_text.strip() in ('»', '>'):
+                        next_link = a
+                        break
+            if not next_link:
+                for a in soup.find_all('a', href=True):
+                    link_text = a.get_text(strip=True).lower()
+                    if 'load more' in link_text or 'show more' in link_text:
+                        href = (a.get('href') or '').strip()
+                        if href and not href.startswith('#') and 'javascript' not in href.lower() and ('page=' in href or 'p=' in href):
+                            next_link = a
+                            break
+            if next_link:
+                href = next_link.get('href', '')
+                if href and not href.startswith('#') and 'javascript' not in href.lower():
+                    return urljoin(current_url, href)
+            
+            # 2) Detect current page from URL (?p=1, ?page=1, etc.)
+            current_page = 1
+            for param in ('p', 'page', 'pageNumber', 'pg'):
+                if param in query and query[param]:
+                    try:
+                        current_page = int(query[param][0])
+                        break
+                    except (ValueError, IndexError):
+                        pass
+            
+            # 3) Build next page URL (Shopify /collections/ uses ?page=; Magento often uses ?p=)
+            next_page = current_page + 1
+            if 'page' in query:
+                query['page'] = [str(next_page)]
+            elif 'p' in query:
+                query['p'] = [str(next_page)]
+            elif '/collections/' in base_path:
+                query['page'] = [str(next_page)]  # Shopify collections
+            else:
+                query['p'] = [str(next_page)]
+            new_query = urlencode({k: v[0] for k, v in query.items()}, doseq=False)
+            return f"{scheme_netloc}{base_path}?{new_query}" if new_query else None
+        except Exception as e:
+            logger.debug(f"Could not get next listing page: {e}")
+        return None
+    
+    async def _scrape_shopify_collection_json(self, collection_url: str, brand_name: str,
+                                               main_category: str, gender: Optional[str]) -> List[Dict]:
+        """
+        Fetch products from Shopify collection JSON API (e.g. shopecs.com/collections/accessories).
+        Used when the collection page is JS-rendered and HTML scraping returns 0 products.
+        """
+        products = []
+        parsed = urlparse(collection_url)
+        base = f"{parsed.scheme or 'https'}://{parsed.netloc}"
+        path = (parsed.path or "").rstrip("/")
+        if not path.endswith("/products.json"):
+            json_url = f"{base}{path}/products.json"
+        else:
+            json_url = collection_url
+        seen_handles = set()
+        page = 1
+        limit = 250
+        try:
+            while True:
+                url = f"{json_url}?page={page}&limit={limit}" if "?" not in json_url else f"{json_url}&page={page}&limit={limit}"
+                # Use Accept-Encoding: identity so response is not compressed (avoid decode issues)
+                response = await self.client.get(
+                    url,
+                    headers={"Referer": base + "/", "Accept-Encoding": "identity"},
+                )
+                if response.status_code != 200:
+                    break
+                try:
+                    raw = response.content.decode("utf-8", errors="replace")
+                    if not raw.strip():
+                        break
+                    data = json.loads(raw)
+                except (json.JSONDecodeError, ValueError):
+                    break
+                raw_products = data.get("products") or []
+                if not raw_products:
+                    break
+                for p in raw_products:
+                    handle = (p.get("handle") or "").strip()
+                    if not handle or handle in seen_handles:
+                        continue
+                    seen_handles.add(handle)
+                    title = (p.get("title") or "").strip()
+                    if not title or len(title) < 2:
+                        continue
+                    variants = p.get("variants") or []
+                    price_val = None
+                    if variants:
+                        try:
+                            price_val = float(str(variants[0].get("price", 0)))
+                        except (TypeError, ValueError):
+                            pass
+                    if not price_val or price_val <= 0:
+                        price_val = 1000.0
+                    images = p.get("images") or []
+                    image_url = ""
+                    if images:
+                        image_url = (images[0].get("src") or images[0].get("url") or "").strip()
+                    if not image_url:
+                        image_url = "https://via.placeholder.com/300?text=No+Image"
+                    product_url = f"{base}/products/{handle}"
+                    url_hash = hashlib.md5((product_url + title).encode("utf-8")).hexdigest()
+                    product_id = int(url_hash[:8], 16)
+                    cat = main_category if main_category else ("Men → Eastern" if gender == "m" else "Women → Stitched")
+                    products.append({
+                        "product_id": product_id,
+                        "name": title,
+                        "brand": brand_name,
+                        "category": cat,
+                        "product_category": "",
+                        "normalized_category": normalize_category(cat, gender),
+                        "price": price_val,
+                        "image_url": image_url,
+                        "product_url": product_url,
+                        "description": (p.get("body_html") or "")[:500].strip() or "",
+                        "scraped_at": datetime.utcnow(),
+                        "gender": gender or "m",
+                        "broken_link": False,
+                    })
+                    self.scraped_count += 1
+                logger.info(f"Shopify JSON page {page}: {len(raw_products)} products from {url}")
+                if len(raw_products) < limit:
+                    break
+                page += 1
+                await asyncio.sleep(0.5)
+            logger.info(f"Shopify collection JSON done for {brand_name}: {len(products)} products")
+        except Exception as e:
+            logger.error(f"Error fetching Shopify collection JSON {collection_url}: {e}")
+            self.errors.append(f"{collection_url}: {str(e)}")
+        return products
+
+    async def scrape_exact_listing_url(self, listing_url: str, brand_name: str,
+                                       main_category: str, gender: Optional[str] = None,
+                                       price_range: str = None,
+                                       scraper_type: Optional[str] = None) -> List[Dict]:
+        """
+        Scrape all products from an exact listing URL and all its pagination pages.
+        Use when the CSV provides a direct link to a category/listing (e.g. kameez-shalwar).
+        scraper_type: optional option from CSV (e.g. "shopify_json", "woocommerce", "generic").
+        Only when scraper_type matches an option do we use that path; otherwise default HTML scraping.
+        """
+        products = []
+        seen_product_urls = set()
+        if not gender:
+            gender = extract_gender_from_category(main_category) or "m"
+        if not main_category or main_category == "":
+            main_category = "Men → Eastern" if gender == "m" else "Women → Stitched"
+        st = (scraper_type or "").strip().lower()
+        logger.info(f"Scraping exact listing (all pages): {brand_name} from {listing_url} (scraper_type={st or 'generic'})")
+        # Option: Shopify collection JSON API (for JS-rendered Shopify stores)
+        if st == "shopify_json" and "/collections/" in (listing_url or ""):
+            return await self._scrape_shopify_collection_json(listing_url, brand_name, main_category, gender)
+        current_url = listing_url
+        page_num = 1
+        total_expected = None  # parsed from "Items 1-36 of 262"
+        empty_page_count = 0
+        max_empty_pages = 2  # stop after 2 consecutive pages with 0 new products
+        max_pages = 50  # safety limit
+        
+        try:
+            while current_url and page_num <= max_pages:
+                parsed = urlparse(current_url)
+                origin = f"{parsed.scheme or 'https'}://{parsed.netloc}/"
+                response = await self.client.get(current_url, headers={"Referer": origin})
+                if response.status_code != 200:
+                    logger.warning(f"Listing page returned {response.status_code}: {current_url}")
+                    break
+                soup = BeautifulSoup(response.text, 'html.parser')
+                # Parse "Items 1-36 of 262" to know total expected
+                if total_expected is None:
+                    import re
+                    page_text = soup.get_text()
+                    m = re.search(r'(?:items?|show)\s*(\d+)\s*-\s*(\d+)\s+of\s+(\d+)', page_text, re.I)
+                    if m:
+                        total_expected = int(m.group(3))
+                        logger.info(f"Listing reports {total_expected} total products")
+                page_products = await self._extract_products_from_page(
+                    soup, current_url, brand_name, main_category, gender
+                )
+                added = 0
+                for p in page_products:
+                    purl = p.get('product_url') or ''
+                    if purl and purl not in seen_product_urls:
+                        seen_product_urls.add(purl)
+                        products.append(p)
+                        added += 1
+                        self.scraped_count += 1
+                if added == 0:
+                    empty_page_count += 1
+                else:
+                    empty_page_count = 0
+                logger.info(f"Page {page_num}: extracted {len(page_products)} products ({added} new) from {current_url}")
+                
+                # Stop if we have enough (reached total expected) or 2 consecutive empty pages
+                if total_expected and len(products) >= total_expected:
+                    logger.info(f"Reached expected total ({total_expected} products)")
+                    break
+                if empty_page_count >= max_empty_pages:
+                    logger.info(f"Stopping after {empty_page_count} consecutive pages with no new products")
+                    break
+                next_url = self._get_next_listing_page_url(soup, current_url)
+                if not next_url or next_url == current_url:
+                    break
+                current_url = next_url
+                page_num += 1
+                await asyncio.sleep(1)
+            
+            # Deduplicate by product name for safety
+            seen_names = set()
+            unique = []
+            for p in products:
+                name = (p.get('name') or '').strip().lower()
+                if name and name not in seen_names:
+                    seen_names.add(name)
+                    unique.append(p)
+            logger.info(f"Exact listing done for {brand_name}: {len(unique)} unique products from {page_num} page(s)")
+            return unique
+        except Exception as e:
+            logger.error(f"Error scraping exact listing {listing_url}: {e}")
+            self.errors.append(f"{listing_url}: {str(e)}")
         return products
     
     async def _find_product_pages(self, base_url: str, prefer_men: bool = False) -> List[str]:
@@ -1022,6 +1279,87 @@ class ProductScraper:
             # If parsing fails, return original URL
             return url
     
+    def _extract_container_image_url(self, container, page_url: str) -> str:
+        """
+        Get the main product image URL from a product container using HTML structure.
+        Tries media wrappers first, then the first img; extracts from data-* and srcset before src.
+        """
+        # 1) Find the main image element: prefer media/image wrapper, then any img in container
+        img_elem = None
+        media_selectors = [
+            '.card__media img', '.card__image img', '.product-item-photo img', '.product-image img',
+            '.product__media img', '.product-item-info img', '[class*="media"] img', '[class*="Media"] img',
+            '[class*="product-image"] img', '[class*="Product-image"] img', '.product-item img',
+            '.product-card img', '.card img', 'a img'  # link wrapping img = usually product image
+        ]
+        for sel in media_selectors:
+            img_elem = container.select_one(sel)
+            if img_elem:
+                break
+        if not img_elem:
+            img_elem = container.select_one('img')
+        if not img_elem and getattr(container, 'parent', None):
+            img_elem = container.parent.select_one('img') if container.parent else None
+        source_elem = container.select_one('picture source[srcset], picture source[data-srcset]')
+        # ECS / Shopify: image URL in data-variant-image-srcset on link or div (not img)
+        variant_srcset_elem = container.select_one('[data-variant-image-srcset]')
+        if not img_elem and not source_elem and not variant_srcset_elem:
+            return ""
+        
+        def is_bad(url):
+            if not url or not url.strip():
+                return True
+            u = url.lower()
+            return 'loader' in u or 'lazyload' in u or 'placeholder' in u or u.rstrip('/').endswith('.gif')
+        
+        raw = ""
+        elem = img_elem or source_elem or variant_srcset_elem
+        # Priority 1: high-res data attributes (img only)
+        if img_elem:
+            for attr in ('data-zoom-image', 'data-original', 'data-origsrc', 'data-large', 'data-hd', 'data-full', 'data-image', 'data-src'):
+                raw = img_elem.get(attr)
+                if raw and not is_bad(raw):
+                    break
+        # Priority 2: srcset / data-srcset / data-variant-image-srcset - pick largest by descriptor
+        if not raw or is_bad(raw):
+            for attr in ('data-srcset', 'srcset', 'data-variant-image-srcset'):
+                val = elem.get(attr)
+                if val and 'loader' not in val.lower() and '.gif' not in val.lower():
+                    parts = [p.strip().split() for p in val.split(',')]
+                    best_url, best_size = None, 0
+                    for p in parts:
+                        if not p:
+                            continue
+                        url = p[0]
+                        size = 0
+                        if len(p) > 1:
+                            desc = p[1].lower()
+                            if 'x' in desc:
+                                try:
+                                    size = float(desc.replace('x', '').replace('w', '')) * 100
+                                except Exception:
+                                    size = 100
+                            elif 'w' in desc:
+                                try:
+                                    size = float(desc.replace('w', ''))
+                                except Exception:
+                                    size = 100
+                        if size >= best_size and not is_bad(url):
+                            best_url, best_size = url, size
+                    if best_url:
+                        raw = best_url
+                        break
+        # Priority 3: src / data-src (img only; source has no src)
+        if (not raw or is_bad(raw)) and img_elem:
+            raw = img_elem.get('src') or img_elem.get('data-src') or img_elem.get('data-lazy-src') or ""
+        if is_bad(raw):
+            return ""
+        
+        # 3) Make absolute and clean
+        full = urljoin(page_url, raw)
+        full = self._remove_size_restrictions(full)
+        return full
+    
     def _extract_description(self, soup: BeautifulSoup) -> str:
         """Extract product description"""
         selectors = [
@@ -1083,33 +1421,127 @@ class ProductScraper:
         products = []
         
         try:
-            # Look for product containers on the page - VERY AGGRESSIVE SELECTORS
-            product_containers = soup.select('.product, .product-item, .product-card, [data-product-id], .item, .product-wrapper, .product-tile, .grid-item, [class*="product"], [class*="item"], article, [class*="card"], [class*="Product"], [class*="product"], div[class*="col"], li[class*="product"], li[class*="item"]')
-            
-            # If no containers found, try to find ANY divs/li that might contain products
+            # Prefer one-container-per-product; theme-specific then generic (FTC/Naviforce, WooCommerce, Bonanza, Magento, etc.)
+            product_containers = soup.select(
+                '.ftc-product, .ftc-product-grid > *, '  # FTC theme (naviforcewatches.pk)
+                'li.product, .type-product, .woocommerce-loop-product, .product.type-product, '  # WooCommerce
+                '.sr4-product-wrapper, .t4s-product, .t4s-pr, '  # Bonanza / Shopify 4
+                'li.product-item, .product-item, .product-item-info, .product-item-details, '  # Magento (Junaid Jamshed)
+                '.product-card, .product-wrapper, .product-tile, '
+                '.card-wrapper, .product-card-wrapper, .card.card--standard, .card--media, .card.card--card, '  # Shopify Dawn (Limelight, Lawrencepur)
+                '.grid-product, .grid-product-item, .collection-product, .product-block, '
+                '.sr4-pr-slide, .t4s-pr, [class*="t4s-pr-"], [class*="sr4-pr"], '
+                '[class*="grid-product"], [class*="collection-product"], [class*="product-block"], '
+                'li[class*="grid__item"], div[class*="grid__item"], .list-collection__item, '  # Shopify grid items
+                '[class*="product-card"], [class*="ProductCard"], [class*="card-wrapper"]'
+            )
             if not product_containers:
-                # Look for any div or li that has an image and text
+                product_containers = soup.select('.product, .product-card, [data-product-id], .product-wrapper, .product-tile, .grid-item, [class*="product-item"], [class*="product-card"], [class*="card-wrapper"], li[class*="product"], article[class*="product"]')
+            if not product_containers:
+                product_containers = soup.select('.product, .item, [class*="product"], [class*="item"], article, [class*="card"], div[class*="col"], li[class*="item"]')
+            
+            # If still no containers, try divs/li with img + text
+            if not product_containers:
                 all_divs = soup.find_all(['div', 'li', 'article'], class_=True)
                 for div in all_divs:
-                    # Check if it has an image and some text
                     img = div.find('img')
                     text = div.get_text(strip=True)
                     if img and text and len(text) > 10:
                         product_containers.append(div)
             
-            logger.info(f"Found {len(product_containers)} potential product containers on page: {page_url}")
+            # Fallback: find product links then their card parent (works for any theme)
+            if not product_containers:
+                product_links = soup.find_all('a', href=True)
+                seen_containers = set()
+                for a in product_links:
+                    href = (a.get('href') or '').lower()
+                    if '/product' in href or '/products/' in href or (href.count('/') >= 2 and any(x in href for x in ['/p/', '/item/', '/goods/'])):
+                        parent = a.parent
+                        for _ in range(15):  # max 15 levels up
+                            if parent is None or parent.name not in ('div', 'li', 'article', 'section'):
+                                break
+                            if id(parent) in seen_containers:
+                                break
+                            text = parent.get_text(strip=True)
+                            has_img = parent.find('img') is not None
+                            has_price = bool(re.search(r'[Rr][Ss]\.?\s*[\d,]+|[Pp][Kk][Rr]\s*[\d,]+|[\d,]+\.?\d*\s*[Rr][Ss]', text))
+                            if has_img and has_price and len(text) > 20:
+                                seen_containers.add(id(parent))
+                                product_containers.append(parent)
+                                break
+                            parent = getattr(parent, 'parent', None)
             
-            for container in product_containers[:100]:  # Check up to 100 containers
+            # Fallback for themes that use /cart/ or variant links instead of /products/ (e.g. Sveston)
+            if not product_containers:
+                seen_cart = set()
+                for a in soup.find_all('a', href=True):
+                    href = (a.get('href') or '')
+                    if '/cart/' in href and re.search(r'\d+:\d+', href):
+                        parent = a.parent
+                        for _ in range(15):
+                            if parent is None or parent.name not in ('div', 'li', 'article', 'section'):
+                                break
+                            if id(parent) in seen_cart:
+                                break
+                            text = parent.get_text(strip=True)
+                            has_img = parent.find('img') is not None
+                            has_price = bool(re.search(r'[Rr][Ss]\.?\s*[\d,]+|[Pp][Kk][Rr]\s*[\d,]+', text))
+                            if has_img and has_price and len(text) > 15:
+                                seen_cart.add(id(parent))
+                                product_containers.append(parent)
+                                break
+                            parent = getattr(parent, 'parent', None)
+            
+            # ECS (shopecs.com): Shopify collection with data-variant-image-srcset on variant blocks; wrap in one container per product
+            if not product_containers and 'shopecs.com' in (page_url or ''):
+                variant_elems = soup.select('[data-variant-image-srcset]')
+                seen_ecs_containers = set()
+                for elem in variant_elems:
+                    parent = elem.parent
+                    for _ in range(20):
+                        if parent is None or parent.name not in ('div', 'li', 'article', 'section'):
+                            break
+                        if id(parent) in seen_ecs_containers:
+                            break
+                        text = parent.get_text(strip=True)
+                        has_heading = parent.select_one('h1, h2, h3, h4, h5, h6') is not None
+                        has_price = bool(re.search(r'[Rr][Ss]\.?\s*[\d,]+|[Pp][Kk][Rr]\s*[\d,]+', text))
+                        if has_heading and has_price and len(text) > 15:
+                            seen_ecs_containers.add(id(parent))
+                            product_containers.append(parent)
+                            break
+                        parent = getattr(parent, 'parent', None)
+            
+            logger.info(f"Found {len(product_containers)} potential product containers on page: {page_url}")
+            if not product_containers:
+                logger.warning(f"No product containers found for {page_url}; page length={len(soup.get_text())} chars")
+            max_containers = 500
+            sample_skip_reasons = []  # when many containers but 0 products, log why we skipped first few
+            for _idx, container in enumerate(product_containers[:max_containers]):
                 try:
                     # Extract product name - try multiple methods
                     product_name = ""
                     
-                    # Method 1: Look for headings
-                    name_elem = container.select_one('h1, h2, h3, h4, h5, h6, .title, .name, [class*="title"], [class*="name"], [class*="Title"], [class*="Name"]')
+                    # Method 1: Look for headings and product name elements (FTC .product_title, WooCommerce .woocommerce-loop-product__title, Magento .product-item-name, Shopify .card__heading)
+                    name_elem = container.select_one(
+                        'h1, h2, h3, h4, h5, h6, .card__heading, .product_title, .woocommerce-loop-product__title, .product-item-name, .product-item-link, '
+                        '[class*="title"]:not(button), [class*="name"]:not(button), [class*="heading"]:not(button), '
+                        '[class*="Title"]:not(button), [class*="Name"]:not(button), .title:not(button), .name:not(button)'
+                    )
                     if name_elem:
                         product_name = name_elem.get_text(strip=True)
+                    if product_name and len(product_name) < 4:
+                        product_name = ""  # likely size (S/M/L) not product name
                     
-                    # Method 2: Look for links with text
+                    # Method 2: img alt (e.g. Bonanza Satrangi - name only in alt)
+                    if not product_name:
+                        img_with_alt = container.select_one('img[alt]')
+                        if img_with_alt:
+                            alt = (img_with_alt.get('alt') or '').strip()
+                            if alt and len(alt) > 3 and len(alt) < 200:
+                                product_name = alt
+                    
+                    # Method 3: Look for links with text
                     if not product_name:
                         link = container.find('a')
                         if link:
@@ -1117,7 +1549,7 @@ class ProductScraper:
                             if link_text and len(link_text) > 3:
                                 product_name = link_text
                     
-                    # Method 3: Get first meaningful text from container
+                    # Method 4: Get first meaningful text from container
                     if not product_name:
                         container_text = container.get_text(strip=True)
                         # Split by newlines and get first meaningful line
@@ -1129,7 +1561,13 @@ class ProductScraper:
                     
                     # Skip if name is invalid
                     if not product_name or len(product_name) < 3:
+                        if _idx < 5:
+                            sample_skip_reasons.append(("no_name_or_short", product_name[:40] if product_name else "(empty)"))
                         continue
+                    
+                    # Treat generic link text as no name so we use img alt (e.g. Sveston "Product Link", "Quick Buy")
+                    if product_name and product_name.lower() in ('product link', 'quick buy', 'view all', 'add to cart'):
+                        product_name = ""
                     
                     # Comprehensive filtering for logos, placeholders, and non-product items
                     invalid_names = [
@@ -1143,26 +1581,37 @@ class ProductScraper:
                         'wishlist', 'compare', 'filter', 'sort', 'view', 'grid', 'list', 'page',
                         'next', 'previous', 'prev', 'back', 'close', 'open', 'more', 'less',
                         'all', 'new', 'sale', 'discount', 'offer', 'deal', 'promo', 'coupon',
-                        'icon', 'arrow', 'chevron', 'hamburger', 'mobile', 'desktop', 'dropdown'
+                        'icon', 'arrow', 'chevron', 'hamburger', 'mobile', 'desktop', 'dropdown',
+                        'product link', 'quick buy'
                     ]
                     
                     product_name_lower = product_name.lower()
                     if any(invalid in product_name_lower for invalid in invalid_names):
+                        if _idx < 5:
+                            sample_skip_reasons.append(("invalid_name", product_name[:40]))
                         logger.debug(f"Skipping non-product item: {product_name}")
                         continue
                     
-                    # Check if name looks like a product (should have meaningful words, not just single generic word)
+                    # Check if name looks like a product (single word allowed only for known product types)
                     name_words = product_name.split()
                     if len(name_words) < 2:
-                        # Single word names are usually not products (except valid categories)
-                        valid_single_words = ['kurta', 'shirt', 'kameez', 'shalwar', 'suit', 'dress', 'trouser', 'pant', 'jacket', 'coat', 'vest', 'waistcoat']
+                        valid_single_words = [
+                            'kurta', 'shirt', 'kameez', 'shalwar', 'suit', 'dress', 'trouser', 'pant',
+                            'jacket', 'coat', 'vest', 'waistcoat', 'sneaker', 'sneakers', 'watch', 'watches',
+                            'bag', 'wallet', 'belt', 'shoes', 'footwear', 'sweater', 'hoodie', 'blazer',
+                            'chronograph', 'diver', 'military', 'sport', 'classic', 'digital', 'analog', 'quartz', 'automatic', 'luxury'
+                        ]
                         if product_name_lower not in valid_single_words:
+                            if _idx < 5:
+                                sample_skip_reasons.append(("single_word", product_name[:40]))
                             logger.debug(f"Skipping single word (likely not product): {product_name}")
                             continue
                     
                     # Check if name is too generic (like just "Product", "Item", "New")
                     generic_words = ['product', 'item', 'new', 'sale', 'discount', 'offer', 'deal', 'view', 'see', 'more', 'all', 'shop', 'buy']
                     if len(name_words) == 1 and product_name_lower in generic_words:
+                        if _idx < 5:
+                            sample_skip_reasons.append(("generic_word", product_name[:40]))
                         logger.debug(f"Skipping generic word: {product_name}")
                         continue
                     
@@ -1182,6 +1631,8 @@ class ProductScraper:
                         
                         # If product name contains women's indicators, skip it immediately
                         if any(indicator in product_name_lower for indicator in women_indicators):
+                            if _idx < 5:
+                                sample_skip_reasons.append(("women_name", product_name[:40]))
                             logger.debug(f"Skipping women's product from men's brand (name): {product_name}")
                             continue
                         
@@ -1191,14 +1642,18 @@ class ProductScraper:
                             women_count = sum(1 for indicator in women_indicators if indicator in container_text_lower)
                             # If multiple women indicators or product name also has them, skip
                             if women_count > 0 and any(indicator in product_name_lower for indicator in women_indicators):
+                                if _idx < 5:
+                                    sample_skip_reasons.append(("women_text", product_name[:40]))
                                 logger.debug(f"Skipping women's product from men's brand (text + name): {product_name}")
                                 continue
                     
                     # Extract price - try multiple methods
                     price = None
                     
-                    # Method 1: Look for price elements
-                    price_elem = container.select_one('.price, .product-price, [class*="price"], [class*="Price"], [class*="cost"], [class*="amount"]')
+                    # Method 1: Look for price elements (Magento .price, Shopify .price__regular, etc.)
+                    price_elem = container.select_one(
+                        '.price, .product-price, .price__regular, .price__sale, [class*="price"], [class*="Price"], [class*="cost"], [class*="amount"]'
+                    )
                     if price_elem:
                         price_text = price_elem.get_text(strip=True)
                         price = self._extract_price_from_text(price_text)
@@ -1208,96 +1663,22 @@ class ProductScraper:
                         container_text = container.get_text()
                         price = self._extract_price_from_text(container_text)
                     
-                    # Extract image - prioritize high-resolution images
-                    image_url = ""
-                    img_elem = container.select_one('img')
-                    if img_elem:
-                        # Priority: High-res attributes first (zoom, original, large, hd, full)
-                        high_res_attrs = ['data-zoom-image', 'data-original', 'data-large', 'data-hd', 'data-full', 'data-image']
-                        for attr in high_res_attrs:
-                            image_url = img_elem.get(attr)
-                            if image_url:
-                                break
-                        
-                        # Fallback to regular attributes
-                        if not image_url:
-                            image_url = (
-                                img_elem.get('src') or 
-                                img_elem.get('data-src') or 
-                                img_elem.get('data-lazy-src')
-                            )
-                        
-                        if image_url:
-                            # Handle srcset - prefer largest image
-                            if img_elem.get('srcset'):
-                                srcset = img_elem.get('srcset')
-                                srcset_parts = [p.strip() for p in srcset.split(',')]
-                                largest_url = None
-                                largest_size = 0
-                                for part in srcset_parts:
-                                    parts = part.strip().split()
-                                    if len(parts) >= 1:
-                                        url = parts[0]
-                                        size = 0
-                                        if len(parts) > 1:
-                                            size_desc = parts[1].lower()
-                                            if 'x' in size_desc:
-                                                size = float(size_desc.replace('x', '')) * 100
-                                            elif 'w' in size_desc:
-                                                size = float(size_desc.replace('w', ''))
-                                        if size > largest_size:
-                                            largest_size = size
-                                            largest_url = url
-                                if largest_url:
-                                    image_url = largest_url
-                            
-                            # Handle srcset in data attribute
-                            if img_elem.get('data-srcset'):
-                                srcset = img_elem.get('data-srcset')
-                                srcset_parts = [p.strip() for p in srcset.split(',')]
-                                largest_url = None
-                                largest_size = 0
-                                for part in srcset_parts:
-                                    parts = part.strip().split()
-                                    if len(parts) >= 1:
-                                        url = parts[0]
-                                        size = 0
-                                        if len(parts) > 1:
-                                            size_desc = parts[1].lower()
-                                            if 'x' in size_desc:
-                                                size = float(size_desc.replace('x', '')) * 100
-                                            elif 'w' in size_desc:
-                                                size = float(size_desc.replace('w', ''))
-                                        if size > largest_size:
-                                            largest_size = size
-                                            largest_url = url
-                                if largest_url:
-                                    image_url = largest_url
-                            
-                            image_url = urljoin(page_url, image_url)
-                            # Remove size restrictions to get original/high-res version
-                            image_url = self._remove_size_restrictions(image_url)
-                            
-                            # Filter out logos, icons, banners, placeholders
-                            invalid_image_patterns = [
-                                'logo', 'icon', 'banner', 'placeholder', 'default', 'no-image',
-                                'not-found', '404', 'header', 'footer', 'nav', 'menu', 'social',
-                                'facebook', 'instagram', 'twitter', 'youtube', 'pinterest',
-                                'whatsapp', 'linkedin', 'share', 'cart', 'search', 'user',
-                                'account', 'login', 'arrow', 'chevron', 'close', 'menu-icon',
-                                'hamburger', 'mobile-menu', 'desktop-menu', 'dropdown'
-                            ]
-                            
-                            image_url_lower = image_url.lower()
-                            if any(pattern in image_url_lower for pattern in invalid_image_patterns):
-                                logger.debug(f"Skipping logo/icon image: {image_url}")
-                                image_url = ""
-                            
-                            # Also check if image dimensions are too small (likely an icon)
-                            # We can't check dimensions directly, but we can check filename patterns
-                            if image_url and any(x in image_url_lower for x in ['16x16', '32x32', '48x48', '64x64', 'favicon', 'apple-touch']):
-                                logger.debug(f"Skipping small icon image: {image_url}")
-                                image_url = ""
+                    # Extract image from this container's HTML structure (media wrapper + data-* / srcset / src)
+                    image_url = self._extract_container_image_url(container, page_url)
+                    if image_url:
+                        image_url_lower = image_url.lower()
+                        invalid_image_patterns = [
+                            'logo', 'icon', 'banner', 'placeholder', 'default', 'no-image',
+                            'not-found', '404', 'header', 'footer', 'nav', 'menu', 'social',
+                            'facebook', 'instagram', 'twitter', 'youtube', 'pinterest',
+                            'whatsapp', 'linkedin', 'share', 'cart', 'search', 'user',
+                            'account', 'login', 'arrow', 'chevron', 'close', 'menu-icon',
+                            'hamburger', 'mobile-menu', 'desktop-menu', 'dropdown'
+                        ]
+                        if any(pattern in image_url_lower for pattern in invalid_image_patterns):
+                            image_url = ""
+                        if image_url and any(x in image_url_lower for x in ['16x16', '32x32', '48x48', '64x64', 'favicon', 'apple-touch']):
+                            image_url = ""
                     
                     # Extract product URL if available
                     link_elem = container.find('a', href=True)
@@ -1312,6 +1693,8 @@ class ProductScraper:
                         product_url_lower = product_url.lower()
                         women_url_indicators = ['women', 'woman', 'girl', 'ladies', 'kurti', 'lehenga', 'saree', '/w/', '/women/', '/woman/', '/girl/', '/ladies/']
                         if any(indicator in product_url_lower for indicator in women_url_indicators):
+                            if _idx < 5:
+                                sample_skip_reasons.append(("women_url", product_url[:60]))
                             logger.debug(f"Skipping women's product from men's brand (URL): {product_url}")
                             continue
                     
@@ -1320,6 +1703,8 @@ class ProductScraper:
                         image_url_lower = image_url.lower()
                         women_image_indicators = ['women', 'woman', 'girl', 'ladies', 'kurti', 'lehenga', 'saree', 'female', 'ladies']
                         if any(indicator in image_url_lower for indicator in women_image_indicators):
+                            if _idx < 5:
+                                sample_skip_reasons.append(("women_image", image_url[:60]))
                             logger.debug(f"Skipping women's product from men's brand (image URL): {image_url[:50]}")
                             continue
                     
@@ -1346,7 +1731,9 @@ class ProductScraper:
                     
                     # Additional validation: Check if container has meaningful product content
                     container_text = container.get_text(strip=True)
-                    if len(container_text) < 15:  # Too short, likely not a product
+                    if len(container_text) < 8:  # Too short, likely not a product card
+                        if _idx < 5:
+                            sample_skip_reasons.append(("text_too_short", container_text[:30]))
                         logger.debug(f"Skipping container with too little text: {container_text[:50]}")
                         continue
                     
@@ -1354,6 +1741,8 @@ class ProductScraper:
                     text_lower = container_text.lower()
                     nav_words = ['menu', 'navigation', 'search', 'cart', 'account', 'login', 'register', 'sign up', 'sign in', 'home', 'about', 'contact', 'help', 'faq']
                     if any(nav_word in text_lower for nav_word in nav_words) and len(name_words) < 3:
+                        if _idx < 5:
+                            sample_skip_reasons.append(("nav_item", product_name[:40]))
                         logger.debug(f"Skipping navigation/menu item: {product_name}")
                         continue
                     
@@ -1371,28 +1760,46 @@ class ProductScraper:
                         # Product images usually have certain patterns (not logos/icons)
                         img_url_lower = image_url.lower()
                         # Check if it's likely a product image (has product-related keywords or is in product directory)
-                        product_image_indicators = ['product', 'item', 'catalog', 'collection', 'shop', 'store', 'image', 'photo', 'picture', 'jpg', 'jpeg', 'png', 'webp']
+                        product_image_indicators = ['product', 'item', 'catalog', 'collection', 'shop', 'store', 'image', 'photo', 'picture', 'jpg', 'jpeg', 'png', 'webp', 'cdn', 'files']
                         is_likely_product_image = any(indicator in img_url_lower for indicator in product_image_indicators)
                         
                         # If image doesn't look like a product image and name is generic, skip
                         if not is_likely_product_image and len(name_words) < 3:
+                            if _idx < 5:
+                                sample_skip_reasons.append(("non_product_image", product_name[:40]))
                             logger.debug(f"Skipping item with non-product image: {product_name} - {image_url[:50]}")
                             continue
                     
                     # Final check: Ensure we have at least name and price (minimum requirements)
                     if not product_name or not price or price <= 0:
+                        if _idx < 5:
+                            sample_skip_reasons.append(("no_price_or_name", f"name={bool(product_name)} price={price}"))
                         logger.debug(f"Skipping incomplete product: name={product_name}, price={price}")
                         continue
                     
                     # Additional check: Product name should not be just numbers or symbols
                     if product_name.replace(' ', '').replace('-', '').isdigit():
+                        if _idx < 5:
+                            sample_skip_reasons.append(("numeric_name", product_name[:40]))
                         logger.debug(f"Skipping numeric-only name: {product_name}")
                         continue
                     
                     # Check if price is reasonable (not too high, likely a real product price)
                     if price > 100000:  # Unlikely to be a real product price
+                        if _idx < 5:
+                            sample_skip_reasons.append(("price_too_high", f"{product_name[:30]} price={price}"))
                         logger.debug(f"Skipping item with unrealistic price: {product_name} - {price}")
                         continue
+                    
+                    # Never save loader/lazy or malformed URLs (e.g. junaidjamshed.com/mens/255&fit=bounds)
+                    if image_url:
+                        ul = image_url.lower()
+                        if 'loader' in ul or 'lazyload' in ul or image_url.rstrip('/').endswith('.gif'):
+                            image_url = 'https://via.placeholder.com/300?text=No+Image'
+                        else:
+                            path_part = ul.split('?')[0]
+                            if not any(ext in path_part for ext in ['.jpg', '.jpeg', '.png', '.webp', '.gif']) and not any(seg in path_part for seg in ['/media/', '/cdn/', '/files/', '/upload', '/product/', '/shop/files/', '/uploads/', '/wp-content/']):
+                                image_url = 'https://via.placeholder.com/300?text=No+Image'
                     
                     product = {
                         'product_id': product_id,
@@ -1414,9 +1821,19 @@ class ProductScraper:
                     logger.info(f"✓ Extracted product: {product_name} - Price: {price} - Image: {image_url[:50] if image_url else 'None'}")
                     
                 except Exception as e:
+                    if _idx < 5:
+                        sample_skip_reasons.append(("exception", str(e)[:50]))
                     logger.debug(f"Error extracting product from container: {e}")
                     continue
             
+            if product_containers and len(products) == 0:
+                sample_classes = []
+                for c in product_containers[:5]:
+                    cls = c.get("class") or []
+                    sample_classes.append(".".join(cls)[:80] if cls else str(c.name))
+                logger.warning(f"0 products from {len(product_containers)} containers on {page_url}; sample container classes: {sample_classes}")
+                if sample_skip_reasons:
+                    logger.warning(f"Sample skip reasons (first containers): {sample_skip_reasons}")
             logger.info(f"Total products extracted from {page_url}: {len(products)}")
             
         except Exception as e:
@@ -1581,16 +1998,15 @@ async def scrape_from_excel_files(men_file: str = "men dataset.xlsx",
                             brand_url = row.get("Website", "")
                             
                             if pd.notna(brand_name) and pd.notna(brand_url) and brand_url and str(brand_url).startswith("http"):
-                                # Default category for men's brands from CSV
+                                # CSV contains exact listing URLs (e.g. kameez-shalwar) – scrape that URL and all pagination
                                 main_category = "Men → Eastern"
                                 
-                                logger.info(f"Scraping {brand_name} from {brand_url} (Category: {main_category})")
-                                products = await scraper.scrape_brand_website(
-                                    brand_url, brand_name, main_category, None
+                                logger.info(f"Scraping exact listing for {brand_name} from {brand_url} (Category: {main_category})")
+                                products = await scraper.scrape_exact_listing_url(
+                                    brand_url, brand_name, main_category, "m", None
                                 )
                                 all_products.extend(products)
                                 
-                                # Small delay to avoid overwhelming servers
                                 await asyncio.sleep(2)
                 except Exception as e:
                     logger.error(f"Error reading local_brands_links.csv: {e}")

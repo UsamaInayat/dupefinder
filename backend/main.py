@@ -5,8 +5,10 @@ This is the main FastAPI application entry point.
 Run with: uvicorn main:app --reload
 """
 
+from pathlib import Path
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from contextlib import asynccontextmanager
 import logging
 
@@ -100,6 +102,12 @@ app.include_router(auth.router, prefix="/api/auth", tags=["Authentication"])
 app.include_router(admin_new.router, prefix="/api/admin", tags=["Admin Dashboard"])
 app.include_router(products.router, prefix="/api/products", tags=["Products"])
 app.include_router(search.router, prefix="/api/search", tags=["Search"])
+
+# Serve product images (downloaded during scrape) at /data/product_images/
+_data_dir = Path(__file__).resolve().parent.parent / "data"
+_data_dir.mkdir(parents=True, exist_ok=True)
+(_data_dir / "product_images").mkdir(parents=True, exist_ok=True)
+app.mount("/data", StaticFiles(directory=str(_data_dir)), name="data")
 
 # TODO: Add more routers as they are implemented
 # from app.api.routes import users, reviews, analytics

@@ -67,6 +67,9 @@ pip install -r requirements.txt
 cd ../ml-engine
 pip install -r requirements.txt
 cd ../backend
+
+# 5. Install Playwright browsers (required for Admin scraping / Auto Sync)
+playwright install chromium
 ```
 
 ### Database Setup

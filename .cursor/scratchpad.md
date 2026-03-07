@@ -1,4 +1,4 @@
-dont# DupeFinder Project - Scratchpad
+# DupeFinder Project - Scratchpad
 
 ## Background and Motivation
 
@@ -1412,6 +1412,93 @@ All ML Engine components are functional and tested!
 
 ---
 
+### EXECUTOR: Scraper – relaxed validation (still 0 products) – March 1, 2025
+
+**Status**: Changes applied; awaiting re-run of Auto Sync.
+
+**What was done** (to help “still not fetching products” for Generation, Afrozeh, etc.):
+
+1. **Price** – Default to 1999.0 PKR when price is missing or unparsed (no longer skip women’s products for missing price).
+2. **Image** – Allow products without image (use placeholder). Removed “product image indicators” check that was dropping valid items.
+3. **Single-word names** – Allow single words if length ≥ 8 or in extended list (e.g. pret, stitched, unstitched).
+4. **Lazy-load images** – Use `data-srcset` (first URL) when `src`/`data-src` not present.
+5. **Fallback product links** – Use `a[href*="/products/"], a[href*="/collections/"]` with img; accept link if `text or href.count('/') >= 3`; avoid duplicate containers.
+6. **Container text** – Require only 8+ chars (was 15) so minimal product cards are kept.
+7. **Last fallback (all_divs)** – Accept divs with img and either `len(text) > 5` or product/collection link with any text.
+
+**Ask**: Please run **Auto Sync** again for the same brands and check:
+- Backend/console for: `Found X potential product containers` and `Total products extracted from … : Y`.  
+If X > 0 but Y = 0, extraction/validation is still failing; if X = 0, selectors don’t match the site HTML. Share those two numbers (and brand/URL) if it’s still 0 products so we can add site-specific handling or debug further.
+
+---
+
+### EXECUTOR: Product Catalogue images still "No image" after Auto Sync – March 2, 2025
+
+**Status**: Changes applied; please run Auto Sync again and refresh Product Catalogue.
+
+**What was done**:
+1. **Frontend (ProductManagement.jsx)** – If the primary image (local or proxy) fails to load, we now try **product.image_url** via the image-proxy once before showing "No image".
+2. **Backend (_looks_like_image_url in admin_new.py)** – Relaxed validation: added path segments `/catalog/`, `/img/`, `/images/`, `/assets/`, `/static/`, `/mens/`, `/women/`, `/womens/` so more URLs (e.g. Junaid Jamshed–style) are attempted for download.
+
+**Ask**: Run Auto Sync again for the affected brands, then refresh Product Catalogue. If many still show "No image", we can check MongoDB for `image_path` vs `image_url` on a few products.
+
+---
+
+### EXECUTOR: Still 0 products – local brands CSV-only + test endpoint – March 2, 2025
+
+**Status**: Changes applied. Please test and share backend logs if still 0.
+
+**What was done**:
+1. **Local brands source** – For brand_type "local", brands are now loaded **only** from `local_brands_links.csv` (Excel is skipped). So the list and URLs in Auto Sync come only from the CSV and match the exact listing links.
+2. **Invalid URL handling** – If a brand has no valid `brand_url` (empty or not starting with `http`), the job skips it and appends a log: "Skipping {name}: no valid URL".
+3. **Debug endpoint** – `GET /api/admin/scraping/test-one` (no auth) runs the scraper on the **Bonanza Satrangi** CSV row and returns `{ ok, products_count, brand_url, sample }`. Open in browser: `http://localhost:8000/api/admin/scraping/test-one` after starting the backend to see if the scraper returns products for that URL.
+4. **Scraper logging** – If the page has product containers but 0 products pass validation, we now log: "0 products from N containers; sample container classes: [...]" to see why extraction failed.
+
+**Please do**:
+1. Restart backend (`cd backend` then `python -m uvicorn app.main:app --reload --port 8000`).
+2. Open `http://localhost:8000/api/admin/scraping/test-one` in the browser. Note `products_count` and any `error`.
+3. In Auto Sync, select **Local Affordable Brands**, select one brand (e.g. Bonanza Satrangi), click **Start Scraping**. Watch backend console for "Job … brand[0]: name=… url=…" and "Found X products from …".
+4. If still 0: copy from backend logs the line with "Found N potential product containers" and, if present, "0 products from N containers; sample container classes: …" and share brand name + URL.
+
+---
+
+### EXECUTOR: Naviforce 0 products – debug-fetch endpoint – March 2, 2025
+
+**Status**: Diagnostic added; need your result to confirm cause.
+
+**Cause (from prior session)**: Naviforce men page (`https://naviforcewatches.pk/men/`) may be **JS-rendered**: the product grid is not in the initial HTML, so our httpx+BeautifulSoup scraper sees no product containers. Alternatively the server may return full HTML only for certain requests (e.g. with Referer).
+
+**What was done**:
+1. **Debug endpoint** – `GET /api/admin/scraping/debug-fetch?url=<encoded_url>` (admin auth required). It uses the **same** HTTP client and headers as the scraper (Chrome UA + Referer), fetches the URL, and returns: `status_code`, `content_length`, `num_ftc_product_or_grid`, `num_product_containers`, and `body_preview` (first 600 chars).
+
+**Please do**:
+1. Restart backend, log in to Admin, then in browser open:  
+   `http://localhost:8000/api/admin/scraping/debug-fetch?url=https%3A%2F%2Fnaviforcewatches.pk%2Fmen%2F`  
+   (You must be logged in so the request sends the admin token, or use a tool that sends your Bearer token.)
+2. Share the JSON response: especially `content_length`, `num_ftc_product_or_grid`, `num_product_containers`, and whether `body_preview` contains product markup (e.g. "ftc-product") or only nav/menu text.
+
+**Next step**: If `num_product_containers` is 0 and `body_preview` has no product grid, the page is JS-rendered and we need either a headless browser (Playwright) or to find the site’s product API. If the backend sees full HTML with containers, the issue is elsewhere (e.g. extraction/validation).
+
+**Follow-up (same day)**: User ran Debug fetch; backend received **543 containers** and ~906KB HTML. So the page is not JS-only—extraction/validation was dropping all 543. Changes made: (1) Added WooCommerce name selector `.woocommerce-loop-product__title`. (2) Added watch-related single words (chronograph, diver, military, sport, classic, digital, analog, quartz, automatic, luxury). (3) Allowed `/wp-content/` in image path so WooCommerce uploads URLs are not replaced with placeholder. (4) When 0 products from many containers, backend now logs **Sample skip reasons** for the first 5 containers (e.g. no_name_or_short, single_word, invalid_name). User should run Auto Sync for Naviforce again; if still 0, share backend log line containing "Sample skip reasons".
+
+---
+
+### EXECUTOR: Multiple links per brand (e.g. Sapphire Pret) – March 2, 2025
+
+**Status**: Implemented ✅
+
+**What was done**:
+1. **CSV format** – `Website` column can now contain multiple URLs per brand, separated by `|` (e.g. `url1|url2|url3`). No new columns.
+2. **Backend – get_available_brands** – For both men’s and women’s CSV: if `Website` has `|`, split and trim to get `brand_urls`; `brand_url` remains the first URL (for display). Both CSVs support multiple links.
+3. **Backend – run_scraping_job** – For each brand we use `brand_urls` if present, else `[brand_url]`. Each URL is scraped with the same `scraper_type`; products are merged and **deduped by product_url**, then stored in MongoDB as before. Logs show e.g. "Scraping: &lt;url&gt;" per link and "Found X products from {brand} (N link(s))".
+4. **Women’s CSV – Sapphire Pret** – `Website` set to the six collection URLs (rtw-smart-casual, rtw-formal, rtw-shirts, rtw-short-kurti, dupattas-shawls, ready-to-wear-outfits), pipe-separated.
+
+**Success criteria**: Sapphire Pret (Women) in Auto Sync runs one job that scrapes all 6 links and stores merged, deduped products. Other brands with a single URL behave unchanged.
+
+**Ask**: Please run Auto Sync for **Sapphire Pret** (Women → Local Affordable Brands) and confirm product count and logs. Mark task complete after verification.
+
+---
+
 ## Executor's Feedback or Assistance Requests
 
 <<<<<<< HEAD
@@ -1887,3 +1974,4 @@ The Planner has created a complete implementation plan for the new requirements:
 - **ResNet50 Download**: First time running ResNet50 model downloads 97.8 MB from PyTorch model zoo. Takes ~1 minute on average internet connection. Subsequent runs are instant (cached in ~/.cache/torch/).
 - **CPU vs GPU for 40% Milestone**: CPU inference (402ms per image) is sufficient for 40% demo with 50-100 products. GPU optimization can be deferred to 60% milestone when scaling up.
 - **PostgreSQL Installation Issues on Windows**: PostgreSQL installation can be problematic on Windows due to permissions, antivirus, or system configurations. MongoDB is a better alternative for this project as it: (1) has easier Windows installation, (2) stores embeddings natively as arrays, (3) is more flexible for image metadata, and (4) aligns with the original proposal's architecture.
+- **Product Catalogue "No image"**: If rescrape runs but most products still show "No image", (1) relax `_looks_like_image_url` to allow more path segments (e.g. `/mens/`, `/catalog/`, `/img/`) so download is attempted; (2) in frontend, on image onError try `product.image_url` via image-proxy before falling back to "No image".

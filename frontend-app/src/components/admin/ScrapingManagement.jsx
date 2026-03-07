@@ -18,7 +18,6 @@ function ScrapingManagement() {
   const [selectedGender, setSelectedGender] = useState('women') // 'women' or 'men'
   const [brandsPage, setBrandsPage] = useState(1)
   const brandsPerPage = 20
-  
   // Prevent multiple clicks
   const isProcessingRef = useRef(false)
   const lastClickTimeRef = useRef(0)
@@ -362,7 +361,7 @@ function ScrapingManagement() {
 
       if (response.data.status === 'completed') {
         setScraping(false)
-        showNotification(`Scraping completed! ${response.data.products_added} products added`, 'success')
+        showNotification(`Scraping completed! ${response.data.products_added} products processed (new + updated)`, 'success')
         fetchBrands()
         fetchHistory() // Refresh history only when job completes
         setSelectedBrands([])
@@ -752,7 +751,7 @@ function ScrapingManagement() {
                 </span>
               </div>
               <div className="stat">
-                <span className="stat-label">Products Added</span>
+                <span className="stat-label">Products (new + updated)</span>
                 <span className="stat-value">{jobStatus.products_added}</span>
               </div>
             </div>
@@ -821,7 +820,7 @@ function ScrapingManagement() {
                       <div className="history-details" style={{ display: 'flex', gap: '15px', fontSize: '0.9rem', color: '#fff', opacity: 0.9 }}>
                         <span>Brands: {brandNames}</span>
                         {job.products_added !== undefined && (
-                          <span>Products Added: {job.products_added}</span>
+                          <span>Products (new + updated): {job.products_added}</span>
                         )}
                       </div>
                     </div>

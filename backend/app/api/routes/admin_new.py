@@ -28,8 +28,84 @@ from app.core.security import verify_password
 from app.utils.auth import create_access_token
 import os
 import logging
+import hashlib
+from pathlib import Path
+from urllib.parse import urlparse
 
 logger = logging.getLogger(__name__)
+
+# Directory for downloaded product images (served at /data/product_images/)
+def _get_product_images_dir():
+    base = Path(__file__).resolve().parent.parent.parent.parent.parent  # routes -> api -> app -> backend -> project root
+    d = base / "data" / "product_images"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+def _looks_like_image_url(url: str) -> bool:
+    """Reject malformed URLs (e.g. junaidjamshed.com/mens/255&fit=bounds) that are not real image URLs."""
+    if not url:
+        return False
+    ul = url.lower()
+    if any(x in ul for x in ["loader", "lazyload", "placeholder.com"]):
+        return False
+    # Real image URLs usually have extension or path segment
+    path_part = ul.split("?")[0]
+    if any(ext in path_part for ext in [".jpg", ".jpeg", ".png", ".webp", ".gif"]):
+        return True
+    if any(seg in path_part for seg in [
+        "/media/", "/cdn/", "/files/", "/upload", "/product/", "/shop/files/", "/uploads/",
+        "/catalog/", "/img/", "/images/", "/assets/", "/static/",
+        "/mens/", "/women/", "/womens/"  # e.g. Junaid Jamshed /mens/255&fit=bounds
+    ]):
+        return True
+    return False
+
+
+async def _download_product_image(image_url: str, product_url: str) -> Optional[str]:
+    """Download image from URL and save to data/product_images. Returns relative path like 'product_images/xxx.jpg' or None. Skips if file already exists."""
+    if not image_url or not image_url.strip().lower().startswith(("http://", "https://")):
+        return None
+    if not _looks_like_image_url(image_url):
+        return None
+    url_lower = image_url.lower()
+    if "loader" in url_lower or "lazyload" in url_lower or image_url.rstrip("/").endswith(".gif"):
+        return None
+    img_dir = _get_product_images_dir()
+    # Try common extensions for "already exists" check (we don't know ext before download)
+    base_name = hashlib.md5(((product_url or "") + (image_url or "")).encode("utf-8")).hexdigest()[:16]
+    for ext in (".jpg", ".jpeg", ".png", ".webp", ".gif"):
+        if (img_dir / (base_name + ext)).exists():
+            return f"product_images/{base_name}{ext}"
+    try:
+        parsed = urlparse(image_url)
+        origin = f"{parsed.scheme}://{parsed.netloc}"
+        async with httpx.AsyncClient(timeout=12.0, follow_redirects=True) as client:
+            r = await client.get(
+                image_url,
+                headers={
+                    "Referer": origin + "/",
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; rv:109.0) Gecko/20100101 Firefox/115.0",
+                    "Accept": "image/webp,image/apng,image/*,*/*;q=0.8",
+                },
+            )
+            r.raise_for_status()
+            ct = r.headers.get("content-type", "").split(";")[0].strip().lower()
+            if "image" not in ct:
+                return None
+            ext = ".jpg"
+            if "png" in ct:
+                ext = ".png"
+            elif "webp" in ct:
+                ext = ".webp"
+            elif "gif" in ct and len(r.content) > 500:
+                ext = ".gif"
+            name = base_name + ext
+            path = img_dir / name
+            path.write_bytes(r.content)
+            return f"product_images/{name}"
+    except Exception as e:
+        logger.debug(f"Could not download product image: {e}")
+        return None
 
 router = APIRouter(tags=["Admin Dashboard"])
 
@@ -1041,85 +1117,130 @@ async def get_available_brands(
     brand_names_list = []  # Collect all brand names first for batch query
     
     try:
-        # Get project root directory (2 levels up from app/api/routes)
-        project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../.."))
+        # Find project root: walk up until we find local_brands_links.csv (works from backend/ or repo root)
+        _start = os.path.abspath(os.path.dirname(__file__))
+        project_root = _start
+        for _ in range(10):
+            if os.path.isfile(os.path.join(project_root, "local_brands_links.csv")):
+                break
+            _parent = os.path.dirname(project_root)
+            if _parent == project_root:
+                break
+            project_root = _parent
+        if not os.path.isfile(os.path.join(project_root, "local_brands_links.csv")):
+            project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../.."))
+        logger.info(f"Brands project_root: {project_root}")
         
-        # Read women links dataset
-        women_file = os.path.join(project_root, "women links dataset.xlsx")
-        if os.path.exists(women_file):
-            df = pd.read_excel(women_file)
-            logger.info(f"Reading women's dataset: {women_file}, rows: {len(df)}")
-            
-            # Determine which link column to use
-            link_column = None
-            brand_column = None
-            if brand_type == "luxury":
-                link_column = "Luxury Brand Link"
-                brand_column = "Luxury / International Brand"
-            elif brand_type == "pakistani":
-                link_column = "Pakistani Designer Brand Link"
-                brand_column = "Pakistani Luxury / Designer Brand"
-            else:  # local
-                link_column = "Local Dupe Brand Link"
-                brand_column = "Local Affordable Brand (Dupe)"
-            
-            if link_column in df.columns:
-                for idx, row in df.iterrows():
-                    brand_url = row.get(link_column, "")
-                    if pd.notna(brand_url) and brand_url and str(brand_url).startswith("http"):
-                        brand_name = row.get(brand_column, "Unknown Brand")
-                        brand_url_str = str(brand_url)
-                        main_category = row.get("Main Category", "")
-                        
-                        # Create unique key for deduplication
-                        brand_key = (brand_name, brand_url_str)
-                        
-                        # Skip if we've already seen this brand
-                        if brand_key not in seen_brands:
-                            # ALL brands from women's dataset are women's brands
-                            gender = "w"  # Always women for women's dataset
-                            
-                            brand_data = {
-                                "brand_name": brand_name,
-                                "brand_url": brand_url_str,
-                                "category": main_category,
-                                "product_count": 0,  # Will be set later in batch
-                                "last_scraped_at": None,
-                                "gender": gender  # Always "w" for women's dataset
-                            }
-                            
-                            brands.append(brand_data)
-                            seen_brands[brand_key] = True
-                            if brand_name not in brand_names_list:
-                                brand_names_list.append(brand_name)
-                            
-                            logger.debug(f"Added women's brand: {brand_name}, gender: {gender}, category: {main_category}")
+        # For "local" type: load ONLY from local_brands_links.csv so URLs are exact listing links (no Excel)
+        if brand_type == "local":
+            csv_file = os.path.join(project_root, "local_brands_links.csv")
+            if os.path.isfile(csv_file):
+                try:
+                    df_csv = pd.read_csv(csv_file)
+                    if "Brand" in df_csv.columns and "Website" in df_csv.columns:
+                        for idx, row in df_csv.iterrows():
+                            brand_name = str(row.get("Brand", "")).strip()
+                            brand_url = row.get("Website", "")
+                            if pd.notna(brand_url) and brand_url:
+                                # Support multiple URLs per brand: separate with |
+                                url_str = str(brand_url).strip()
+                                brand_urls = [u.strip() for u in url_str.split("|") if u.strip().startswith("http")]
+                                if not brand_urls:
+                                    continue
+                                brand_url_str = brand_urls[0]
+                                brand_key = (brand_name, brand_url_str)
+                                if brand_key not in seen_brands:
+                                    seen_brands[brand_key] = True
+                                    # ScraperType in CSV: generic (default) | shopify_json (Shopify collection JSON) | woocommerce (reserved)
+                                    scraper_type = str(row.get("ScraperType", "")).strip().lower() if "ScraperType" in df_csv.columns else ""
+                                    if scraper_type == "nan" or scraper_type not in ("shopify_json", "woocommerce"):
+                                        scraper_type = "generic"
+                                    brand_data = {
+                                        "brand_name": brand_name,
+                                        "brand_url": brand_url_str,
+                                        "brand_urls": brand_urls,  # all URLs to scrape (multiple links per brand)
+                                        "category": "Men → Eastern",
+                                        "product_count": 0,
+                                        "last_scraped_at": None,
+                                        "gender": "m",
+                                        "scraper_type": scraper_type,
+                                    }
+                                    brands.append(brand_data)
+                                    brand_names_list.append(brand_name)
+                        logger.info(f"Loaded {len(brands)} brands from local_brands_links.csv (local type)")
+                except Exception as e:
+                    logger.warning(f"Error reading local_brands_links.csv: {e}")
+            if not brands:
+                brand_type = "_local_fallback"
         
-        # Read men dataset (check if it has link columns)
-        men_file = os.path.join(project_root, "men dataset.xlsx")
-        if os.path.exists(men_file):
-            try:
-                df_men = pd.read_excel(men_file)
+        # For local type: load women's brands from local_brands_links_women.csv (same pattern as men's CSV)
+        if brand_type == "local":
+            women_csv = os.path.join(project_root, "local_brands_links_women.csv")
+            if os.path.isfile(women_csv):
+                try:
+                    df_women_csv = pd.read_csv(women_csv)
+                    if "Brand" in df_women_csv.columns and "Website" in df_women_csv.columns:
+                        women_added = 0
+                        for idx, row in df_women_csv.iterrows():
+                            brand_name = str(row.get("Brand", "")).strip()
+                            brand_url = row.get("Website", "")
+                            if not brand_name:
+                                continue
+                            if pd.notna(brand_url) and brand_url:
+                                url_str = str(brand_url).strip()
+                                brand_urls = [u.strip() for u in url_str.split("|") if u.strip().startswith("http")]
+                                if not brand_urls:
+                                    continue
+                                brand_url_str = brand_urls[0]
+                                brand_key = (brand_name, brand_url_str)
+                                if brand_key not in seen_brands:
+                                    seen_brands[brand_key] = True
+                                    scraper_type = str(row.get("ScraperType", "")).strip().lower() if "ScraperType" in df_women_csv.columns else ""
+                                    if scraper_type == "nan" or scraper_type not in ("shopify_json", "woocommerce"):
+                                        scraper_type = "generic"
+                                    brand_data = {
+                                        "brand_name": brand_name,
+                                        "brand_url": brand_url_str,
+                                        "brand_urls": brand_urls,
+                                        "category": "Women → Stitched",
+                                        "product_count": 0,
+                                        "last_scraped_at": None,
+                                        "gender": "w",
+                                        "scraper_type": scraper_type,
+                                    }
+                                    brands.append(brand_data)
+                                    brand_names_list.append(brand_name)
+                                    women_added += 1
+                        if women_added:
+                            logger.info(f"Loaded {women_added} women's brands from local_brands_links_women.csv (local type)")
+                except Exception as e:
+                    logger.warning(f"Error reading local_brands_links_women.csv: {e}")
+        
+        # Read women links dataset Excel (only when brand_type is NOT local; local uses CSV above)
+        if brand_type != "local":
+            women_file = os.path.join(project_root, "women links dataset.xlsx")
+            if os.path.exists(women_file):
+                df = pd.read_excel(women_file)
+                logger.info(f"Reading women's dataset: {women_file}, rows: {len(df)}")
                 
-                # Check if men dataset has link columns
-                men_link_column = None
-                men_brand_column = None
+                # Determine which link column to use
+                link_column = None
+                brand_column = None
                 if brand_type == "luxury":
-                    men_link_column = "Luxury Brand Link" if "Luxury Brand Link" in df_men.columns else None
-                    men_brand_column = "Luxury / International Brand"
+                    link_column = "Luxury Brand Link"
+                    brand_column = "Luxury / International Brand"
                 elif brand_type == "pakistani":
-                    men_link_column = "Pakistani Designer Brand Link" if "Pakistani Designer Brand Link" in df_men.columns else None
-                    men_brand_column = "Pakistani Luxury / Designer Brand"
+                    link_column = "Pakistani Designer Brand Link"
+                    brand_column = "Pakistani Luxury / Designer Brand"
                 else:  # local
-                    men_link_column = "Local Dupe Brand Link" if "Local Dupe Brand Link" in df_men.columns else None
-                    men_brand_column = "Local Affordable Brand (Dupe)"
+                    link_column = "Local Dupe Brand Link"
+                    brand_column = "Local Affordable Brand (Dupe)"
                 
-                # If men dataset has links, add them to brands list
-                if men_link_column and men_link_column in df_men.columns:
-                    for idx, row in df_men.iterrows():
-                        brand_url = row.get(men_link_column, "")
+                if link_column in df.columns:
+                    for idx, row in df.iterrows():
+                        brand_url = row.get(link_column, "")
                         if pd.notna(brand_url) and brand_url and str(brand_url).startswith("http"):
-                            brand_name = row.get(men_brand_column, "Unknown Brand")
+                            brand_name = row.get(brand_column, "Unknown Brand")
                             brand_url_str = str(brand_url)
                             main_category = row.get("Main Category", "")
                             
@@ -1128,12 +1249,8 @@ async def get_available_brands(
                             
                             # Skip if we've already seen this brand
                             if brand_key not in seen_brands:
-                                # Since this is from men's dataset, explicitly set gender to "m"
-                                # Only override if category explicitly says "women"
-                                if "women" in main_category.lower() or "woman" in main_category.lower():
-                                    gender = "w"
-                                else:
-                                    gender = "m"  # Default to men for men's dataset
+                                # ALL brands from women's dataset are women's brands
+                                gender = "w"  # Always women for women's dataset
                                 
                                 brand_data = {
                                     "brand_name": brand_name,
@@ -1141,20 +1258,78 @@ async def get_available_brands(
                                     "category": main_category,
                                     "product_count": 0,  # Will be set later in batch
                                     "last_scraped_at": None,
-                                    "gender": gender
+                                    "gender": gender  # Always "w" for women's dataset
                                 }
                                 
                                 brands.append(brand_data)
                                 seen_brands[brand_key] = True
                                 if brand_name not in brand_names_list:
                                     brand_names_list.append(brand_name)
-            except Exception as e:
-                logger.warning(f"Error reading men dataset: {e}")
-                # Don't fail completely if men dataset has issues
+                                
+                                logger.debug(f"Added women's brand: {brand_name}, gender: {gender}, category: {main_category}")
         
-        # Read men's brands from local_brands_links.csv (for local brand type only)
-        if brand_type == "local":
+        # Read men dataset (skip for local - we use CSV only)
+        if brand_type != "local":
+            men_file = os.path.join(project_root, "men dataset.xlsx")
+            if os.path.exists(men_file):
+                try:
+                    df_men = pd.read_excel(men_file)
+                    
+                    # Check if men dataset has link columns
+                    men_link_column = None
+                    men_brand_column = None
+                    if brand_type == "luxury":
+                        men_link_column = "Luxury Brand Link" if "Luxury Brand Link" in df_men.columns else None
+                        men_brand_column = "Luxury / International Brand"
+                    elif brand_type == "pakistani":
+                        men_link_column = "Pakistani Designer Brand Link" if "Pakistani Designer Brand Link" in df_men.columns else None
+                        men_brand_column = "Pakistani Luxury / Designer Brand"
+                    else:  # local
+                        men_link_column = "Local Dupe Brand Link" if "Local Dupe Brand Link" in df_men.columns else None
+                        men_brand_column = "Local Affordable Brand (Dupe)"
+                    
+                    # If men dataset has links, add them to brands list
+                    if men_link_column and men_link_column in df_men.columns:
+                        for idx, row in df_men.iterrows():
+                            brand_url = row.get(men_link_column, "")
+                            if pd.notna(brand_url) and brand_url and str(brand_url).startswith("http"):
+                                brand_name = row.get(men_brand_column, "Unknown Brand")
+                                brand_url_str = str(brand_url)
+                                main_category = row.get("Main Category", "")
+                                
+                                # Create unique key for deduplication
+                                brand_key = (brand_name, brand_url_str)
+                                
+                                # Skip if we've already seen this brand
+                                if brand_key not in seen_brands:
+                                    # Since this is from men's dataset, explicitly set gender to "m"
+                                    # Only override if category explicitly says "women"
+                                    if "women" in main_category.lower() or "woman" in main_category.lower():
+                                        gender = "w"
+                                    else:
+                                        gender = "m"  # Default to men for men's dataset
+                                    
+                                    brand_data = {
+                                        "brand_name": brand_name,
+                                        "brand_url": brand_url_str,
+                                        "category": main_category,
+                                        "product_count": 0,  # Will be set later in batch
+                                        "last_scraped_at": None,
+                                        "gender": gender
+                                    }
+                                    
+                                    brands.append(brand_data)
+                                    seen_brands[brand_key] = True
+                                    if brand_name not in brand_names_list:
+                                        brand_names_list.append(brand_name)
+                except Exception as e:
+                    logger.warning(f"Error reading men dataset: {e}")
+                    # Don't fail completely if men dataset has issues
+        
+        # Read men's brands from local_brands_links.csv (only when local was not already loaded from CSV at top)
+        if brand_type == "local" and not brands:
             csv_file = os.path.join(project_root, "local_brands_links.csv")
+            logger.info(f"Local brands CSV: {csv_file}, exists: {os.path.exists(csv_file)}")
             if os.path.exists(csv_file):
                 try:
                     df_csv = pd.read_csv(csv_file)
@@ -1178,16 +1353,18 @@ async def get_available_brands(
                                 if brand_key not in seen_brands:
                                     # Men's brands from CSV
                                     gender = "m"
-                                    
+                                    scraper_type = str(row.get("ScraperType", "")).strip().lower() if "ScraperType" in df_csv.columns else ""
+                                    if scraper_type == "nan" or scraper_type not in ("shopify_json", "woocommerce"):
+                                        scraper_type = "generic"
                                     brand_data = {
                                         "brand_name": brand_name,
                                         "brand_url": brand_url_str,
                                         "category": main_category,
                                         "product_count": 0,  # Will be set later in batch
                                         "last_scraped_at": None,
-                                        "gender": gender  # Men's brands
+                                        "gender": gender,  # Men's brands
+                                        "scraper_type": scraper_type,
                                     }
-                                    
                                     brands.append(brand_data)
                                     seen_brands[brand_key] = True
                                     if brand_name not in brand_names_list:
@@ -1236,6 +1413,54 @@ async def get_available_brands(
         "brands": brands,
         "total": len(brands),
         "brand_type": brand_type
+    }
+
+
+@router.get("/scraping/test-one")
+async def test_scrape_one_brand():
+    """
+    Debug: run scraper on first CSV brand (Bonanza) and return product count.
+    No auth - remove in production. Use to verify scraper works.
+    """
+    from app.services.scraper_service import ProductScraper
+    _start = os.path.abspath(os.path.dirname(__file__))
+    project_root = _start
+    for _ in range(10):
+        if os.path.isfile(os.path.join(project_root, "local_brands_links.csv")):
+            break
+        _parent = os.path.dirname(project_root)
+        if _parent == project_root:
+            break
+        project_root = _parent
+    csv_path = os.path.join(project_root, "local_brands_links.csv")
+    csv_exists = os.path.isfile(csv_path)
+    if not csv_exists:
+        return {"ok": False, "error": "CSV not found", "project_root": project_root, "csv_path": csv_path}
+    df = pd.read_csv(csv_path)
+    if "Brand" not in df.columns or "Website" not in df.columns:
+        return {"ok": False, "error": "CSV missing Brand/Website columns"}
+    # Use row 2 (Bonanza Satrangi) to test the brand that was returning 0 products
+    row = df.iloc[min(2, len(df) - 1)]
+    brand_name = str(row.get("Brand", ""))
+    brand_url = str(row.get("Website", "")).strip()
+    if not brand_url.startswith("http"):
+        return {"ok": False, "error": "Invalid URL", "brand_name": brand_name, "brand_url": brand_url}
+    scraper = ProductScraper()
+    try:
+        products = await scraper.scrape_exact_listing_url(brand_url, brand_name, "Men -> Eastern", "m", None)
+    except Exception as e:
+        logger.exception("test_scrape_one_brand failed")
+        return {"ok": False, "error": str(e), "brand_url": brand_url}
+    finally:
+        await scraper.close()
+    return {
+        "ok": True,
+        "project_root": project_root,
+        "csv_path": csv_path,
+        "brand_name": brand_name,
+        "brand_url": brand_url,
+        "products_count": len(products),
+        "sample": [{"name": p.get("name"), "price": p.get("price")} for p in products[:3]],
     }
 
 
@@ -1311,49 +1536,120 @@ async def run_scraping_job(job_id: str, brand_list: List[dict]):
         
         for idx, brand_info in enumerate(brand_list):
             brand_name = brand_info.get("brand_name", "Unknown")
-            brand_url = brand_info.get("brand_url", "")
+            # Multiple URLs per brand: brand_urls (list) or single brand_url
+            urls_to_scrape = brand_info.get("brand_urls") or []
+            if not urls_to_scrape and brand_info.get("brand_url"):
+                urls_to_scrape = [(brand_info.get("brand_url") or "").strip()]
+            urls_to_scrape = [u.strip() for u in urls_to_scrape if u and u.strip().startswith("http")]
             category = brand_info.get("category", "")
+            logger.info(f"Job {job_id} brand[{idx}]: name={brand_name!r} urls={len(urls_to_scrape)}")
+            if not urls_to_scrape:
+                scraping_jobs[job_id]["logs"].append(f"Skipping {brand_name}: no valid URL")
+                continue
             # Extract gender from brand_info if available, otherwise infer from category
             gender = brand_info.get("gender")
             if not gender:
-                # Infer gender from category
                 if "men" in category.lower() or "man" in category.lower():
                     gender = "m"
                 elif "women" in category.lower() or "woman" in category.lower():
                     gender = "w"
             
             try:
-                scraping_jobs[job_id]["logs"].append(f"Starting scrape for {brand_name} (Category: {category}, Gender: {gender})...")
-                
-                # Scrape products from this brand with timeout
-                scraping_jobs[job_id]["logs"].append(f"Scraping {brand_url}...")
-                
-                try:
-                    # Add timeout to scraping (60 seconds per brand)
-                    products = await asyncio.wait_for(
-                        scraper.scrape_brand_website(brand_url, brand_name, category, gender),
-                        timeout=60.0
+                scraping_jobs[job_id]["logs"].append(f"Starting scrape for {brand_name} ({len(urls_to_scrape)} link(s), Category: {category}, Gender: {gender})...")
+                scraper_type = (brand_info.get("scraper_type") or "").strip().lower() or "generic"
+                from urllib.parse import urlparse
+                all_products = []
+                seen_product_urls = set()
+                for brand_url in urls_to_scrape:
+                    parsed = urlparse(brand_url or "")
+                    path = (parsed.path or "").strip("/")
+                    url_lower = (brand_url or "").lower()
+                    use_exact_listing = (
+                        len(path.split("/")) >= 1 and path != ""
+                        or ".html" in url_lower
+                        or "/collections/" in url_lower
+                        or any(x in url_lower for x in ["/shirts", "/products", "/men", "/women", "/shop/", "/category/"])
                     )
-                except asyncio.TimeoutError:
-                    scraping_jobs[job_id]["logs"].append(f"Timeout scraping {brand_name} (60s limit)")
-                    products = []
-                except Exception as scrape_error:
-                    scraping_jobs[job_id]["logs"].append(f"Error scraping {brand_name}: {str(scrape_error)}")
-                    logger.error(f"Error scraping {brand_name}: {scrape_error}")
-                    products = []
-                
+                    scraping_jobs[job_id]["logs"].append(f"Scraping: {brand_url}")
+                    try:
+                        timeout_seconds = 300.0 if use_exact_listing else 60.0
+                        if use_exact_listing:
+                            page_products = await asyncio.wait_for(
+                                scraper.scrape_exact_listing_url(brand_url, brand_name, category, gender, None, scraper_type=scraper_type),
+                                timeout=timeout_seconds
+                            )
+                        else:
+                            page_products = await asyncio.wait_for(
+                                scraper.scrape_brand_website(brand_url, brand_name, category, gender),
+                                timeout=timeout_seconds
+                            )
+                    except asyncio.TimeoutError:
+                        scraping_jobs[job_id]["logs"].append(f"Timeout for {brand_url}")
+                        page_products = []
+                    except Exception as scrape_error:
+                        scraping_jobs[job_id]["logs"].append(f"Error {brand_url}: {str(scrape_error)}")
+                        logger.error(f"Error scraping {brand_name} {brand_url}: {scrape_error}", exc_info=True)
+                        page_products = []
+                    for p in page_products:
+                        purl = (p.get("product_url") or "").strip()
+                        if purl and purl not in seen_product_urls:
+                            seen_product_urls.add(purl)
+                            all_products.append(p)
+                products = all_products
                 scraping_jobs[job_id]["logs"].append(
-                    f"Found {len(products)} products from {brand_name}"
+                    f"Found {len(products)} products from {brand_name} ({len(urls_to_scrape)} link(s))"
                 )
+                if len(products) == 0:
+                    scraping_jobs[job_id]["logs"].append(
+                        f"⚠ {brand_name}: 0 products extracted. Check URL(s) or site structure."
+                    )
+                logger.info(f"Scrape done: {brand_name} | {len(urls_to_scrape)} URL(s) | products: {len(products)}")
                 
                 # Store products in MongoDB
                 products_collection = get_products_collection()
                 stored = 0
                 updated = 0
                 
+                def _is_valid_image_url(u):
+                    if not u or not u.lower().startswith(("http://", "https://")): return False
+                    ul = (u or "").lower()
+                    if "loader" in ul or "lazyload" in ul or (u or "").rstrip("/").endswith(".gif"): return False
+                    if not _looks_like_image_url(u): return False
+                    return True
+                
+                # Pass 1: resolve image_url per product, skip if existing already has local file
+                img_dir = _get_product_images_dir()
+                to_download = []  # list of (product, image_url)
+                for product in products:
+                    existing = products_collection.find_one({"product_url": product.get("product_url")})
+                    image_url = (product.get("image_url") or "").strip()
+                    if not _is_valid_image_url(image_url) and existing:
+                        image_url = (existing.get("image_url") or "").strip()
+                    if existing and (existing.get("image_path") or "").startswith("product_images/"):
+                        rel = (existing["image_path"] or "").replace("\\", "/")
+                        if (img_dir / rel.replace("product_images/", "")).exists():
+                            product["image_path"] = rel
+                            to_download.append((product, None))
+                            continue
+                    if _is_valid_image_url(image_url):
+                        to_download.append((product, image_url))
+                    else:
+                        to_download.append((product, None))
+                
+                # Pass 2: parallel image downloads (max 10 at a time)
+                sem = asyncio.Semaphore(10)
+                async def _download_with_sem(p, url):
+                    if not url:
+                        return
+                    async with sem:
+                        path = await _download_product_image(url, p.get("product_url") or "")
+                        if path:
+                            p["image_path"] = path
+                await asyncio.gather(*[_download_with_sem(p, url) for p, url in to_download])
+                
+                # Pass 3: insert or update
                 for product in products:
                     try:
-                        # Check if product already exists by URL
                         existing = products_collection.find_one({"product_url": product.get("product_url")})
                         if not existing:
                             # Check if product_id already exists (handle hash collisions)
@@ -1362,7 +1658,6 @@ async def run_scraping_job(job_id: str, brand_list: List[dict]):
                                 id_exists = products_collection.find_one({"product_id": product_id})
                                 if id_exists:
                                     # Generate new product_id by appending timestamp hash
-                                    import hashlib
                                     url_hash = hashlib.md5(
                                         f"{product.get('product_url')}{datetime.utcnow().isoformat()}".encode('utf-8')
                                     ).hexdigest()
@@ -1371,11 +1666,12 @@ async def run_scraping_job(job_id: str, brand_list: List[dict]):
                             products_collection.insert_one(product)
                             stored += 1
                         else:
-                            # Update existing product (preserve existing product_id)
+                            # Update existing product (preserve existing product_id and existing image_path if we didn't get new one)
                             update_data = product.copy()
                             if 'product_id' in update_data:
-                                # Keep existing product_id if it exists
                                 del update_data['product_id']
+                            if not update_data.get("image_path") and (existing.get("image_path") or "").startswith("product_images/"):
+                                update_data["image_path"] = existing["image_path"]
                             products_collection.update_one(
                                 {"product_url": product.get("product_url")},
                                 {"$set": update_data}
@@ -1386,7 +1682,6 @@ async def run_scraping_job(job_id: str, brand_list: List[dict]):
                         # If it's a duplicate key error, try with a new product_id
                         if "E11000" in error_msg or "duplicate key" in error_msg.lower():
                             try:
-                                import hashlib
                                 url_hash = hashlib.md5(
                                     f"{product.get('product_url')}{datetime.utcnow().isoformat()}".encode('utf-8')
                                 ).hexdigest()
@@ -1401,12 +1696,29 @@ async def run_scraping_job(job_id: str, brand_list: List[dict]):
                             logger.error(f"Error storing product: {e}")
                             scraping_jobs[job_id]["logs"].append(f"Error storing product: {error_msg}")
                 
-                total_products += stored
+                total_products += stored + updated  # show new + updated so user sees total processed (not 0 when only updates)
                 scraping_jobs[job_id]["products_added"] = total_products
                 scraping_jobs[job_id]["brands_completed"] = idx + 1
                 scraping_jobs[job_id]["logs"].append(
-                    f"Completed {brand_name}: {stored} new products, {updated} updated, {len(products)} total found"
+                    f"Completed {brand_name}: {stored} new, {updated} updated, {len(products)} total found"
                 )
+                # Log products without image (placeholder or empty)
+                without_image = [
+                    p for p in products
+                    if not (p.get("image_path") or "").strip()
+                    or "placeholder" in (p.get("image_path") or "").lower()
+                ]
+                if without_image:
+                    names_preview = ", ".join((p.get("name") or "?")[:30] for p in without_image[:5])
+                    if len(without_image) > 5:
+                        names_preview += f" ... (+{len(without_image) - 5} more)"
+                    scraping_jobs[job_id]["logs"].append(
+                        f"⚠ {brand_name}: {len(without_image)} product(s) without image: {names_preview}"
+                    )
+                else:
+                    scraping_jobs[job_id]["logs"].append(
+                        f"Images: all {len(products)} products have images"
+                    )
                 
                 # Update progress in MongoDB
                 scraping_history.update_one(
@@ -1431,7 +1743,7 @@ async def run_scraping_job(job_id: str, brand_list: List[dict]):
         completed_at = datetime.utcnow()
         scraping_jobs[job_id]["status"] = "completed"
         scraping_jobs[job_id]["completed_at"] = completed_at
-        scraping_jobs[job_id]["logs"].append(f"Scraping completed! Total: {total_products} products")
+        scraping_jobs[job_id]["logs"].append(f"Scraping completed! Total: {total_products} products (new + updated)")
         
         # Update in MongoDB
         scraping_history = get_scraping_history_collection()

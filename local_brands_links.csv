@@ -1,27 +1,27 @@
-Brand,Website
-J. (Junaid Jamshed),https://www.junaidjamshed.com
-Bonanza Satrangi,https://bonanzasatrangi.com
-Edenrobe,https://edenrobe.com
-Uniworth,https://uniworthshop.com
-Outfitters,https://outfitters.com.pk
-Royal Tag,https://royaltag.com.pk
-Diners,https://diners.com.pk
-Lawrencepur,https://lawrencepur.com
-Charcoal,https://charcoal.com.pk
-Monark,https://monark.com.pk
-Cambridge,https://thecambridgeshop.com
-Breakout,https://breakout.com.pk
-Engine,https://engine.com.pk
-Limelight,https://limelight.pk
-Stylo,https://stylo.com.pk
-Borjan,https://borjan.com.pk
-Khaadi,https://khaadi.com
-Sveston Watches,https://svestonwatches.com
-Naviforce,https://naviforcewatch.com
-Curren,https://currenwatches.com
-Tomi,https://tomiwatches.com
-Q&Q,https://qq-watches.com
-Skmei,https://skmei-watch.com
-Service,https://servis.com.pk
-ECS,https://ecs.com.pk
-Unze,https://unze.com.pk
+Brand,Website,ScraperType
+J. (Junaid Jamshed),https://www.junaidjamshed.com/mens/kameez-shalwar.html,
+Bonanza Satrangi,https://bonanzasatrangi.com/collections/men-sweater,shopify_json
+Edenrobe,https://edenrobe.com/collections/men,shopify_json
+Uniworth,https://uniworthshop.com/shirts,
+Outfitters,https://outfitters.com.pk/collections/men-products,shopify_json
+Royal Tag,https://royaltag.com.pk,
+Diners,https://diners.com.pk/collections/men,nan
+Lawrencepur,https://lawrencepur.com/collections/men-ready-to-wear,shopify_json
+Charcoal,https://charcoal.com.pk/collections/new-arrival,shopify_json
+Monark,https://monark.com.pk/collections/men,
+Cambridge,https://thecambridgeshop.com/collections/all,shopify_json
+Breakout,https://breakout.com.pk/collections/men,shopify_json
+Engine,https://engine.com.pk/collections/men,shopify_json
+Limelight,https://www.limelight.pk/collections/men-main,shopify_json
+Stylo,https://stylo.com.pk/collections/men,
+Borjan,https://www.borjan.com.pk/collections/men-footwear,shopify_json
+Khaadi,https://pk.khaadi.com/fragrances/,
+Sveston Watches,https://en-pk.svestonwatches.com/collections/mens-wrist-watches?pb=0,shopify_json
+Naviforce,https://naviforcewatches.pk/men/,
+Curren,https://www.currenwatches.com/collections/all,shopify_json
+Tomi,https://tomiwatches.pk/collections/all,shopify_json
+Q&Q,https://qq-watches.com,nan
+Skmei,https://skmei-watch.com,
+Service,https://servis.pk/collections/men,shopify_json
+ECS,https://shopecs.com/collections/accessories,shopify_json
+Unze,https://unze.com.pk/collections/men-shoes-shoes,shopify_json

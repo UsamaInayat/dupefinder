@@ -4,12 +4,17 @@ Products API endpoints
 
 from typing import List, Optional
 from fastapi import APIRouter, HTTPException, Query
+from fastapi.responses import Response
 from bson import ObjectId
+from urllib.parse import urlparse
+import httpx
+import logging
 
 from app.models.schemas import Product, ProductList, ProductFilter
 from app.core.database import get_products_collection
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 @router.get("", response_model=ProductList)
@@ -129,6 +134,53 @@ async def get_products(
         import logging
         logging.error(f"Error fetching products: {e}")
         raise HTTPException(status_code=500, detail=f"Error fetching products: {str(e)}")
+
+
+# Inline "No image" SVG returned when URL is invalid or upstream returns 404/error (avoids 502 and broken img in UI)
+_NO_IMAGE_SVG = b'<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200" viewBox="0 0 200 200"><rect fill="#374151" width="200" height="200"/><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" fill="#9ca3af" font-size="14" font-family="sans-serif">No image</text></svg>'
+
+
+@router.get("/image-proxy")
+async def product_image_proxy(url: str = Query(..., description="Image URL to proxy")):
+    """
+    Proxy external product images to avoid hotlink blocking (e.g. Junaid Jamshed).
+    On 404 or fetch error, returns 200 with "No image" SVG so the UI shows placeholder instead of 502.
+    """
+    if not url or not url.strip().lower().startswith(("http://", "https://")):
+        raise HTTPException(status_code=400, detail="Invalid image URL")
+    url_lower = url.lower()
+    if "loader" in url_lower or "lazyload" in url_lower or url.rstrip("/").endswith(".gif"):
+        raise HTTPException(status_code=400, detail="Loader/placeholder URL not allowed")
+    if "via.placeholder" in url_lower or "placeholder.com" in url_lower:
+        return Response(content=_NO_IMAGE_SVG, media_type="image/svg+xml")
+    try:
+        parsed = urlparse(url)
+        origin = f"{parsed.scheme}://{parsed.netloc}"
+        async with httpx.AsyncClient(timeout=20.0, follow_redirects=True) as client:
+            r = await client.get(
+                url,
+                headers={
+                    "Referer": origin + "/",
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; rv:109.0) Gecko/20100101 Firefox/115.0",
+                    "Accept": "image/webp,image/apng,image/*,*/*;q=0.8",
+                },
+            )
+            if r.status_code == 404:
+                logger.debug(f"Image proxy: upstream 404 for {url[:80]}, returning placeholder")
+                return Response(content=_NO_IMAGE_SVG, media_type="image/svg+xml")
+            r.raise_for_status()
+            content_type = r.headers.get("content-type", "image/jpeg").split(";")[0].strip()
+            if "image" not in content_type:
+                content_type = "image/jpeg"
+            if content_type == "image/gif" and len(r.content) < 500:
+                return Response(content=_NO_IMAGE_SVG, media_type="image/svg+xml")
+            return Response(content=r.content, media_type=content_type)
+    except httpx.HTTPStatusError as e:
+        logger.debug(f"Image proxy HTTP error for {url[:80]}: {e.response.status_code}, returning placeholder")
+        return Response(content=_NO_IMAGE_SVG, media_type="image/svg+xml")
+    except Exception as e:
+        logger.debug(f"Image proxy error for {url[:80]}: {e}, returning placeholder")
+        return Response(content=_NO_IMAGE_SVG, media_type="image/svg+xml")
 
 
 @router.get("/{product_id}", response_model=Product)
