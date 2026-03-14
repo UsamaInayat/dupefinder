@@ -1649,7 +1649,6 @@ If X > 0 but Y = 0, extraction/validation is still failing; if X = 0, selectors 
 
 ## Executor's Feedback or Assistance Requests
 
-<<<<<<< HEAD
 **Current Task**: MongoDB Atlas Connection Setup ✅ COMPLETED
 
 **What Was Done**:
@@ -1682,7 +1681,9 @@ If X > 0 but Y = 0, extraction/validation is still failing; if X = 0, selectors 
 - Check database stats: `http://localhost:8000/api/database/stats`
 
 **Task Completed**: Phase 1 - Project Setup & Infrastructure
-=======
+
+---
+
 **Updated: November 11, 2025 - Planner Mode**
 
 ---
@@ -2004,7 +2005,6 @@ The Planner has created a complete implementation plan for the new requirements:
 ---
 
 ### ✅ Phase 1 Completed - Project Setup & Infrastructure
->>>>>>> origin/main
 
 **What Was Done**:
 
