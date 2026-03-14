@@ -1,4 +1,5 @@
 Brand,Website,ScraperType
+ECS,https://shopecs.com/collections/accessories,shopify_json
 Khaadi,https://pk.khaadi.com/from-ramadan-to-eid/ready-to-wear/,generic
 Sapphire Pret,https://pk.sapphireonline.pk/collections/rtw-smart-casual|https://pk.sapphireonline.pk/collections/rtw-formal|https://pk.sapphireonline.pk/collections/rtw-shirts|https://pk.sapphireonline.pk/collections/rtw-short-kurti|https://pk.sapphireonline.pk/collections/dupattas-shawls|https://pk.sapphireonline.pk/collections/ready-to-wear-outfits,generic
 Limelight Pret,https://www.limelight.pk/collections/women|https://www.limelight.pk/collections/printed-pret|https://www.limelight.pk/collections/western-lounge-wear|https://www.limelight.pk/collections/short-kurti|https://www.limelight.pk/collections/winter-pants,shopify_json

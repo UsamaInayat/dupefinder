@@ -2,37 +2,64 @@ import { useState, useEffect } from 'react'
 import axios from 'axios'
 import '../styles/AdminPro.css'
 
+const API_BASE = 'http://localhost:8000'
+
 function AdminDashboardPro({ admin, token, onLogout }) {
   const [activeTab, setActiveTab] = useState('overview')
   const [stats, setStats] = useState(null)
   const [users, setUsers] = useState([])
   const [products, setProducts] = useState([])
   const [loading, setLoading] = useState(true)
+  /** 'backend' = server unreachable, 'auth' = 401 need re-login, null = ok */
+  const [connectionError, setConnectionError] = useState(null)
 
   const apiConfig = {
     headers: { Authorization: `Bearer ${token}` }
   }
 
   useEffect(() => {
-    fetchStats()
-    if (activeTab === 'users') fetchUsers()
-    if (activeTab === 'products') fetchProducts()
+    let cancelled = false
+    const run = async () => {
+      setConnectionError(null)
+      try {
+        await axios.get(`${API_BASE}/ping`, { timeout: 5000 })
+        if (cancelled) return
+        await fetchStats()
+        if (activeTab === 'users') fetchUsers()
+        if (activeTab === 'products') fetchProducts()
+      } catch (err) {
+        if (cancelled) return
+        const isNetwork = !err.response && (err.code === 'ERR_NETWORK' || err.message?.includes('Network'))
+        if (isNetwork) {
+          setConnectionError('backend')
+          setLoading(false)
+        } else {
+          await fetchStats()
+          if (activeTab === 'users') fetchUsers()
+          if (activeTab === 'products') fetchProducts()
+        }
+      }
+    }
+    run()
+    return () => { cancelled = true }
   }, [activeTab])
 
   const fetchStats = async () => {
     try {
-      const response = await axios.get('http://localhost:8000/api/admin/stats', apiConfig)
+      const response = await axios.get(`${API_BASE}/api/admin/stats`, apiConfig)
       setStats(response.data)
+      setConnectionError(null)
       setLoading(false)
     } catch (error) {
       console.error('Failed to fetch stats:', error)
       setLoading(false)
+      if (error.response?.status === 401) setConnectionError('auth')
     }
   }
 
   const fetchUsers = async () => {
     try {
-      const response = await axios.get('http://localhost:8000/api/admin/users', apiConfig)
+      const response = await axios.get(`${API_BASE}/api/admin/users`, apiConfig)
       setUsers(response.data.users)
     } catch (error) {
       console.error('Failed to fetch users:', error)
@@ -41,7 +68,7 @@ function AdminDashboardPro({ admin, token, onLogout }) {
 
   const fetchProducts = async () => {
     try {
-      const response = await axios.get('http://localhost:8000/api/products')
+      const response = await axios.get(`${API_BASE}/api/products`)
       setProducts(response.data.products)
     } catch (error) {
       console.error('Failed to fetch products:', error)
@@ -50,7 +77,7 @@ function AdminDashboardPro({ admin, token, onLogout }) {
 
   const toggleUserStatus = async (userId) => {
     try {
-      await axios.put(`http://localhost:8000/api/admin/users/${userId}/status`, {}, apiConfig)
+      await axios.put(`${API_BASE}/api/admin/users/${userId}/status`, {}, apiConfig)
       fetchUsers()
       fetchStats()
     } catch (error) {
@@ -62,7 +89,7 @@ function AdminDashboardPro({ admin, token, onLogout }) {
   const deleteUser = async (userId) => {
     if (window.confirm('Are you sure you want to delete this user? This action cannot be undone.')) {
       try {
-        await axios.delete(`http://localhost:8000/api/admin/users/${userId}`, apiConfig)
+        await axios.delete(`${API_BASE}/api/admin/users/${userId}`, apiConfig)
         fetchUsers()
         fetchStats()
         alert('User deleted successfully')
@@ -76,7 +103,7 @@ function AdminDashboardPro({ admin, token, onLogout }) {
   const deleteProduct = async (productId) => {
     if (window.confirm('Are you sure you want to delete this product?')) {
       try {
-        await axios.delete(`http://localhost:8000/api/admin/products/${productId}`, apiConfig)
+        await axios.delete(`${API_BASE}/api/admin/products/${productId}`, apiConfig)
         fetchProducts()
         fetchStats()
         alert('Product deleted successfully')
@@ -103,6 +130,17 @@ function AdminDashboardPro({ admin, token, onLogout }) {
           <button onClick={onLogout} className="btn-logout-pro">Logout</button>
         </div>
       </header>
+
+      {connectionError === 'backend' && (
+        <div className="admin-pro-alert admin-pro-alert-error" role="alert">
+          Backend reachable nahi hai. Please ensure server is running on <strong>{API_BASE}</strong> and try again.
+        </div>
+      )}
+      {connectionError === 'auth' && (
+        <div className="admin-pro-alert admin-pro-alert-warning" role="alert">
+          Session expired. Please <button type="button" className="admin-pro-alert-link" onClick={onLogout}>log out</button> and log in again.
+        </div>
+      )}
 
       <div className="admin-pro-layout">
         {/* Sidebar */}

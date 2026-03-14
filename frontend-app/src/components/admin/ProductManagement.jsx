@@ -7,7 +7,8 @@ function ProductManagement() {
   const [loading, setLoading] = useState(false)
   const [csvFile, setCsvFile] = useState(null)
   const [uploadProgress, setUploadProgress] = useState(null)
-  const [categoryFilter, setCategoryFilter] = useState('')
+  const [genderFilter, setGenderFilter] = useState('') // '' = All, 'w' = Women, 'm' = Men
+  const [categoryFilter, setCategoryFilter] = useState('') // '' = All, else category name from API
   const [brokenLinksOnly, setBrokenLinksOnly] = useState(false)
   const [page, setPage] = useState(1)
   const [totalProducts, setTotalProducts] = useState(0)
@@ -23,8 +24,12 @@ function ProductManagement() {
 
   useEffect(() => {
     fetchProducts()
+  }, [page, genderFilter, categoryFilter, brokenLinksOnly])
+
+  // Fetch categories when gender changes (categories are per-gender for dropdown)
+  useEffect(() => {
     fetchCategories()
-  }, [page, categoryFilter, brokenLinksOnly])
+  }, [genderFilter])
   
   // Reset failed images when products change (e.g., after repair)
   useEffect(() => {
@@ -36,52 +41,48 @@ function ProductManagement() {
     })
   }, [products])
 
+  // Strip "(70)" / "(81)" from category so "Women Short Kurti (70)" → "Women Short Kurti"
+  const normalizeCategory = (cat) => (cat || '').replace(/\s*\(\d+\)\s*$/, '').trim()
+
   const fetchProducts = async () => {
     setLoading(true)
+    const currentGender = genderFilter
+    const rawCategory = categoryFilter
+    const currentCategory = normalizeCategory(rawCategory)
+    const isMergedLuxe = (currentCategory || '').toLowerCase() === 'women luxe'
+    const isMergedShortKurti = (currentCategory || '').toLowerCase() === 'women short kurti'
     try {
       const token = localStorage.getItem('adminToken') || localStorage.getItem('token')
-      
       if (!token) {
-        console.error('No token found in ProductManagement')
         setLoading(false)
         return
       }
-      
-      console.log('ProductManagement - Token found:', token.substring(0, 20) + '...')
-      
-      const params = new URLSearchParams({
-        page: page.toString(),
-        page_size: '20'
-      })
-      
-      if (categoryFilter === 'mens_catalogue') {
-        // Filter for men's catalogue - filter by gender 'm'
-        params.append('gender', 'm')
-      } else if (categoryFilter === 'womens_catalogue') {
-        // Filter for women's catalogue - filter by gender 'w'
-        params.append('gender', 'w')
-      } else if (categoryFilter) {
-        params.append('category', categoryFilter)
+      const headers = { Authorization: `Bearer ${token}` }
+
+      // Women Luxe & Women Short Kurti: only merged endpoint (guarantees correct total)
+      if (isMergedLuxe || isMergedShortKurti) {
+        const merged = isMergedLuxe ? 'women_luxe' : 'women_short_kurti'
+        const url = `http://localhost:8000/api/admin/products/merged?merged_category=${merged}&page=${page}&page_size=20`
+        const res = await axios.get(url, { headers })
+        setProducts(res.data.products || [])
+        setTotalProducts(res.data.total ?? 0)
+        setTotalPages(res.data.total_pages ?? Math.ceil((res.data.total || 0) / 20))
+        setLoading(false)
+        return
       }
+
+      const params = new URLSearchParams({ page: page.toString(), page_size: '20' })
+      if (currentGender) params.append('gender', currentGender)
+      if (currentCategory) params.append('category', currentCategory)
       if (brokenLinksOnly) params.append('broken_links_only', 'true')
 
-      console.log('ProductManagement - Making request to:', `http://localhost:8000/api/admin/products?${params}`)
-      
-      const response = await axios.get(
+      const res = await axios.get(
         `http://localhost:8000/api/admin/products?${params}`,
-        { headers: { Authorization: `Bearer ${token}` } }
+        { headers }
       )
-
-      const allProducts = response.data.products || []
-      // Filter out broken links for display
-      const validProducts = allProducts.filter(p => !p.broken_link)
-      setProducts(validProducts)
-      // Count only valid products (without broken links)
-      setTotalProducts(response.data.total || 0)
-      // Calculate total pages if not provided
-      const calculatedTotalPages = response.data.total_pages || 
-        Math.ceil((response.data.total || 0) / 20)
-      setTotalPages(calculatedTotalPages)
+      setProducts(res.data.products || [])
+      setTotalProducts(res.data.total ?? 0)
+      setTotalPages(res.data.total_pages ?? Math.ceil((res.data.total || 0) / 20))
       setLoading(false)
     } catch (error) {
       console.error('Failed to fetch products:', error)
@@ -91,23 +92,46 @@ function ProductManagement() {
     }
   }
 
+  // Frontend merge: show Women Luxe / Women Short Kurti instead of raw slugs (so dropdown matches Women Kurta/Lawn)
+  const normalizeCategoriesForDropdown = (list) => {
+    if (!Array.isArray(list) || list.length === 0) return list
+    const WOMEN_LUXE_SLUGS = ['bridal-in-stock', 'festive-in-stock', 'wedding-unstitched-2025']
+    const WOMEN_SHORT_KURTI_SLUGS = ['ss-wesst', 'ss-west', 'short-kurti']
+    const norm = (s) => (s || '').toLowerCase().replace(/\s+/g, '-').replace(/_/g, '-').trim()
+    const merged = {}
+    for (const c of list) {
+      const name = (c && c.name) ? String(c.name).trim() : ''
+      const count = typeof c.count === 'number' ? c.count : parseInt(c.count, 10) || 0
+      if (!name) continue
+      const n = norm(name)
+      if (name === 'Women Luxe') {
+        merged['Women Luxe'] = count
+      } else if (name === 'Women Short Kurti') {
+        merged['Women Short Kurti'] = count
+      } else if (WOMEN_LUXE_SLUGS.some(slug => n === slug || n.includes(slug))) {
+        merged['Women Luxe'] = (merged['Women Luxe'] || 0) + count
+      } else if (WOMEN_SHORT_KURTI_SLUGS.some(slug => n === slug || n.includes(slug))) {
+        merged['Women Short Kurti'] = (merged['Women Short Kurti'] || 0) + count
+      } else {
+        merged[name] = (merged[name] || 0) + count
+      }
+    }
+    return Object.entries(merged).map(([n, cnt]) => ({ name: n, count: cnt })).sort((a, b) => a.name.localeCompare(b.name))
+  }
+
   const fetchCategories = async () => {
     try {
       const token = localStorage.getItem('adminToken') || localStorage.getItem('token')
-      
-      if (!token) {
-        console.error('No token found in ProductManagement (categories)')
-        return
-      }
-      
-      const response = await axios.get(
-        'http://localhost:8000/api/admin/categories',
-        { headers: { Authorization: `Bearer ${token}` } }
-      )
-      setCategories(response.data.categories)
+      if (!token) return
+      const url = genderFilter
+        ? `http://localhost:8000/api/admin/categories?gender=${genderFilter}`
+        : 'http://localhost:8000/api/admin/categories'
+      const response = await axios.get(url, { headers: { Authorization: `Bearer ${token}` } })
+      const raw = response.data.categories || []
+      setCategories(normalizeCategoriesForDropdown(raw))
     } catch (error) {
       console.error('Failed to fetch categories:', error)
-      console.error('Error response:', error.response?.data)
+      setCategories([])
     }
   }
 
@@ -722,39 +746,44 @@ function ProductManagement() {
         )}
       </div>
 
-      {/* Categories Section */}
+      {/* Gender & Category dropdowns */}
       <div className="section-card">
-        <h3>Categories</h3>
-        <div className="category-list">
-          <button
-            className={`category-tag ${categoryFilter === '' ? 'active' : ''}`}
-            onClick={() => {
+        <h3>Filters</h3>
+        <div className="category-list" style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', alignItems: 'center' }}>
+          <label style={{ fontWeight: 600 }}>Gender:</label>
+          <select
+            value={genderFilter}
+            onChange={(e) => {
+              setGenderFilter(e.target.value)
               setCategoryFilter('')
-              setPage(1) // Reset to first page when filter changes
-            }}
-          >
-            All ({totalProducts})
-          </button>
-          <button
-            className={`category-tag ${categoryFilter === 'mens_catalogue' ? 'active' : ''}`}
-            onClick={() => {
-              // Filter for men's catalogue - products from men's brands
-              setCategoryFilter('mens_catalogue')
               setPage(1)
             }}
+            style={{ padding: '8px 12px', borderRadius: '6px', minWidth: '120px' }}
           >
-            Men
-          </button>
-          <button
-            className={`category-tag ${categoryFilter === 'womens_catalogue' ? 'active' : ''}`}
-            onClick={() => {
-              // Filter for women's catalogue - products from women's brands
-              setCategoryFilter('womens_catalogue')
+            <option value="">All</option>
+            <option value="w">Women</option>
+            <option value="m">Men</option>
+          </select>
+          <label style={{ fontWeight: 600, marginLeft: '8px' }}>Category:</label>
+          <select
+            value={categoryFilter}
+            onChange={(e) => {
+              setCategoryFilter(normalizeCategory(e.target.value) || e.target.value)
               setPage(1)
             }}
+            style={{ padding: '8px 12px', borderRadius: '6px', minWidth: '200px' }}
           >
-            Women
-          </button>
+            <option value="">All categories</option>
+            {categories.map((c) => {
+              const optName = normalizeCategory(c.name) || c.name
+              return (
+                <option key={optName} value={optName}>
+                  {optName} ({c.count})
+                </option>
+              )
+            })}
+          </select>
+          <span style={{ color: '#6b7280', fontSize: '14px' }}>Total: {totalProducts}</span>
         </div>
       </div>
 
@@ -770,7 +799,7 @@ function ProductManagement() {
           <>
             <div className="products-grid">
               {products
-                .filter(product => !product.broken_link && !failedImages.has(product._id)) // Hide products with broken links AND failed image loads
+                .filter(product => !failedImages.has(product._id)) // Hide only those whose image failed to load in this session
                 .map(product => {
                 // Inline placeholder (no network) so it works when DNS/proxy fails
                 const NO_IMAGE_DATA_URI = 'data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200" viewBox="0 0 200 200"><rect fill="#374151" width="200" height="200"/><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" fill="#9ca3af" font-size="14" font-family="sans-serif">No image</text></svg>')
@@ -790,10 +819,16 @@ function ProductManagement() {
                   ? `http://localhost:8000/api/products/image-proxy?url=${encodeURIComponent(product.image_url)}`
                   : null
                 
+                const productPageUrl = (product.product_url || product.product_link || '').trim()
+                const canOpenProductPage = productPageUrl && /^https?:\/\//i.test(productPageUrl)
+                const openProductPage = (e) => {
+                  if (e.target.closest('button.product-delete-icon')) return
+                  if (canOpenProductPage) window.open(productPageUrl, '_blank', 'noopener,noreferrer')
+                }
                 return (
                   <div key={product._id} className="product-card-item" style={{ position: 'relative' }}>
                     <button
-                      onClick={() => handleDeleteLink(product._id)}
+                      onClick={(e) => { e.stopPropagation(); handleDeleteLink(product._id); }}
                       className="product-delete-icon"
                       title="Delete product"
                       style={{
@@ -818,7 +853,13 @@ function ProductManagement() {
                     >
                       ×
                     </button>
-                    <div className="product-image-wrapper">
+                    <div
+                      className="product-image-wrapper"
+                      onClick={openProductPage}
+                      role={canOpenProductPage ? 'button' : undefined}
+                      title={canOpenProductPage ? 'View product on brand site' : (productPageUrl ? 'No product page link' : '')}
+                      style={canOpenProductPage ? { cursor: 'pointer' } : {}}
+                    >
                       <img
                         src={imageUrl}
                         alt={product.name}
@@ -836,11 +877,16 @@ function ProductManagement() {
                         loading="lazy"
                       />
                     </div>
-                    <div className="product-info-wrapper">
+                    <div
+                      className="product-info-wrapper"
+                      onClick={openProductPage}
+                      role={canOpenProductPage ? 'button' : undefined}
+                      title={canOpenProductPage ? 'View product on brand site' : ''}
+                      style={canOpenProductPage ? { cursor: 'pointer' } : {}}
+                    >
                       <div className="product-name-small">{product.name}</div>
                       <div className="product-brand-small">{product.brand || 'N/A'}</div>
                       <div className="product-meta">
-                        <span className="product-category-small">{product.category}</span>
                         <span className="product-price-small">PKR {product.price ? parseFloat(product.price).toFixed(2) : '0.00'}</span>
                       </div>
                     </div>

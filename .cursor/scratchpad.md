@@ -1357,6 +1357,20 @@ All ML Engine components are functional and tested!
 
 ## Executor's Feedback or Assistance Requests
 
+### EXECUTOR: Frontend–Backend connectivity (March 2, 2025)
+
+**Issue**: Backend + MongoDB connected (terminal shows OK) but frontend still not "connected" (data not showing / unclear why).
+
+**Done**:
+1. **Admin dashboard connectivity check**: On load, frontend first calls `GET http://localhost:8000/ping` (no auth). If that fails (e.g. network), a clear banner shows: "Backend reachable nahi hai. Please ensure server is running on http://localhost:8000."
+2. **Auth error**: If `GET /api/admin/stats` returns 401, banner shows "Session expired. Please log out and log in again."
+3. All dashboard API URLs in `AdminDashboardPro.jsx` use a single `API_BASE = 'http://localhost:8000'`.
+4. **Backend**: FastAPI deprecation fixed in `admin_new.py`: `Query(..., regex=...)` → `Query(..., pattern=...)` for `brand_type`.
+
+**User action**: Open admin dashboard; if backend is not reachable or session expired, the new banners should explain. If banners do not appear but data still doesn’t load, check browser F12 → Network for requests to `localhost:8000` and their status (200 / 401 / failed).
+
+---
+
 ### ✅ EXECUTOR: UI Updates and Feature Enhancements - November 30, 2025
 
 **Status**: COMPLETE ✅
@@ -1432,6 +1446,19 @@ If X > 0 but Y = 0, extraction/validation is still failing; if X = 0, selectors 
 
 ---
 
+### EXECUTOR: Women Short kurti / Women Luxe – product list still 0 (March 2, 2025)
+
+**Status**: Fix applied; please restart backend and re-test.
+
+**Changes in `backend/app/api/routes/admin_new.py`**:
+1. **Exact slug regex**: Endpoint-only branch for Women Luxe and Women Short kurti now uses `^(?:slug1|slug2|...)$` so only exact `endpoint_category` values match (no substring matches).
+2. **Gender normalization**: Products API accepts both "w"/"women" and "m"/"men" for gender filter (case-insensitive).
+3. **Skip gender for merged categories**: When category is "Women Luxe" or "Women Short kurti", gender filter is not applied so products with the right endpoint but missing/different `gender` in DB still show.
+
+**Ask**: Restart the backend server, then in the admin UI select **Women** + **Women Short kurti** (or **Women Luxe**) and confirm that products and Total count appear. If still 0, we need to inspect DB documents (e.g. actual `endpoint_category` and `gender` values) for those collections.
+
+---
+
 ### EXECUTOR: Product Catalogue images still "No image" after Auto Sync – March 2, 2025
 
 **Status**: Changes applied; please run Auto Sync again and refresh Product Catalogue.
@@ -1496,6 +1523,77 @@ If X > 0 but Y = 0, extraction/validation is still failing; if X = 0, selectors 
 **Success criteria**: Sapphire Pret (Women) in Auto Sync runs one job that scrapes all 6 links and stores merged, deduped products. Other brands with a single URL behave unchanged.
 
 **Ask**: Please run Auto Sync for **Sapphire Pret** (Women → Local Affordable Brands) and confirm product count and logs. Mark task complete after verification.
+
+---
+
+### EXECUTOR: Endpoint-based categories & remove category from product card – March 2, 2025
+
+**Status**: Implemented ✅ (awaiting Planner/user verification)
+
+**What was done**:
+
+1. **Backend – scraping job (`admin_new.py`)**  
+   When saving products from a listing URL, each product now gets **`endpoint_category`** from the URL path (e.g. `/collections/kurta` → `"kurta"`, `/collections/ready-to-wear` → `"ready-to-wear"`). No scraper code changed; only the route that calls the scraper sets this field per product before storing.
+
+2. **Backend – GET `/api/admin/categories`**  
+   Returns distinct **`endpoint_category`** only (no legacy "Women → Stitched" etc.). Optional `gender` filter unchanged. Dropdown will show only slug-style categories (e.g. kurta, bags, ready-to-wear) once products are scraped with the new logic.
+
+3. **Backend – GET `/api/admin/products`**  
+   When `category` query param is sent, filter is now by **`endpoint_category`** (exact match).
+
+4. **Frontend – Product card (`ProductManagement.jsx`)**  
+   Removed the category label (red "Women → Stitched" style) from the product card. Card now shows only name, brand, and price in the meta line.
+
+**Success criteria**:  
+- New scrapes populate `endpoint_category` from the page URL.  
+- Category dropdown shows only endpoint-based categories (e.g. Kurta, Bags).  
+- Selecting a category filters products by `endpoint_category`.  
+- Product cards do not show any category label.
+
+**Note**: Existing products in DB without `endpoint_category` will not appear in the new category dropdown until they are re-scraped. Re-running Auto Sync for a brand will set `endpoint_category` for newly scraped/updated products.
+
+---
+
+### EXECUTOR: Men's display categories – Mens Standard Suit, Traditional Suit, Casual Wear (March 2025)
+
+**Status**: Implemented ✅
+
+**What was done**:
+1. **Backend (`admin_new.py`)**  
+   - **Mens Standard Suit**: Products from endpoint `all` (existing + future scrapes) are generalized to "Mens Standard Suit".  
+   - **Mens Traditional Suit**: Products from endpoints `men`, `men-main`, `men-ready-to-wear` are merged into one display category "Mens Traditional Suit".  
+   - **Mens Casual Wear**: Products from endpoint `men-products` are generalized to "Mens Casual Wear".  
+2. **Scraping**: When saving products, `display_category` is set from `_display_category_from_endpoint(slug, gender)` so new scrapes get the correct display category.  
+3. **APIs**: GET `/api/admin/categories` returns the new display names with counts; GET `/api/admin/products` filters by these display categories.  
+4. **Sync on category list**: When the category dropdown is loaded, DB is synced so any products with `endpoint_category` in the men's sets get `display_category` set.  
+5. **Backfill**: POST `/api/admin/categories/backfill-display` now includes men's bulk updates (`matched_men_standard_suit`, `matched_men_traditional_suit`, `matched_men_casual_wear`) and fallback for men products missing `display_category`.
+
+**User action**: Call **POST** `http://localhost:8000/api/admin/categories/backfill-display` once (with admin auth) to set `display_category` on all existing men's products. After that, the frontend category dropdown will show "Mens Standard Suit", "Mens Traditional Suit", "Mens Casual Wear" with correct counts, and product list filter will work by these names.
+
+---
+
+### EXECUTOR: Generalize categories to "Women Kurta" / "Women Lawn" – March 2025
+
+**Status**: Implemented ✅
+
+**What was done**:
+
+1. **Display category mapping (backend)**  
+   - **Women Kurta**: endpoint slugs → `2-piece-essential-summer-pret-kt`, `charizma-vasal-vol-02-2026`, `eid-collection`, `essential-summer-pret`, `florence-summer-edit-26`, `luxe-2025`, `luxury-pret`, `new-arrival-summer-26`, `new-arrivals`, `pret`, `ready-to-wear`, `satori-2026`, `women`.  
+   - **Women Lawn**: `eid-lawn-2026`, `lawn-in-stock`, and endpoint slugs containing both "ramadan" and "lawn".  
+   - Legacy category backfill: "women → stitched" / "western" → Women Kurta; "women → unstitched" → Women Lawn.
+
+2. **Scraping**  
+   When saving products, `display_category` is set from `_display_category_from_endpoint(slug, gender)` so new scrapes get "Women Kurta" or "Women Lawn" (or the slug if unmapped, e.g. bags/jewelry).
+
+3. **APIs**  
+   - GET `/api/admin/categories`: returns distinct **display_category** with counts (dropdown shows "Women Kurta", "Women Lawn", etc.).  
+   - GET `/api/admin/products`: category filter uses **display_category**.
+
+4. **Backfill**  
+   - POST `/api/admin/categories/backfill-display`: one-time backfill for existing women products: sets `display_category` from endpoint or legacy category. Run once after deploy (e.g. from browser/Postman while logged in as admin).
+
+**User action**: Call **POST** `http://localhost:8000/api/admin/categories/backfill-display` once (with admin auth) to generalize existing DB products. Men's mapping to be added later.
 
 ---
 
@@ -1975,3 +2073,4 @@ The Planner has created a complete implementation plan for the new requirements:
 - **CPU vs GPU for 40% Milestone**: CPU inference (402ms per image) is sufficient for 40% demo with 50-100 products. GPU optimization can be deferred to 60% milestone when scaling up.
 - **PostgreSQL Installation Issues on Windows**: PostgreSQL installation can be problematic on Windows due to permissions, antivirus, or system configurations. MongoDB is a better alternative for this project as it: (1) has easier Windows installation, (2) stores embeddings natively as arrays, (3) is more flexible for image metadata, and (4) aligns with the original proposal's architecture.
 - **Product Catalogue "No image"**: If rescrape runs but most products still show "No image", (1) relax `_looks_like_image_url` to allow more path segments (e.g. `/mens/`, `/catalog/`, `/img/`) so download is attempted; (2) in frontend, on image onError try `product.image_url` via image-proxy before falling back to "No image".
+- **Category filter regex (MongoDB)**: For "endpoint-only" branch (e.g. Women Luxe, Women Short kurti), use exact slug match: `^(?:slug1|slug2|slug3)$` so only those exact `endpoint_category` values match, not substrings.
