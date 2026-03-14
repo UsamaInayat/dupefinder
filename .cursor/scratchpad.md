@@ -1597,6 +1597,56 @@ If X > 0 but Y = 0, extraction/validation is still failing; if X = 0, selectors 
 
 ---
 
+## Progress Summary – All App Progress to Date (March 2025)
+
+**Last updated**: March 2025. This section consolidates all progress in the app so far.
+
+### 1. Category system (backend + frontend)
+
+- **Men's display categories** (endpoint → display name):
+  - `all` → **Men Standard Suit**
+  - `men`, `men-main`, `men-ready-to-wear`, `new-arrival` → **Men Traditional Suit**
+  - `men-products` → **Men Casual Wear**
+  - `men-footwear` → **Men Footwear**
+  - `men-shoes-shoes` → **Men Shoes**
+  - `men-sweater` → **Men Sweater**
+  - `mens-wrist-watches` / `men-wrist-watches` → **Men Wrist Watches**
+- **Naming**: "Mens" was changed to "Men" (Men Standard Suit, Men Traditional Suit, Men Casual Wear) everywhere; backward compatibility kept for old DB values.
+- **Women's display categories** (endpoint → display name):
+  - Existing: Women Kurta, Women Lawn, Women Luxe, **Women Short Kurti** (capital K), Women Accessories
+  - Added: **Women Anarkali Frock** (`anarkali-frock`), **Women Bottoms** (`bottoms`), **Women Bags** (`cross-body-bags`), **Women Jewelry** (`jewelry`), **Women Tops** (`tops`), **Women Unstitched** (`unstitched` + `unstitched-fabric`), **Women Western** (`western`), **Women Winter Pants** (`winter-pants`)
+- **Women Short Kurti**: Display name fixed to "Women Short Kurti" (capital K) in backend and frontend; old "Women Short kurti" still matched in DB for backward compatibility.
+- **Scraping**: New products get `display_category` from `_display_category_from_endpoint(slug, gender)`. Sync on category list load and POST `/api/admin/categories/backfill-display` set/update `display_category` for existing products.
+
+### 2. Gender filter and Women Accessories
+
+- **Category list by gender**: When Gender = Men, only men's categories are returned; when Gender = Women, only women's categories (including Women Accessories).
+- **Gender param**: GET `/api/admin/categories` and products API accept `"w"`/`"women"` and `"m"`/`"men"`.
+- **Women Accessories**: Treated as women-only. ECS accessories URL moved from `local_brands_links.csv` (men's) to `local_brands_links_women.csv` so it scrapes with gender "w". Endpoint-only women categories (Women Accessories, Women Luxe, Women Short Kurti) are counted without gender filter when Women is selected so they always show; product list for these categories does not filter by gender so all matching products appear.
+- **Display names always shown**: When a gender is selected, all that gender's display names appear in the dropdown even if count is 0 (e.g. Women Accessories always under Women).
+
+### 3. Product catalogue – click to brand site
+
+- **Product card click**: In Product Catalogue, clicking the product image or the product info (name, brand, price) opens the product's page on the brand site in a new tab (`product.product_url` or `product.product_link`). Delete (×) button unchanged and does not open the link.
+- **Backend**: Products already store and return `product_url` (scrape source / buy page).
+
+### 4. CSV and scraping
+
+- **Women's CSV**: `local_brands_links_women.csv` includes full endpoint links (e.g. ECS `https://shopecs.com/collections/accessories`) so those URLs are scraped as women's links and products show in women categories.
+- **Men's CSV**: ECS accessories row removed from `local_brands_links.csv` so it exists only under women's links.
+
+### 5. Files touched (summary)
+
+- **Backend**: `backend/app/api/routes/admin_new.py` (category sets, filters, sync, backfill, gender handling, product list gender skip for endpoint-only women categories), `backend/scripts/list_endpoint_categories.py` (Women Short Kurti naming).
+- **Frontend**: `frontend-app/src/components/admin/ProductManagement.jsx` (category merge labels, Women Short Kurti, product card click to open `product_url` in new tab).
+- **Data**: `local_brands_links.csv`, `local_brands_links_women.csv`.
+
+### 6. How to run backfill (optional)
+
+- One-time: **POST** `http://localhost:8000/api/admin/categories/backfill-display` (with admin auth) to set `display_category` on all existing products per current endpoint → display name rules.
+
+---
+
 ## Executor's Feedback or Assistance Requests
 
 <<<<<<< HEAD
