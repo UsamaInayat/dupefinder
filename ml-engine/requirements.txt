@@ -1,8 +1,9 @@
-# DupeFinder ML Engine Dependencies (40% Milestone - Simplified)
+# DupeFinder ML Engine Dependencies
 
-# Deep Learning Framework (PyTorch only for 40%)
+# Deep Learning Framework
 torch>=2.2.0
 torchvision>=0.17.0
+transformers>=4.35.0            # FashionCLIP (patrickjohncyh/fashion-clip)
 
 # Image Processing
 Pillow>=10.0.0
@@ -14,23 +15,27 @@ pandas>=2.0.0
 scikit-learn>=1.3.0
 scipy>=1.11.0
 
+# FAISS - vector similarity search
+# On local machine (CPU):
+faiss-cpu>=1.7.4
+# On Vast.ai GPU instance, replace the above with:
+# faiss-gpu>=1.7.4
+
+# MongoDB - for export and push scripts
+pymongo>=4.6.0
+dnspython>=2.4.0            # required for mongodb+srv:// URIs
+
+# HTTP - for downloading product images
+requests>=2.31.0
+httpx>=0.25.0               # async-friendly, handles retries
+
 # Utilities
 tqdm>=4.65.0
-requests>=2.31.0
-
-# Visualization (for debugging)
-matplotlib>=3.7.0
-
-# Configuration
 pyyaml>=6.0
 python-dotenv>=1.0.0
 
+# Visualization (optional, for debugging)
+matplotlib>=3.7.0
+
 # Testing
 pytest>=7.4.0
-
-# Note: Deferred to 60% milestone
-# - tensorflow (not needed for ResNet50 with PyTorch)
-# - faiss-cpu (using scipy cosine similarity for now)
-# - efficientnet-pytorch (using ResNet50 from torchvision)
-# - seaborn (minimal visualization needed)
-

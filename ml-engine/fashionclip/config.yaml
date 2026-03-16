@@ -1,0 +1,27 @@
+# FashionCLIP Pipeline Configuration (Isolated)
+
+model:
+  id: "patrickjohncyh/fashion-clip"
+  architecture: "clip-vit-b32"
+  embedding_dimension: 512
+  device: "auto"           # auto: cuda > mps > cpu
+
+generation:
+  batch_size: 64           # GPU batch size on Vast.ai
+  num_workers: 4           # DataLoader parallel image-loading workers
+  pin_memory: true         # Faster CPU→GPU transfer
+
+paths:
+  # Paths on Vast.ai (remote)
+  manifest_csv:    "/root/ml-engine/data/manifest.csv"
+  images_dir:      "/root/ml-engine/data/catalogue_images"
+  output_dir:      "/root/fashionclip_output"   # indices land here on Vast.ai
+
+  # Paths locally (after download from Vast.ai)
+  local_indices:   "backend/app/ml/fashionclip_indices"
+  local_id_maps:   "backend/app/ml/fashionclip_id_maps"
+
+mongodb:
+  uri:        "mongodb+srv://ussamainayat:ussamainayat@dupefinder.u30xrsm.mongodb.net/"
+  database:   "dupefinder"
+  collection: "products"

@@ -1,34 +1,39 @@
-# DupeFinder ML Engine Configuration (40% Milestone - Simplified)
+# DupeFinder ML Engine Configuration
 
 model:
-  architecture: "resnet50"  # Using ResNet50 for 40% milestone
-  pretrained: true
-  embedding_dimension: 2048  # ResNet50 feature vector size
-  device: "auto"  # Will auto-detect: cuda > mps > cpu
+  architecture: "fashionclip"         # patrickjohncyh/fashion-clip (CLIP ViT-B/32)
+  id: "patrickjohncyh/fashion-clip"
+  embedding_dimension: 512
+  device: "auto"                      # auto: cuda > mps > cpu
 
 preprocessing:
-  target_size: [224, 224]  # Standard ImageNet input size
+  target_size: [224, 224]             # CLIP standard input size
   normalize: true
-  mean: [0.485, 0.456, 0.406]  # ImageNet normalization
-  std: [0.229, 0.224, 0.225]
-  remove_background: false  # Keep simple for 40%
+  mean: [0.48145466, 0.4578275, 0.40821073]   # CLIP normalization
+  std:  [0.26862954, 0.26130258, 0.27577711]
 
 similarity:
-  metric: "cosine"  # Using cosine similarity (no FAISS for 40%)
-  top_k: 5  # Return top 5 similar items
-  threshold: 0.5  # Minimum similarity threshold (0-1)
+  metric: "cosine"                    # IndexFlatIP on L2-normalised vectors
+  top_k: 5
+  threshold: 0.3                      # FashionCLIP cosine scores are generally lower than ResNet
 
 paths:
-  model_dir: "./models"
-  data_dir: "./data"
-  product_images_dir: "./data/product_images"
-  embeddings_dir: "./data/embeddings"
-  logs_dir: "./logs"
-  temp_uploads_dir: "./data/uploads"
+  data_dir:           "./data"
+  images_dir:         "./data/catalogue_images"
+  manifest_csv:       "./data/manifest.csv"
+  logs_dir:           "./logs"
+  temp_uploads_dir:   "./data/uploads"
 
-# Note: Deferred to 60% milestone
-# - FAISS configuration (using simple numpy/scipy for now)
-# - Training configuration (using pre-trained only)
-# - Background removal (keep preprocessing simple)
-# - Advanced filtering (basic category filtering only)
+  # FashionCLIP index outputs (Vast.ai → local)
+  faiss_indices_dir:  "backend/app/ml/fashionclip_indices"
+  id_maps_dir:        "backend/app/ml/fashionclip_id_maps"
 
+generation:
+  batch_size: 64
+  num_workers: 4
+  pin_memory: true
+
+mongodb:
+  uri:        "mongodb+srv://ussamainayat:ussamainayat@dupefinder.u30xrsm.mongodb.net/"
+  database:   "dupefinder"
+  collection: "products"

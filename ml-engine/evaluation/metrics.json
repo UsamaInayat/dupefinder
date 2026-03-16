@@ -1,0 +1,123 @@
+{
+  "total_queries": 95,
+  "recall_at_1": 100.0,
+  "recall_at_5": 100.0,
+  "recall_at_10": 100.0,
+  "top_k": 10,
+  "per_category": {
+    "Men Casual Wear": {
+      "total": 5,
+      "recall_at_1": 100.0,
+      "recall_at_5": 100.0,
+      "recall_at_10": 100.0
+    },
+    "Men Footwear": {
+      "total": 5,
+      "recall_at_1": 100.0,
+      "recall_at_5": 100.0,
+      "recall_at_10": 100.0
+    },
+    "Men Shoes": {
+      "total": 5,
+      "recall_at_1": 100.0,
+      "recall_at_5": 100.0,
+      "recall_at_10": 100.0
+    },
+    "Men Standard Suit": {
+      "total": 5,
+      "recall_at_1": 100.0,
+      "recall_at_5": 100.0,
+      "recall_at_10": 100.0
+    },
+    "Men Sweater": {
+      "total": 5,
+      "recall_at_1": 100.0,
+      "recall_at_5": 100.0,
+      "recall_at_10": 100.0
+    },
+    "Men Traditional Suit": {
+      "total": 5,
+      "recall_at_1": 100.0,
+      "recall_at_5": 100.0,
+      "recall_at_10": 100.0
+    },
+    "Men Wrist Watches": {
+      "total": 5,
+      "recall_at_1": 100.0,
+      "recall_at_5": 100.0,
+      "recall_at_10": 100.0
+    },
+    "Women Accessories": {
+      "total": 5,
+      "recall_at_1": 100.0,
+      "recall_at_5": 100.0,
+      "recall_at_10": 100.0
+    },
+    "Women Anarkali Frock": {
+      "total": 5,
+      "recall_at_1": 100.0,
+      "recall_at_5": 100.0,
+      "recall_at_10": 100.0
+    },
+    "Women Bags": {
+      "total": 5,
+      "recall_at_1": 100.0,
+      "recall_at_5": 100.0,
+      "recall_at_10": 100.0
+    },
+    "Women Bottoms": {
+      "total": 5,
+      "recall_at_1": 100.0,
+      "recall_at_5": 100.0,
+      "recall_at_10": 100.0
+    },
+    "Women Jewelry": {
+      "total": 5,
+      "recall_at_1": 100.0,
+      "recall_at_5": 100.0,
+      "recall_at_10": 100.0
+    },
+    "Women Kurta": {
+      "total": 5,
+      "recall_at_1": 100.0,
+      "recall_at_5": 100.0,
+      "recall_at_10": 100.0
+    },
+    "Women Luxe": {
+      "total": 5,
+      "recall_at_1": 100.0,
+      "recall_at_5": 100.0,
+      "recall_at_10": 100.0
+    },
+    "Women Short Kurti": {
+      "total": 5,
+      "recall_at_1": 100.0,
+      "recall_at_5": 100.0,
+      "recall_at_10": 100.0
+    },
+    "Women Tops": {
+      "total": 5,
+      "recall_at_1": 100.0,
+      "recall_at_5": 100.0,
+      "recall_at_10": 100.0
+    },
+    "Women Unstitched": {
+      "total": 5,
+      "recall_at_1": 100.0,
+      "recall_at_5": 100.0,
+      "recall_at_10": 100.0
+    },
+    "Women Western": {
+      "total": 5,
+      "recall_at_1": 100.0,
+      "recall_at_5": 100.0,
+      "recall_at_10": 100.0
+    },
+    "Women Winter Pants": {
+      "total": 5,
+      "recall_at_1": 100.0,
+      "recall_at_5": 100.0,
+      "recall_at_10": 100.0
+    }
+  }
+}

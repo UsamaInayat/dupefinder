@@ -2430,6 +2430,10 @@ async def run_scraping_job(job_id: str, brand_list: List[dict]):
                 "logs": scraping_jobs[job_id]["logs"]
             }}
         )
+
+        # Auto-trigger FashionCLIP reindex for newly scraped products
+        scraping_jobs[job_id]["logs"].append("Starting FashionCLIP reindex for new products...")
+        asyncio.create_task(_run_reindex_task(job_id))
         
     except Exception as e:
         failed_at = datetime.utcnow()
@@ -2456,6 +2460,80 @@ async def run_scraping_job(job_id: str, brand_list: List[dict]):
                 await scraper.close()
             except:
                 pass
+
+
+async def _run_reindex_task(job_id: str):
+    """
+    Async wrapper: runs FashionCLIP reindex in a thread pool so the
+    FastAPI event loop is never blocked. Called automatically after
+    run_scraping_job completes.
+    """
+    try:
+        summary = await asyncio.to_thread(_sync_reindex)
+        if summary:
+            total = sum(summary.values())
+            msg   = f"Reindex done: {total} new products indexed across {len(summary)} categories"
+        else:
+            msg   = "Reindex complete: no new products found to index"
+
+        if job_id in scraping_jobs:
+            scraping_jobs[job_id]["logs"].append(msg)
+            scraping_jobs[job_id]["reindex_summary"] = summary
+
+        get_scraping_history_collection().update_one(
+            {"job_id": job_id},
+            {"$set": {"reindex_summary": summary, "reindex_done": True}}
+        )
+        logger.info(f"[Reindex] {msg}")
+
+    except Exception as e:
+        err = f"Reindex failed: {e}"
+        logger.error(f"[Reindex] {err}", exc_info=True)
+        if job_id in scraping_jobs:
+            scraping_jobs[job_id]["logs"].append(err)
+
+
+def _sync_reindex() -> dict:
+    """
+    Synchronous reindex: finds unindexed products, downloads images,
+    extracts FashionCLIP embeddings, appends to FAISS indices on disk,
+    then hot-reloads the in-memory indices in search.py.
+
+    Runs inside asyncio.to_thread — does NOT block the event loop.
+    """
+    import sys
+    from pathlib import Path as _Path
+
+    # Resolve ml-engine path so fashionclip package is importable
+    _project_root = _Path(__file__).parent.parent.parent.parent
+    _ml_engine    = _project_root / "ml-engine"
+    if str(_ml_engine) not in sys.path:
+        sys.path.insert(0, str(_ml_engine))
+
+    # Import and call the standalone script's run_reindex function
+    try:
+        from scripts.reindex_new_products import run_reindex
+    except ImportError:
+        # Fallback: add scripts dir explicitly
+        sys.path.insert(0, str(_ml_engine / "scripts"))
+        from reindex_new_products import run_reindex
+
+    summary = run_reindex()
+
+    # Hot-reload the in-memory FAISS indices in search.py
+    if summary:
+        try:
+            from app.api.routes.search import hot_reload_indices
+            updated_slugs = [
+                cat.lower().replace(" ", "_").replace("/", "-")
+                for cat in summary.keys()
+            ]
+            hot_reload_indices(updated_slugs)
+            logger.info(f"[Reindex] Hot-reloaded indices: {updated_slugs}")
+        except Exception as e:
+            logger.warning(f"[Reindex] Hot-reload failed (restart backend to apply): {e}")
+
+    return summary
 
 
 @router.get("/scraping/status/{job_id}")

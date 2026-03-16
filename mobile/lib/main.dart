@@ -26,12 +26,10 @@ class DupeFinderApp extends StatelessWidget {
           primary: Colors.black,
           secondary: Colors.black,
           surface: Colors.white,
-          background: Colors.white,
           error: Colors.black,
           onPrimary: Colors.white,
           onSecondary: Colors.white,
           onSurface: Colors.black,
-          onBackground: Colors.black,
           onError: Colors.white,
         ),
         useMaterial3: true,
@@ -47,15 +45,15 @@ class DupeFinderApp extends StatelessWidget {
             elevation: 0,
           ),
         ),
-        inputDecorationTheme: InputDecorationTheme(
+        inputDecorationTheme: const InputDecorationTheme(
           border: OutlineInputBorder(
-            borderSide: const BorderSide(color: Colors.black, width: 2),
+            borderSide: BorderSide(color: Colors.black, width: 2),
           ),
           enabledBorder: OutlineInputBorder(
-            borderSide: const BorderSide(color: Colors.black, width: 2),
+            borderSide: BorderSide(color: Colors.black, width: 2),
           ),
           focusedBorder: OutlineInputBorder(
-            borderSide: const BorderSide(color: Colors.black, width: 2),
+            borderSide: BorderSide(color: Colors.black, width: 2),
           ),
         ),
       ),
@@ -80,7 +78,7 @@ class AuthCheckScreen extends StatefulWidget {
 
 class _AuthCheckScreenState extends State<AuthCheckScreen> {
   final _apiService = ApiService();
-  bool _isLoading = true;
+  final bool _isLoading = true;
 
   @override
   void initState() {

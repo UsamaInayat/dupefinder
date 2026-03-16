@@ -957,6 +957,185 @@ For an effective FYP demonstration at 40% completion, we need to focus on **CORE
 
 ## Project Status Board
 
+**Updated: March 16, 2026 — FashionCLIP switch complete, Ranking + Reindex implemented**
+
+---
+
+### Progress Log — March 15–16, 2026
+
+#### March 15, 2026 (previous session)
+- **FashionCLIP isolated pipeline fully planned** — separate `ml-engine/fashionclip/` module created with its own extractor, config, requirements, and generation script (using PyTorch DataLoader with `num_workers=4` to fix the 2-hour I/O bottleneck from previous attempt)
+- **Backend isolated FashionCLIP route** created at `/api/search/fashionclip/similar` — ran in parallel with live ResNet50 route for evaluation
+- **Local backend fixes**: FashionCLIP startup loading moved to `threading.Thread` to prevent FastAPI lifespan from blocking the event loop (previously backend froze on startup)
+- **Planned mobile app ML integration** (Mobile-ML-1, Mobile-ML-2, Mobile-ML-3) — deferred to execution
+
+#### March 16, 2026 (today)
+- **New Vast.ai instance** (2x RTX 4090) — connected, uploaded `ml-engine/`, fixed `ml-engine/config.yaml` missing `mongodb` section
+- **23,056 product images downloaded** from MongoDB to Vast.ai instance (~16 min, 16 workers)
+- **FashionCLIP embeddings generated** in ~5 minutes on 2x 4090 using PyTorch DataLoader — confirmed fix worked vs 2-hour I/O bottleneck
+- **20 FAISS indices + 20 ID maps** (46MB) downloaded to `backend/app/ml/fashionclip_indices/` + `fashionclip_id_maps/`
+- **Side-by-side comparison report** generated at `ml-engine/evaluation/comparison_results.html`
+- **ResNet50 fully removed** from the project — all code, files, and FAISS indices backed up to `C:\Users\US\Desktop\FYP\dupefinder-backup\Resnet\`
+- **`search.py` rewritten** to use FashionCLIP as the sole search engine at `/api/search/similar`
+- **`main.py` cleaned up** — single background thread for FashionCLIP loading, removed ResNet thread
+- **`search_fashionclip.py` deleted** (merged into main `search.py`)
+- **`ml-engine/config.yaml`** updated to FashionCLIP config (512-dim, CLIP normalization)
+- **`ml-engine/embeddings/__init__.py`** updated to export `FashionCLIPExtractor`
+- **`ml-engine/data/catalogue_images/`** deleted (local sample images no longer needed — real data lives on Vast.ai)
+- **Multi-signal ranking system implemented** in `search.py`:
+  - `_rerank()` function: `final_score = 0.7*sim + 0.2*price_score + 0.1*attr_score`
+  - `final_score` field added to `SearchResult` model
+  - Ranking weights `w_sim/w_price/w_attr` configurable via query params (default 0.7/0.2/0.1)
+  - Thread-safe `_index_lock` added to protect all reads/writes to in-memory FAISS dicts
+  - `hot_reload_indices()` function added — replaces in-memory indices from disk without restart
+- **Incremental reindex pipeline implemented**:
+  - `ml-engine/scripts/reindex_new_products.py` — standalone CLI script (manual use, `--migrate-existing`, `--dry-run`, `--limit`, `--category` flags)
+  - `_run_reindex_task()` + `_sync_reindex()` added to `admin_new.py` — auto-triggered as `asyncio.create_task` after `run_scraping_job` completes
+  - Uses `fashionclip_indexed: True` MongoDB field as tracking flag
+  - All new scraped products are automatically embedded and appended to FAISS indices, then `hot_reload_indices()` swaps live in-memory indices with zero downtime
+  - **Run once after this deploy**: `python ml-engine/scripts/reindex_new_products.py --migrate-existing` to mark all 23,056 existing products as indexed
+
+---
+
+#### Remaining Tasks
+- [ ] **Mobile-ML-1**: Add `searchSimilarImages()` to `api_service.dart` (see plan below)
+- [ ] **Mobile-ML-2**: Build `image_search_screen.dart`
+- [ ] **Mobile-ML-3**: Wire into app navigation
+- [ ] `phase4-ranking` ✅ done
+- [ ] `phase4-reindex` ✅ done
+
+---
+
+**Updated: March 15, 2026 - ML FAISS Pipeline Plan added**
+
+### 🔖 DEFERRED — Mobile App ML Integration (FashionCLIP) — Plan Ready, Not Yet Executed
+
+> Updated March 16, 2026: Switched from ResNet50 to FashionCLIP. Backend `/api/search/similar` now uses FashionCLIP. Tasks below updated accordingly.
+
+**Backend is ready**: `POST /api/search/similar` is live and serving FashionCLIP results (512-dim, 20 category indices).
+
+---
+
+#### Mobile-ML-1: `api_service.dart` — Add `searchSimilarImages()`
+
+**File**: `mobile/lib/services/api_service.dart`
+
+**What to add**: A new method that sends a multipart POST to `/api/search/similar` with the user's image file and optional filters including ranking weight overrides.
+
+**Method signature**:
+```dart
+Future<Map<String, dynamic>> searchSimilarImages({
+  required File imageFile,   // from image_picker
+  int topK = 5,              // number of results
+  String? category,          // optional display_category filter
+  double? minPrice,          // optional price filter
+  double? maxPrice,
+  double wSim   = 0.7,       // ranking: visual similarity weight
+  double wPrice = 0.2,       // ranking: price affordability weight
+  double wAttr  = 0.1,       // ranking: attribute match weight
+})
+```
+
+**Implementation notes**:
+- Use `http.MultipartRequest('POST', uri)` — same `http` package already in pubspec
+- Detect MIME from extension: `.png` → `image/png`, else → `image/jpeg`
+- Include `Authorization: Bearer $token` header if user is logged in
+- Endpoint: `$baseUrl/search/similar?top_k=5&category=...&w_sim=0.7&w_price=0.2&w_attr=0.1`
+- **Response shape**:
+  ```json
+  {
+    "query_image": "...",
+    "search_time_ms": 620.5,
+    "total_results": 5,
+    "category_searched": "Women Kurta",
+    "results": [
+      {
+        "product_id": "123",
+        "name": "Embroidered Kurta",
+        "brand": "Gul Ahmed",
+        "price": 2500.0,
+        "image_url": "https://...",
+        "product_url": "https://...",
+        "display_category": "Women Kurta",
+        "similarity_score": 0.87,
+        "final_score": 0.74
+      }
+    ]
+  }
+  ```
+- **`final_score`** is the primary ranking field (combines similarity + price + attributes). Display this as the match % to users.
+- **`similarity_score`** is the raw visual match (0–1). Can be shown as a secondary detail.
+- **Package needed**: add `http_parser: ^4.0.0` to `pubspec.yaml` (for `MediaType`)
+
+**Success criteria**: calling `searchSimilarImages(imageFile: file)` returns a parsed list of product maps with both `similarity_score` and `final_score`.
+
+---
+
+#### Mobile-ML-2: `image_search_screen.dart` — Build Image Search UI
+
+**File**: `mobile/lib/screens/search/image_search_screen.dart`
+
+**Flow**:
+1. User taps camera or gallery icon
+2. `image_picker` opens (already in pubspec? — check first)
+3. Selected image is shown as preview thumbnail
+4. Optional: category dropdown (20 options matching backend slugs), price range sliders
+5. Tap "Find Similar" → calls `ApiService().searchSimilarImages()`
+6. Loading spinner while waiting (FashionCLIP inference takes ~1–3s on backend CPU)
+7. Results displayed as a scrollable grid of product cards
+
+**Product card should show**:
+- Product image (from `image_url`)
+- Product name + brand
+- Price in PKR
+- Match % badge: use `final_score * 100` rounded (e.g. "74% match") — this combines visual + price + attributes
+- Optional secondary detail: raw visual similarity `similarity_score * 100` (e.g. "87% visual")
+- Tap → opens `product_url` in browser (use `url_launcher`)
+
+**State management**: use `StatefulWidget` + `setState` — no need for a provider for a single screen.
+
+**Packages needed** (check pubspec first):
+- `image_picker` — camera/gallery access
+- `url_launcher` — open product URLs in browser
+
+**Success criteria**: User can pick an image, see a spinner, then see at least 1 product card with a name, price, and similarity score.
+
+---
+
+#### Mobile-ML-3: Wire search screen into app navigation
+
+**File**: `mobile/lib/main.dart` or bottom nav bar file
+
+**What to do**: Add the image search screen as a tab or FAB in the main app navigation.
+- Suggested entry point: a camera/search icon in the bottom navigation bar, or a dedicated "Search" tab
+- Requires reading the existing navigation structure first before implementing
+
+**Success criteria**: Tapping the search icon navigates to `ImageSearchScreen`.
+
+---
+
+#### Notes on index / embedding consistency (MongoDB ↔ FAISS)
+
+- Currently FashionCLIP has **23,056 products** indexed across 20 categories
+- When the scraper adds new products to MongoDB, the FAISS indices become stale
+- **Re-indexing plan** (separate task `phase4-reindex`):
+  1. Script queries MongoDB for products added after last index timestamp
+  2. Downloads new product images
+  3. Extracts FashionCLIP embeddings (batch)
+  4. Rebuilds affected category FAISS indices
+  5. Saves new `.index` + `.pkl` files to `backend/app/ml/fashionclip_indices/`
+  6. Hot-reloads in-memory indices (or restarts backend)
+- Until re-indexing is implemented: new scraped products won't appear in search results
+
+---
+
+- [ ] **Mobile-ML-1**: Add `searchSimilarImages()` to `api_service.dart`
+- [ ] **Mobile-ML-2**: Build `image_search_screen.dart` — image picker, results grid
+- [ ] **Mobile-ML-3**: Wire search screen into app navigation
+- **Prerequisite**: Backend running with FashionCLIP indices loaded ✅ (already done)
+
+---
+
 **Updated: November 11, 2025 - NEW REQUIREMENTS: Authentication + Admin Dashboard**
 
 ### ✅ Previously Completed (40% Milestone)
@@ -2105,6 +2284,150 @@ The Planner has created a complete implementation plan for the new requirements:
 **Estimated Time**: 1-2 hours
 **Ready to proceed**: YES
 
+---
+
+## Executor's Feedback — Vast.ai ML Pipeline (March 15, 2026)
+
+**Task**: phase3-upload — Run embedding generation on Vast.ai GPU, download FAISS artifacts
+
+**Status**: ✅ COMPLETED (with one known issue documented below)
+
+**What Was Done**:
+1. ✅ Connected to Vast.ai server (RTX 4090, 24GB VRAM, PyTorch 2.5.1 + CUDA 12.1)
+2. ✅ Uploaded `ml-engine/` to server via scp
+3. ✅ Installed dependencies (faiss-cpu, pymongo, torch, etc.)
+4. ✅ Ran `export_images_for_embedding.py --workers 16` → downloaded 23,058 images in ~21 min
+5. ✅ Ran `generate_embeddings_vastai.py --batch-size 128` → ResNet50 extracted 2048-dim embeddings on RTX 4090
+6. ✅ Built 19 FAISS `IndexFlatIP` files (one per display_category) — all saved to server
+7. ✅ Downloaded all artifacts to `backend/app/ml/faiss_indices/` (181 MB, 19 `.index` files) and `backend/app/ml/id_maps/` (19 `.pkl` files)
+
+**Known Issue — MongoDB Atlas Free Tier Storage Quota Exceeded**:
+- During `push_embeddings_to_mongo` step, hit: `pymongo.errors.OperationFailure: you are over your space quota, using 533 MB of 512 MB`
+- MongoDB Atlas free tier (M0) has a 512 MB limit; pushing 2048-dim vectors for 23K products (~184 MB) pushed us over
+- **Impact**: Product documents in MongoDB do NOT have their `embedding` field populated
+- **Mitigation**: FAISS indices + id_maps are fully functional and are the primary artifacts needed for the search service. The MongoDB embedding field is not required by the current `similarity_service.py` plan.
+- **Future fix if needed**: Upgrade to M10 Atlas tier ($57/month), or store only quantized (int8) embeddings, or skip MongoDB embedding storage entirely since FAISS handles the similarity search.
+
+**Artifacts Location**:
+- `backend/app/ml/faiss_indices/*.index` — 19 category index files
+- `backend/app/ml/id_maps/*.pkl` — 19 category id maps (FAISS row int → product_id)
+
+**Next Step**: The search endpoint is now implemented directly in `backend/app/api/routes/search.py` using FAISS (no separate similarity_service.py needed). It loads indices at startup and serves per-request queries via FAISS.
+
+---
+
+## ML FAISS Pipeline — Remaining Todos (Recovered)
+
+These tasks were in the deleted plan file and are restored here to avoid being lost again.
+
+---
+
+### phase4-ranking — Multi-Signal Ranking System [PENDING]
+
+**What**: After FAISS returns the top-K candidates by visual similarity, re-rank them using a combined score that factors in price and product attributes alongside visual similarity.
+
+**Formula**:
+```
+final_score = (w_sim * similarity_score) + (w_price * price_score) + (w_attr * attr_score)
+```
+
+- `similarity_score` — cosine similarity from FAISS (0–1, already implemented)
+- `price_score` — how affordable the result is relative to a reference price: `1 - (result_price / max_price_in_results)` — cheaper = higher score
+- `attr_score` — how well product attributes (gender, category) match the query context (0 or 1 for hard filters, partial for soft matches)
+- Weights `w_sim`, `w_price`, `w_attr` are **configurable** (default: 0.7, 0.2, 0.1)
+
+**Where to implement**: `backend/app/api/routes/search.py` — after the FAISS search, before returning results.
+
+**Success criteria**: Given two results with similar visual similarity, the cheaper one ranks higher. Weights can be changed in config without code changes.
+
+---
+
+### phase4-reindex — Incremental Re-indexing for New Scraped Products [PENDING]
+
+**What**: When new products are added via scraping, generate their embeddings and **add them to the existing FAISS index** without rebuilding from scratch. `faiss.IndexFlatIP` supports `.add()` incrementally.
+
+**Trigger**: After the scraping job finishes (Admin Dashboard Auto Sync module completes), a background task should:
+1. Find products in MongoDB that have no embedding (or no FAISS entry)
+2. Download their images
+3. Extract ResNet50 embeddings (or FashionCLIP after switch)
+4. Append to the relevant category's `.index` file via `index.add(new_vecs)`
+5. Append to the relevant `id_map.pkl` with new FAISS positions → product_ids
+6. Save updated index + id_map back to disk
+
+**Where to implement**: New script `ml-engine/scripts/reindex_new_products.py` + hook into Admin Dashboard scraping completion (Phase B.14).
+
+**Success criteria**: After scraping 50 new kurtas, running the reindex script adds them to `women_kurta.index` and they appear in search results — without rebuilding the full 6,802-vector index.
+
+---
+
+## FashionCLIP Isolated Pipeline — In Progress (March 16, 2026)
+
+### Files created (all local code done)
+
+| File | Purpose |
+|---|---|
+| `ml-engine/fashionclip/__init__.py` | Package marker |
+| `ml-engine/fashionclip/extractor.py` | FashionCLIPExtractor class (isolated, bug-fixed) |
+| `ml-engine/fashionclip/config.yaml` | Model + path config |
+| `ml-engine/fashionclip/requirements.txt` | Deps for Vast.ai |
+| `ml-engine/fashionclip/scripts/generate_embeddings.py` | **DataLoader fix** — GPU job, ~10 min for 23k images |
+| `ml-engine/fashionclip/scripts/quick_eval.py` | Side-by-side HTML comparison vs ResNet50 |
+| `backend/app/ml/fashionclip_indices/` | Empty, waiting for Vast.ai indices |
+| `backend/app/ml/fashionclip_id_maps/` | Empty, waiting for Vast.ai id maps |
+| `backend/app/api/routes/search_fashionclip.py` | Isolated endpoint at `/api/search/fashionclip/similar` |
+| `download_fashionclip_indices.py` | Download script (update SSH_HOST + SSH_PORT) |
+| `vastai_fashionclip_setup.py` | Upload to Vast.ai, installs deps, launches job |
+| `check_fc_progress.py` | Upload to Vast.ai, run to monitor job progress |
+
+### Vast.ai execution steps (waiting for instance)
+1. Get new Vast.ai instance (SSH details needed)
+2. Update `vastai_key.pem` if new key
+3. SCP: upload `ml-engine/` folder + helper scripts
+4. Run `vastai_fashionclip_setup.py` on remote (installs deps, re-downloads images, launches job)
+5. Monitor with `check_fc_progress.py`
+6. When done: run `download_fashionclip_indices.py` locally (update SSH_HOST/PORT first)
+7. Run `ml-engine/fashionclip/scripts/quick_eval.py` → open `comparison_results.html`
+
+### Swap trigger (after evaluation)
+In `backend/app/api/routes/search.py`, change 3 lines:
+```python
+FAISS_DIR   = ML_DIR / "fashionclip_indices"    # was: faiss_indices
+ID_MAPS_DIR = ML_DIR / "fashionclip_id_maps"    # was: id_maps
+from fashionclip.extractor import FashionCLIPExtractor as FeatureExtractor  # was: feature_extractor
+```
+
+---
+
+## FashionCLIP Switch — Deferred to Next Session
+
+First attempt was abandoned because the Vast.ai batch job took ~2 hours (I/O bottleneck — CPU reading 64 images per batch ~18s, GPU only takes 50ms).
+
+**Root cause**: `generate_embeddings_vastai.py` uses manual PIL loops — no parallel data loading.
+
+**Fix for next session** — replace the manual loop with PyTorch DataLoader (num_workers=4):
+```python
+from torch.utils.data import DataLoader, Dataset
+loader = DataLoader(dataset, batch_size=64, num_workers=4, pin_memory=True)
+```
+This prefetches the next batch on background threads while the GPU processes the current one.
+Expected speedup: ~20s/batch → ~1-2s/batch → 23k images done in ~10 min instead of 2 hours.
+
+**Current state (what's already done — don't redo)**:
+- `ml-engine/embeddings/fashion_clip_extractor.py` — already written and correct (bug fix applied)
+- `ml-engine/embeddings/__init__.py` — needs to be switched back to FashionCLIP for that session
+- `ml-engine/config.yaml` — needs embedding_dimension: 512
+- `backend/app/api/routes/search.py` — already FAISS-based (just swap extractor import)
+- Vast.ai: images already exported to remote (23,060 images in `/root/ml-engine/data/`) — **reuse if instance still available**; otherwise re-export takes ~20 min
+
+**Steps for next session**:
+1. Update `generate_embeddings_vastai.py` to use DataLoader (num_workers=4)
+2. Switch imports back to FashionCLIPExtractor
+3. Rent Vast.ai GPU instance, upload updated ml-engine, run generate (~10 min)
+4. Download faiss_indices/ + id_maps/ → backend/app/ml/
+5. Run quick_eval.py and compare with ResNet50 results
+
+---
+
 ## Lessons
 
 ### General Lessons
@@ -2124,3 +2447,14 @@ The Planner has created a complete implementation plan for the new requirements:
 - **PostgreSQL Installation Issues on Windows**: PostgreSQL installation can be problematic on Windows due to permissions, antivirus, or system configurations. MongoDB is a better alternative for this project as it: (1) has easier Windows installation, (2) stores embeddings natively as arrays, (3) is more flexible for image metadata, and (4) aligns with the original proposal's architecture.
 - **Product Catalogue "No image"**: If rescrape runs but most products still show "No image", (1) relax `_looks_like_image_url` to allow more path segments (e.g. `/mens/`, `/catalog/`, `/img/`) so download is attempted; (2) in frontend, on image onError try `product.image_url` via image-proxy before falling back to "No image".
 - **Category filter regex (MongoDB)**: For "endpoint-only" branch (e.g. Women Luxe, Women Short kurti), use exact slug match: `^(?:slug1|slug2|slug3)$` so only those exact `endpoint_category` values match, not substrings.
+- **faiss-gpu not on PyPI**: `faiss-gpu` is no longer available on PyPI (pip). Use `faiss-cpu` instead — PyTorch handles the GPU-heavy embedding extraction; FAISS CPU is perfectly fast for index building at 23K vectors.
+- **Windows SSH key permissions for OpenSSH**: Use `icacls "key.pem" /inheritance:r /grant:r "DOMAIN\USER:(R)"` with the full `whoami` output (e.g. `us\us`) as the identity. The short username alone fails with "identity references could not be translated".
+- **PowerShell SSH with Python -c**: PowerShell strips quotes from SSH remote commands containing Python inline code. Write Python to a temp `.py` file locally, scp it to the server, then `ssh ... python3 /path/to/file.py` instead.
+- **MongoDB Atlas M0 storage limit**: Free tier is 512 MB. Storing 2048-dim float32 embeddings for 23K products adds ~184 MB. If the cluster is already near full, the bulk_write push will fail with `AtlasError code 8000`. Solution: export all products to local JSON (READ — always works), drop the collection via Atlas UI (frees space), reimport without embedding field via pymongo bulk_write. Atlas M0 blocks ALL writes (including $unset, updateMany, even from mongosh) when over quota — only dropping the collection frees space.
+- **MongoDB backup/reimport pattern**: Use `json.dumps` with custom serializer (ObjectId → str, datetime → isoformat) for export. On reimport, restore `_id` as `ObjectId(str_value)` before inserting to preserve original document IDs.
+- **FashionCLIP CPU cold-start**: `patrickjohncyh/fashion-clip` (600MB ViT-B/32) takes 2-3 minutes to load on CPU from disk the first time after a reboot. Once in OS RAM cache, subsequent loads take 8-10s. For the FYP demo: pre-load using the startup lifespan event in main.py so the model is warm before any user requests arrive. Per-request inference on CPU: ~200-350ms (vs ~50ms for ResNet50) — acceptable for a mobile app.
+- **FashionCLIP get_image_features bug**: `CLIPModel.get_image_features()` for `patrickjohncyh/fashion-clip` returns a `BaseModelOutputWithPooling` object instead of a plain tensor. Fix: use `model.vision_model(pixel_values=pv).pooler_output` then `model.visual_projection(pooled)` explicitly — works with all CLIP checkpoints.
+- **FashionCLIP embedding dimension**: 512-dim (vs ResNet50's 2048-dim). Update `config.yaml` embedding_dimension and rebuild all FAISS indices — the old 2048-dim `.index` files are incompatible.
+- **FastAPI lifespan blocking the event loop**: Any synchronous heavy work (model loading, FAISS index loading) inside the `lifespan` startup event blocks the entire async event loop — the server accepts TCP connections but never responds to HTTP requests. Fix: wrap in `threading.Thread(target=..., daemon=True).start()` so startup completes immediately and loading happens in the background.
+- **embeddings/__init__.py stale import**: After deleting `feature_extractor.py`, the `__init__.py` still imported from it, causing `ModuleNotFoundError` when any script in the package imported the `embeddings` module. Fix: update `__init__.py` to import only `FashionCLIPExtractor`.
+- **FashionCLIP on GPU is I/O bound**: Even on 2x RTX 4090, FashionCLIP batch processing runs ~20s/batch of 64 images because CPU image-loading (PIL) and preprocessing is the bottleneck. GPU compute is milliseconds — GPU utilization shows 0% in `nvidia-smi` while CPU prepares the next batch. Expect ~2 hours for 23K images. This is a one-time cost; the FAISS indices persist indefinitely.

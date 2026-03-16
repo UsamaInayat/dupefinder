@@ -17,7 +17,8 @@ class ApiService {
   // Use the IP that starts with 192.168.x.x or 10.x.x.x (local network)
   
   // Change this to your computer's local network IP for physical device testing
-  static const String _physicalDeviceIP = '192.168.1.108'; // Update this with your IP
+  // HOTSPOT IP: 192.168.137.1 (PC hotspot - for when phone and PC on different WiFi)
+  static const String _physicalDeviceIP = '192.168.137.1'; // Update this with your IP
   
   static String get baseUrl {
     String url;

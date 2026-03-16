@@ -42,7 +42,22 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         print(f"[ERROR] Failed to connect to MongoDB: {e}")
         print("[WARNING] API starting without database connection")
-    
+
+    # Pre-load FashionCLIP + FAISS indices in a background thread so startup
+    # never blocks the event loop — API is responsive immediately on port 8000.
+    import threading
+
+    def _load_fashionclip():
+        try:
+            from app.api.routes.search import init_search_resources
+            print("[INFO] Background: loading FashionCLIP + FAISS indices...")
+            init_search_resources()
+            print("[OK] FashionCLIP search ready")
+        except Exception as e:
+            print(f"[WARNING] FashionCLIP pre-load failed (will lazy-load on first request): {e}")
+
+    threading.Thread(target=_load_fashionclip, daemon=True).start()
+
     yield
     
     # Shutdown

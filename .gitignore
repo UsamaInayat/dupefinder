@@ -117,3 +117,18 @@ product_images/
 ehthumbs.db
 Desktop.ini
 
+# Vast.ai private key — never commit
+vastai_key.pem
+*.pem
+
+# Local backups
+backup/
+
+# Vast.ai helper scripts (local use only)
+check_status.py
+check_gpu.py
+kill_generate.py
+start_generate.py
+vastai_setup.py
+vastai_setup.sh
+

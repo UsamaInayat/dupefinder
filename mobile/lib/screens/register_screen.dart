@@ -443,10 +443,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     keyboardType: TextInputType.name,
                     textCapitalization: TextCapitalization.words,
                     onChanged: _validateNameRealTime,
-                    decoration: InputDecoration(
+                    decoration: const InputDecoration(
                       labelText: 'Full Name',
-                      prefixIcon: const Icon(Icons.person),
-                      border: const OutlineInputBorder(),
+                      prefixIcon: Icon(Icons.person),
+                      border: OutlineInputBorder(),
                       hintText: 'Enter your full name',
                       errorText: null, // Disable default validator error
                     ),
