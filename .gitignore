@@ -121,6 +121,10 @@ Desktop.ini
 vastai_key.pem
 *.pem
 
+# Stale/empty ml-engine index folders (real indices live in backend/app/ml/)
+ml-engine/faiss_indices/
+ml-engine/id_maps/
+
 # Local backups
 backup/
 

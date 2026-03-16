@@ -66,18 +66,29 @@ _extractor  = None
 _indices:   dict = {}   # slug → faiss.Index
 _id_maps:   dict = {}   # slug → {faiss_int_id: product_id}
 
-# Protects all reads and writes to _indices/_id_maps so hot-reloads
-# during a running search request never cause inconsistent state.
+# _index_lock: guards every read/write to _indices/_id_maps contents.
+#   Held briefly during searches and during hot_reload_indices() swaps.
 _index_lock = threading.Lock()
+
+# _load_lock: prevents concurrent calls to _load_indices() or get_extractor().
+#   Held for the entire duration of disk I/O / model load.
+#   Separate from _index_lock so in-flight searches are never blocked by a load.
+_load_lock  = threading.Lock()
 
 
 def get_extractor():
     global _extractor
-    if _extractor is None:
-        print("[INFO] Loading FashionCLIP extractor...")
-        from fashionclip.extractor import FashionCLIPExtractor
-        _extractor = FashionCLIPExtractor(device="cpu")
-        print("[OK] FashionCLIP loaded")
+    # Fast path — model already loaded (no lock needed for a plain read of a
+    # module-level reference that is only ever set once, never set to None again).
+    if _extractor is not None:
+        return _extractor
+    # Slow path — acquire _load_lock so only one thread loads the model.
+    with _load_lock:
+        if _extractor is None:          # double-check inside the lock
+            print("[INFO] Loading FashionCLIP extractor...")
+            from fashionclip.extractor import FashionCLIPExtractor
+            _extractor = FashionCLIPExtractor(device="cpu")
+            print("[OK] FashionCLIP loaded")
     return _extractor
 
 
@@ -202,11 +213,23 @@ def _rerank(
 # ── Search helpers ─────────────────────────────────────────────────────────────
 
 def _faiss_search(query_vec: np.ndarray, category_slug: str, top_k: int) -> list:
-    """Search a single FAISS index. Returns list of {product_id, score}."""
+    """Search a single FAISS index. Returns list of {product_id, score}.
+
+    Snapshotting index + id_map under the lock before searching means a
+    concurrent hot_reload_indices() that evicts this category cannot cause a
+    KeyError — we either get valid local references or return [] gracefully.
+    The FAISS .search() itself runs outside the lock so slow searches on large
+    indices never block concurrent reads or hot-reloads.
+    """
     with _index_lock:
-        index  = _indices[category_slug]
-        id_map = _id_maps[category_slug]
-        scores, faiss_ids = index.search(query_vec, top_k)
+        index  = _indices.get(category_slug)
+        id_map = _id_maps.get(category_slug)
+
+    if index is None or id_map is None:
+        print(f"[WARNING] _faiss_search: index '{category_slug}' not found (evicted during hot-reload?)")
+        return []
+
+    scores, faiss_ids = index.search(query_vec, top_k)
 
     hits = []
     for fid, score in zip(faiss_ids[0], scores[0]):
@@ -274,11 +297,17 @@ async def search_by_image(
     saved.write_bytes(contents)
     print(f"[INFO] Saved upload: {saved}")
 
-    # ── Check indices are loaded ──────────────────────────────────────────────
-    with _index_lock:
-        indices_ready = bool(_indices)
-    if not indices_ready:
-        _load_indices()
+    # ── Check indices are loaded (double-checked locking) ────────────────────
+    # Fast path: indices already in memory — no lock needed (dict truthiness
+    # is an atomic CPython operation for the common case).
+    if not _indices:
+        # Slow path: acquire _load_lock so only one thread calls _load_indices().
+        # Any other thread that arrives here simultaneously will block until the
+        # first finishes, then see _indices populated and skip the load.
+        with _load_lock:
+            if not _indices:            # double-check inside the lock
+                _load_indices()
+
     with _index_lock:
         indices_ready = bool(_indices)
     if not indices_ready:
