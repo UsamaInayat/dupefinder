@@ -36,6 +36,7 @@ torchvision>=0.17.0
 numpy>=1.26.0
 scipy>=1.10.0
 tqdm>=4.65.0
+faiss-cpu>=1.7.0  # similarity search (import faiss)
 
 # API & Data Validation
 pydantic>=2.5.0

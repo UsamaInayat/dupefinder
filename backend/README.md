@@ -124,6 +124,24 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 
 Server will start at: **http://localhost:8000**
 
+### FashionCLIP / "Find Similar" (Image Search)
+
+The **Find Similar** feature (mobile and web) uses FashionCLIP + FAISS. The backend needs **index** and **id_map** files in `app/ml/fashionclip_indices/` and `app/ml/fashionclip_id_maps/`. The `.pkl` id_maps are not in the repo (gitignored).
+
+If you see **"FashionCLIP indices not loaded. Run embedding generation first"** (503 from `/api/search/similar`):
+
+1. **One-time setup** (from **project root**, not backend):
+   ```bash
+   # Install ml-engine deps if needed
+   cd ml-engine && pip install -r requirements.txt && cd ..
+
+   # Build indices + id_maps from MongoDB (downloads images, runs FashionCLIP; can take a while)
+   python ml-engine/scripts/reindex_new_products.py
+   ```
+2. Restart the backend so it loads the new `.index` and `.pkl` files.
+
+After the first run, only **new** scraped products need reindexing (handled automatically after Admin scraping, or run the same script again).
+
 ---
 
 ## 📚 API Endpoints

@@ -1129,10 +1129,35 @@ Future<Map<String, dynamic>> searchSimilarImages({
 
 ---
 
-- [ ] **Mobile-ML-1**: Add `searchSimilarImages()` to `api_service.dart`
-- [ ] **Mobile-ML-2**: Build `image_search_screen.dart` — image picker, results grid
-- [ ] **Mobile-ML-3**: Wire search screen into app navigation
+- [x] **Mobile-ML-1**: Add `searchSimilarImages()` to `api_service.dart` ✅ (March 2026)
+- [x] **Mobile-ML-2**: Build `image_search_screen.dart` — image picker, category filter, results grid with match %, price, url_launcher ✅
+- [x] **Mobile-ML-3**: Wire search screen into app navigation (route `/search`, Home "Find Similar" → ImageSearchScreen) ✅
 - **Prerequisite**: Backend running with FashionCLIP indices loaded ✅ (already done)
+
+---
+
+### Mobile App Modules (FYP Proposal Alignment) — March 2026
+
+**Source**: FYP Proposal — DupeFinder Affordable Alternatives for Luxury Wearables
+
+| FYP Module | Mobile Implementation | Status |
+|------------|------------------------|--------|
+| **User Experience** | Upload/capture image, filters (category, gender, budget), personalized recommendations | Mobile-ML-1/2/3 (image search) |
+| **User Experience** | Wishlist (save favorites) | Planned — screen + local/API storage |
+| **User Experience** | Compare options (side-by-side) | Planned — compare screen |
+| **User Experience** | Social sharing (share links) | Planned — url_launcher + share_plus |
+| **Image Matching & Recommendation** | CNN-based search, hybrid ranking (style → affordability → popularity) | Backend ✅; Mobile calls `/api/search/similar` |
+| **Pricing & Availability** | Show price, “Best Savings”, last-updated; availability alerts | In product cards + detail (later) |
+| **Community Reviews & Trust** | Ratings, reviews; in-app “ask for dupes” / reply with store links | Defer — needs backend endpoints |
+| **Analytics (user side)** | Average savings, top categories, trending alternatives | Defer — needs backend endpoints |
+
+**Mobile build order (current focus)**:
+1. **Image Search** (Mobile-ML-1, 2, 3) — upload/capture → filters → results with match %, price, link.
+2. **Product detail** — tap result → full product view, open product_url (url_launcher).
+3. **Wishlist** — save favorites (local list or backend when endpoint exists).
+4. **Compare** — select 2+ products, comparison screen.
+5. **Profile / Insights** — placeholder; hook for future analytics.
+6. **Community** — placeholder; hook for “ask for dupes” when backend ready.
 
 ---
 
@@ -2458,3 +2483,22 @@ Expected speedup: ~20s/batch → ~1-2s/batch → 23k images done in ~10 min inst
 - **FastAPI lifespan blocking the event loop**: Any synchronous heavy work (model loading, FAISS index loading) inside the `lifespan` startup event blocks the entire async event loop — the server accepts TCP connections but never responds to HTTP requests. Fix: wrap in `threading.Thread(target=..., daemon=True).start()` so startup completes immediately and loading happens in the background.
 - **embeddings/__init__.py stale import**: After deleting `feature_extractor.py`, the `__init__.py` still imported from it, causing `ModuleNotFoundError` when any script in the package imported the `embeddings` module. Fix: update `__init__.py` to import only `FashionCLIPExtractor`.
 - **FashionCLIP on GPU is I/O bound**: Even on 2x RTX 4090, FashionCLIP batch processing runs ~20s/batch of 64 images because CPU image-loading (PIL) and preprocessing is the bottleneck. GPU compute is milliseconds — GPU utilization shows 0% in `nvidia-smi` while CPU prepares the next batch. Expect ~2 hours for 23K images. This is a one-time cost; the FAISS indices persist indefinitely.
+
+---
+
+### Mobile Welcome Screen (Mar 14, 2026) — Executor
+
+- **Done**: `welcome_screen.dart` — removed white card, duplicate top logo, welcome copy, and **Continue as Guest**. Only **Log In** + **Sign Up** aligned to bottom over full-screen `login_welcome.png` (no container). `setGuestMode` / `isGuest` kept for existing guest prefs + Me tab; new users must sign in from welcome.
+
+**Manual check**: Run app cold → welcome shows image + two buttons only; guest link gone; no double DupeFinder at top.
+
+---
+
+### Mobile App: Styling, Wishlist, Compare, Community, Insights (Mar 18, 2026) — Executor
+
+- **Sign Up**: Removed the password requirement chips line (8+ chars, A–Z, a–z, 0–9, Symbol). Validation still enforced on submit; only the visible row of chips is hidden.
+- **Wishlist**: Added `WishlistService` (SharedPreferences). Search result cards have heart (save) and compare icons. **WishlistScreen** shows saved products in a grid; remove via heart, add to compare via compare icon. Tab refresh when switching to Saved.
+- **Compare**: Added `CompareService` (max 4 items). Search and wishlist cards have “Add to Compare”. **CompareScreen** shows side-by-side grid with image, name, brand, price, match %; remove per item or “Clear all”. Tab refresh when switching to Compare.
+- **Community**: Added `CommunityService` (local posts + replies in SharedPreferences). **CommunityScreen**: list of posts, FAB “New post”, tap post → bottom sheet with replies and reply field. Working module (no backend).
+- **Insights**: **InsightsScreen** is live: loads wishlist count, compare count, search count (incremented on each image search), and shows stat cards. Fourth card “Average savings” left as placeholder.
+- **Unique styling**: **AppTheme** — `AppColors.scaffoldBg`, `AppColors.cardSurface`, **AppDecor** (cardRadius, tileRadius, cardDecoration, welcomeBanner). Theme uses scaffoldBg, cardTheme with 20px radius. **Home**: welcome banner uses gradient; Explore section has blue accent bar; tiles and tip card use AppDecor. **Me**: cards use AppDecor.cardRadius. **Community/Insights**: AppBar uses cardSurface. All screens use consistent light blue/grey background and card style.

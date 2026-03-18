@@ -21,6 +21,7 @@ dependencies:
   
   # HTTP & API
   http: ^1.1.2
+  http_parser: ^4.0.0
   dio: ^5.4.0
   
   # Image Handling
@@ -46,10 +47,8 @@ dev_dependencies:
 flutter:
   uses-material-design: true
   
-  # Assets
-  # assets:
-  #   - assets/images/
-  #   - assets/icons/
+  assets:
+    - assets/login_welcome.png
   
   # Fonts
   # fonts:

@@ -1,0 +1,554 @@
+import 'dart:typed_data';
+import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:url_launcher/url_launcher.dart';
+import 'package:cached_network_image/cached_network_image.dart';
+import '../../services/api_service.dart';
+import '../../services/wishlist_service.dart';
+import '../../services/compare_service.dart';
+/// FYP: User Experience + Image Matching — upload/capture image, get similar products.
+class ImageSearchScreen extends StatefulWidget {
+  final bool embedded;
+  const ImageSearchScreen({super.key, this.embedded = false});
+
+  @override
+  State<ImageSearchScreen> createState() => _ImageSearchScreenState();
+}
+
+class _ImageSearchScreenState extends State<ImageSearchScreen> {
+  final _apiService = ApiService();
+  final _wishlistService = WishlistService();
+  final _compareService = CompareService();
+  final _picker = ImagePicker();
+
+  XFile? _pickedImage;
+  bool _loading = false;
+  String? _error;
+  Map<String, dynamic>? _searchResult;
+  String _selectedCategory = '';
+  int _selectedPriceRangeIndex = 0; // 0 = Any
+  Set<String> _savedIds = {};
+
+  /// [minPrice, maxPrice] in PKR; null = no limit.
+  static const List<(double?, double?)> _priceRanges = [
+    (null, null),       // Any
+    (null, 2000),       // Under 2,000
+    (2000, 5000),       // 2,000 – 5,000
+    (5000, 10000),      // 5,000 – 10,000
+    (10000, 20000),     // 10,000 – 20,000
+    (20000, null),      // 20,000+
+  ];
+  static const List<String> _priceRangeLabels = [
+    'Any',
+    'Under PKR 2,000',
+    'PKR 2,000 – 5,000',
+    'PKR 5,000 – 10,000',
+    'PKR 10,000 – 20,000',
+    'PKR 20,000+',
+  ];
+
+  static const _categories = [
+    '',
+    'Women Kurta',
+    'Women Lawn',
+    'Women Unstitched',
+    'Women Western',
+    'Women Accessories',
+    'Men Standard Suit',
+    'Men Traditional Suit',
+    'Men Casual Wear',
+  ];
+
+  Future<void> _pickImage(bool fromCamera) async {
+    try {
+      final source = fromCamera ? ImageSource.camera : ImageSource.gallery;
+      final xFile = await _picker.pickImage(source: source, imageQuality: 85);
+      if (xFile != null && mounted) {
+        setState(() {
+          _pickedImage = xFile;
+          _error = null;
+          _searchResult = null;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _error = 'Failed to pick image: $e');
+      }
+    }
+  }
+
+  Future<void> _findSimilar() async {
+    if (_pickedImage == null) {
+      setState(() => _error = 'Please pick an image first.');
+      return;
+    }
+    setState(() {
+      _loading = true;
+      _error = null;
+      _searchResult = null;
+    });
+    try {
+      final range = _priceRanges[_selectedPriceRangeIndex];
+      final result = await _apiService.searchSimilarImages(
+        imageFile: _pickedImage!,
+        topK: 10,
+        category: _selectedCategory.isEmpty ? null : _selectedCategory,
+        minPrice: range.$1,
+        maxPrice: range.$2,
+      );
+      if (mounted) {
+        final results = result['results'] as List<dynamic>? ?? [];
+        final ids = <String>{};
+        for (final r in results) {
+          final map = Map<String, dynamic>.from(r as Map);
+          if (await _wishlistService.isSaved(WishlistService.productId(map))) {
+            ids.add(WishlistService.productId(map));
+          }
+        }
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setInt('insights_search_count', (prefs.getInt('insights_search_count') ?? 0) + 1);
+        if (_selectedCategory.isNotEmpty) {
+          final list = prefs.getStringList('insights_search_categories') ?? [];
+          list.add(_selectedCategory);
+          await prefs.setStringList('insights_search_categories', list);
+        }
+        setState(() {
+          _loading = false;
+          _searchResult = result;
+          _savedIds = ids;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        String msg = e.toString().replaceFirst('Exception: ', '');
+        if (msg.contains('FashionCLIP indices not loaded') ||
+            msg.contains('Run embedding generation')) {
+          msg = 'Search is not ready yet. The server needs to run '
+              'embedding generation once (see backend docs).';
+        }
+        setState(() {
+          _loading = false;
+          _error = msg;
+        });
+      }
+    }
+  }
+
+  Future<void> _openProductUrl(String? url) async {
+    if (url == null || url.isEmpty) return;
+    final uri = Uri.tryParse(url);
+    if (uri != null && await canLaunchUrl(uri)) {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    }
+  }
+
+  void _clearImage() {
+    setState(() {
+      _pickedImage = null;
+      _searchResult = null;
+      _error = null;
+    });
+  }
+
+  Widget _scrollBody() {
+    return SingleChildScrollView(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              // Pick image
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: _loading ? null : () => _pickImage(false),
+                      icon: const Icon(Icons.photo_library),
+                      label: const Text('Gallery'),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: _loading ? null : () => _pickImage(true),
+                      icon: const Icon(Icons.camera_alt),
+                      label: const Text('Camera'),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+
+              // Preview
+              if (_pickedImage != null) ...[
+                FutureBuilder<Uint8List>(
+                  future: _pickedImage!.readAsBytes(),
+                  builder: (context, snap) {
+                    if (!snap.hasData) {
+                      return const SizedBox(
+                        height: 200,
+                        child: Center(child: CircularProgressIndicator()),
+                      );
+                    }
+                    return ClipRRect(
+                      borderRadius: BorderRadius.circular(12),
+                      child: Image.memory(
+                        snap.data!,
+                        width: double.infinity,
+                        height: 200,
+                        fit: BoxFit.cover,
+                      ),
+                    );
+                  },
+                ),
+                const SizedBox(height: 12),
+                // Category + Price range in one row
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      child: DropdownButtonFormField<String>(
+                        value: _selectedCategory.isEmpty ? null : _selectedCategory,
+                        decoration: const InputDecoration(
+                          labelText: 'Category',
+                          border: OutlineInputBorder(),
+                          contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                        ),
+                        isExpanded: true,
+                        items: _categories
+                            .map((c) => DropdownMenuItem(
+                                  value: c.isEmpty ? null : c,
+                                  child: Text(c.isEmpty ? 'All' : c, overflow: TextOverflow.ellipsis),
+                                ))
+                            .toList(),
+                        onChanged: (v) => setState(() => _selectedCategory = v ?? ''),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: DropdownButtonFormField<int>(
+                        value: _selectedPriceRangeIndex,
+                        decoration: const InputDecoration(
+                          labelText: 'Price range',
+                          border: OutlineInputBorder(),
+                          contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                        ),
+                        isExpanded: true,
+                        items: List.generate(_priceRangeLabels.length, (i) => DropdownMenuItem(value: i, child: Text(_priceRangeLabels[i], overflow: TextOverflow.ellipsis))),
+                        onChanged: (v) => setState(() => _selectedPriceRangeIndex = v ?? 0),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                FilledButton.icon(
+                  onPressed: _loading ? null : _findSimilar,
+                  icon: _loading
+                      ? const SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.search),
+                  label: Text(_loading ? 'Searching...' : 'Find Similar'),
+                  style: FilledButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                  ),
+                ),
+                const SizedBox(height: 16),
+              ],
+
+              if (_error != null) ...[
+                Card(
+                  color: Theme.of(context).colorScheme.errorContainer,
+                  child: Padding(
+                    padding: const EdgeInsets.all(12),
+                    child: Text(_error!, style: const TextStyle(color: Colors.white)),
+                  ),
+                ),
+                const SizedBox(height: 16),
+              ],
+
+              if (_searchResult != null) _buildResults(),
+            ],
+          ),
+        );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (widget.embedded) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          if (_pickedImage != null)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(8, 0, 8, 0),
+              child: Align(
+                alignment: Alignment.centerRight,
+                child: TextButton.icon(
+                  onPressed: _clearImage,
+                  icon: const Icon(Icons.clear_rounded, size: 20),
+                  label: const Text('Clear image'),
+                ),
+              ),
+            ),
+          Expanded(child: _scrollBody()),
+        ],
+      );
+    }
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Find Similar'),
+        actions: [
+          if (_pickedImage != null)
+            IconButton(
+              icon: const Icon(Icons.clear),
+              onPressed: _clearImage,
+              tooltip: 'Clear image',
+            ),
+        ],
+      ),
+      body: SafeArea(child: _scrollBody()),
+    );
+  }
+
+  Widget _buildResults() {
+    final results = _searchResult!['results'] as List<dynamic>? ?? [];
+    final total = _searchResult!['total_results'] as int? ?? 0;
+    final timeMs = _searchResult!['search_time_ms'] as num? ?? 0;
+    final category = _searchResult!['category_searched'] as String? ?? '';
+
+    if (results.isEmpty) {
+      return Card(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            children: [
+              Icon(Icons.search_off, size: 48, color: Colors.grey[600]),
+              const SizedBox(height: 12),
+              const Text('No similar products found. Try another image or category.'),
+            ],
+          ),
+        ),
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          '${total} result${total == 1 ? '' : 's'}'
+          '${category.isNotEmpty ? ' in $category' : ''}'
+          ' (${timeMs.toStringAsFixed(0)} ms)',
+          style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                color: Colors.grey[600],
+              ),
+        ),
+        const SizedBox(height: 12),
+        GridView.builder(
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: 2,
+            childAspectRatio: 0.72,
+            crossAxisSpacing: 12,
+            mainAxisSpacing: 12,
+          ),
+          itemCount: results.length,
+          itemBuilder: (context, index) {
+            final r = Map<String, dynamic>.from(results[index] as Map);
+            final id = WishlistService.productId(r);
+            return _ProductCard(
+              name: r['name'] as String? ?? '',
+              brand: r['brand'] as String? ?? '',
+              price: r['price'] != null ? (r['price'] as num).toDouble() : null,
+              imageUrl: r['image_url'] as String?,
+              productUrl: r['product_url'] as String?,
+              finalScore: (r['final_score'] as num?)?.toDouble() ?? 0,
+              onTap: () => _openProductUrl(r['product_url'] as String?),
+              isSaved: _savedIds.contains(id),
+              onSaveToggle: () async {
+                await _wishlistService.toggleProduct(r);
+                if (mounted) {
+                  setState(() {
+                    if (_savedIds.contains(id)) {
+                      _savedIds.remove(id);
+                    } else {
+                      _savedIds.add(id);
+                    }
+                  });
+                }
+              },
+              onAddToCompare: () async {
+                final added = await _compareService.addProduct(r);
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text(added ? 'Added to Compare' : 'Compare list full (max 4)'),
+                      behavior: SnackBarBehavior.floating,
+                    ),
+                  );
+                }
+              },
+            );
+          },
+        ),
+      ],
+    );
+  }
+}
+
+class _ProductCard extends StatelessWidget {
+  final String name;
+  final String brand;
+  final double? price;
+  final String? imageUrl;
+  final String? productUrl;
+  final double finalScore;
+  final VoidCallback onTap;
+  final bool isSaved;
+  final VoidCallback? onSaveToggle;
+  final VoidCallback? onAddToCompare;
+
+  const _ProductCard({
+    required this.name,
+    required this.brand,
+    this.price,
+    this.imageUrl,
+    this.productUrl,
+    required this.finalScore,
+    required this.onTap,
+    this.isSaved = false,
+    this.onSaveToggle,
+    this.onAddToCompare,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final matchPercent = (finalScore * 100).round();
+
+    return Card(
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onTap,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Expanded(
+              flex: 3,
+              child: Stack(
+                alignment: Alignment.topRight,
+                children: [
+                  imageUrl != null && imageUrl!.isNotEmpty
+                      ? CachedNetworkImage(
+                          imageUrl: imageUrl!,
+                          fit: BoxFit.cover,
+                          width: double.infinity,
+                          height: double.infinity,
+                          placeholder: (_, __) => const Center(
+                              child: CircularProgressIndicator()),
+                          errorWidget: (_, __, ___) => const Icon(
+                              Icons.broken_image, size: 48),
+                        )
+                      : const Center(
+                          child: Icon(Icons.image_not_supported, size: 48),
+                        ),
+                  if (onSaveToggle != null || onAddToCompare != null)
+                    Padding(
+                      padding: const EdgeInsets.all(6),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        mainAxisAlignment: MainAxisAlignment.end,
+                        children: [
+                          if (onAddToCompare != null)
+                            Material(
+                              color: Colors.white.withValues(alpha: 0.9),
+                              shape: const CircleBorder(),
+                              child: IconButton(
+                                icon: Icon(Icons.compare_arrows_rounded, color: Colors.grey[700], size: 20),
+                                onPressed: onAddToCompare,
+                                padding: const EdgeInsets.all(6),
+                                constraints: const BoxConstraints(minWidth: 34, minHeight: 34),
+                              ),
+                            ),
+                          if (onSaveToggle != null) ...[
+                            const SizedBox(width: 4),
+                            Material(
+                              color: Colors.white.withValues(alpha: 0.9),
+                              shape: const CircleBorder(),
+                              child: IconButton(
+                                icon: Icon(
+                                  isSaved ? Icons.favorite_rounded : Icons.favorite_border_rounded,
+                                  color: isSaved ? Colors.red : Colors.grey[700],
+                                  size: 22,
+                                ),
+                                onPressed: onSaveToggle,
+                                padding: const EdgeInsets.all(6),
+                                constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                ],
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.all(8),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    name,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w600,
+                      fontSize: 12,
+                    ),
+                  ),
+                  if (brand.isNotEmpty)
+                    Text(
+                      brand,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: Colors.grey[600],
+                      ),
+                    ),
+                  if (price != null)
+                    Text(
+                      'PKR ${price!.toStringAsFixed(0)}',
+                      style: const TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 12,
+                      ),
+                    ),
+                  const SizedBox(height: 4),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: Colors.black,
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: Text(
+                      '$matchPercent% match',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}

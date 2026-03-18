@@ -3,6 +3,8 @@ import 'dart:io' show Platform;
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:image_picker/image_picker.dart';
+import 'package:http_parser/http_parser.dart';
 
 class ApiService {
   // Platform-aware base URL
@@ -182,5 +184,67 @@ class ApiService {
   Future<bool> isLoggedIn() async {
     final token = await getAccessToken();
     return token != null && token.isNotEmpty;
+  }
+
+  /// Image-based similarity search (FYP: Image Matching & Recommendation).
+  /// Sends image to POST /api/search/similar and returns results with match %, price, link.
+  Future<Map<String, dynamic>> searchSimilarImages({
+    required XFile imageFile,
+    int topK = 10,
+    String? category,
+    double? minPrice,
+    double? maxPrice,
+    double wSim = 0.7,
+    double wPrice = 0.2,
+    double wAttr = 0.1,
+  }) async {
+    final uri = Uri.parse('$baseUrl/search/similar').replace(
+      queryParameters: <String, String>{
+        'top_k': topK.toString(),
+        if (category != null && category.isNotEmpty) 'category': category,
+        if (minPrice != null) 'min_price': minPrice.toString(),
+        if (maxPrice != null) 'max_price': maxPrice.toString(),
+        'w_sim': wSim.toString(),
+        'w_price': wPrice.toString(),
+        'w_attr': wAttr.toString(),
+      },
+    );
+
+    final bytes = await imageFile.readAsBytes();
+    final name = imageFile.name;
+    final mime = name.toLowerCase().endsWith('.png')
+        ? 'image/png'
+        : (name.toLowerCase().endsWith('.webp')
+            ? 'image/webp'
+            : 'image/jpeg');
+
+    final request = http.MultipartRequest('POST', uri);
+    request.files.add(http.MultipartFile.fromBytes(
+      'file',
+      bytes,
+      filename: name.isNotEmpty ? name : 'image.jpg',
+      contentType: MediaType.parse(mime),
+    ));
+    final token = await getAccessToken();
+    if (token != null && token.isNotEmpty) {
+      request.headers['Authorization'] = 'Bearer $token';
+    }
+
+    final streamed = await request.send();
+    final response = await http.Response.fromStream(streamed);
+
+    if (response.statusCode != 200) {
+      final body = response.body;
+      String msg = 'Search failed';
+      try {
+        final decoded = jsonDecode(body);
+        if (decoded is Map && decoded['detail'] != null) {
+          msg = decoded['detail'].toString();
+        }
+      } catch (_) {}
+      throw Exception(msg);
+    }
+
+    return jsonDecode(response.body) as Map<String, dynamic>;
   }
 }

@@ -309,12 +309,22 @@ def main():
     parser.add_argument("--dry-run",   action="store_true",       help="Preview without writing")
     parser.add_argument("--migrate-existing", action="store_true",
                         help="Mark existing 23k products as fashionclip_indexed=True (run once)")
+    parser.add_argument("--reset-indexed", action="store_true",
+                        help="Unset fashionclip_indexed on all products so next reindex run will rebuild indices + id_maps")
     args = parser.parse_args()
 
     if args.migrate_existing:
         client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=15000)
         col    = client[MONGO_DB][MONGO_COL]
         migrate_existing(col, dry_run=args.dry_run)
+        client.close()
+        return
+
+    if args.reset_indexed:
+        client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=15000)
+        col    = client[MONGO_DB][MONGO_COL]
+        result = col.update_many({}, {"$unset": {"fashionclip_indexed": 1}})
+        print(f"[OK] Cleared fashionclip_indexed from {result.modified_count} products. Run reindex (no flags) to rebuild indices.")
         client.close()
         return
 

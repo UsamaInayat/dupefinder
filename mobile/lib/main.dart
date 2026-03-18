@@ -1,11 +1,12 @@
 import 'package:flutter/material.dart';
+import 'screens/welcome_screen.dart';
 import 'screens/login_screen.dart';
 import 'screens/register_screen.dart';
-import 'screens/home_screen.dart';
+import 'screens/main_shell.dart';
+import 'screens/search/image_search_screen.dart';
 import 'services/api_service.dart';
+import 'theme/app_theme.dart';
 
-/// DupeFinder Mobile Application
-/// Main entry point for the Flutter app
 void main() {
   runApp(const DupeFinderApp());
 }
@@ -17,57 +18,20 @@ class DupeFinderApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'DupeFinder',
-      theme: ThemeData(
-        primarySwatch: Colors.grey,
-        primaryColor: Colors.black,
-        scaffoldBackgroundColor: Colors.white,
-        colorScheme: const ColorScheme.light(
-          primary: Colors.black,
-          secondary: Colors.black,
-          surface: Colors.white,
-          error: Colors.black,
-          onPrimary: Colors.white,
-          onSecondary: Colors.white,
-          onSurface: Colors.black,
-          onError: Colors.white,
-        ),
-        useMaterial3: true,
-        appBarTheme: const AppBarTheme(
-          backgroundColor: Colors.black,
-          foregroundColor: Colors.white,
-          elevation: 0,
-        ),
-        elevatedButtonTheme: ElevatedButtonThemeData(
-          style: ElevatedButton.styleFrom(
-            backgroundColor: Colors.black,
-            foregroundColor: Colors.white,
-            elevation: 0,
-          ),
-        ),
-        inputDecorationTheme: const InputDecorationTheme(
-          border: OutlineInputBorder(
-            borderSide: BorderSide(color: Colors.black, width: 2),
-          ),
-          enabledBorder: OutlineInputBorder(
-            borderSide: BorderSide(color: Colors.black, width: 2),
-          ),
-          focusedBorder: OutlineInputBorder(
-            borderSide: BorderSide(color: Colors.black, width: 2),
-          ),
-        ),
-      ),
+      theme: AppTheme.dupeFinderTheme(),
       initialRoute: '/',
       routes: {
         '/': (context) => const AuthCheckScreen(),
+        '/welcome': (context) => const WelcomeScreen(),
         '/login': (context) => const LoginScreen(),
         '/register': (context) => const RegisterScreen(),
-        '/home': (context) => const HomeScreen(),
+        '/home': (context) => const MainShell(),
+        '/search': (context) => const ImageSearchScreen(),
       },
     );
   }
 }
 
-/// Check if user is already logged in
 class AuthCheckScreen extends StatefulWidget {
   const AuthCheckScreen({super.key});
 
@@ -77,7 +41,6 @@ class AuthCheckScreen extends StatefulWidget {
 
 class _AuthCheckScreenState extends State<AuthCheckScreen> {
   final _apiService = ApiService();
-  final bool _isLoading = true;
 
   @override
   void initState() {
@@ -86,14 +49,13 @@ class _AuthCheckScreenState extends State<AuthCheckScreen> {
   }
 
   Future<void> _checkAuth() async {
-    final isLoggedIn = await _apiService.isLoggedIn();
-    
-    if (mounted) {
-      if (isLoggedIn) {
-        Navigator.of(context).pushReplacementNamed('/home');
-      } else {
-        Navigator.of(context).pushReplacementNamed('/login');
-      }
+    final loggedIn = await _apiService.isLoggedIn();
+    final guest = await WelcomeScreen.isGuest();
+    if (!mounted) return;
+    if (loggedIn || guest) {
+      Navigator.of(context).pushReplacementNamed('/home');
+    } else {
+      Navigator.of(context).pushReplacementNamed('/welcome');
     }
   }
 
@@ -101,9 +63,8 @@ class _AuthCheckScreenState extends State<AuthCheckScreen> {
   Widget build(BuildContext context) {
     return const Scaffold(
       body: Center(
-        child: CircularProgressIndicator(),
+        child: CircularProgressIndicator(color: AppColors.bluePrimary),
       ),
     );
   }
 }
-
