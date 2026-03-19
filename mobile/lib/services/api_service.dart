@@ -1,5 +1,4 @@
 import 'dart:convert';
-import 'dart:io' show Platform;
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
@@ -7,58 +6,57 @@ import 'package:image_picker/image_picker.dart';
 import 'package:http_parser/http_parser.dart';
 
 class ApiService {
-  // Platform-aware base URL
-  // For web (Chrome): use localhost
-  // For Android emulator: use 10.0.2.2
-  // For iOS simulator: use localhost
-  // For physical device: use your computer's local network IP (e.g., 192.168.1.108)
-  // 
-  // IMPORTANT: For physical devices, replace 'YOUR_COMPUTER_IP' with your actual IP
-  // Find your IP: Windows: ipconfig | findstr IPv4
-  //               Mac/Linux: ifconfig | grep inet
-  // Use the IP that starts with 192.168.x.x or 10.x.x.x (local network)
-  
-  // Change this to your computer's local network IP for physical device testing
-  // HOTSPOT IP: 192.168.137.1 (PC hotspot - for when phone and PC on different WiFi)
-  static const String _physicalDeviceIP = '192.168.137.1'; // Update this with your IP
-  
-  static String get baseUrl {
-    String url;
+  // Candidate IPs tried in order at startup — first reachable one wins.
+  // 192.168.1.108  = same WiFi router as phone
+  // 192.168.137.1  = PC mobile hotspot
+  static const List<String> _candidateIPs = [
+    '192.168.1.108',
+    '192.168.137.1',
+  ];
+
+  // Cached after resolveBaseUrl() runs once at app startup.
+  static String? _resolvedUrl;
+
+  /// Call once in main() before runApp().
+  /// Probes each candidate IP with a 3-second timeout and caches the first
+  /// one that responds. Falls back to the first candidate if none respond.
+  static Future<void> resolveBaseUrl() async {
     if (kIsWeb) {
-      // Web platform (Chrome) - use localhost
-      url = 'http://localhost:8000/api';
-    } else {
-      // For mobile platforms
-      if (Platform.isAndroid) {
-        // For Android:
-        // - Emulator: use 10.0.2.2
-        // - Physical device: use local network IP (e.g., 192.168.1.108)
-        // 
-        // To switch between emulator and physical device:
-        // - For emulator: change _physicalDeviceIP to '10.0.2.2'
-        // - For physical device: use your computer's local network IP
-        url = 'http://$_physicalDeviceIP:8000/api';
-      } else if (Platform.isIOS) {
-        // For iOS:
-        // - Simulator: use localhost
-        // - Physical device: use local network IP
-        url = 'http://$_physicalDeviceIP:8000/api';
-      } else {
-        // Fallback
-        url = 'http://localhost:8000/api';
+      _resolvedUrl = 'http://localhost:8000/api';
+      print('[ApiService] Web platform — using localhost');
+      return;
+    }
+    for (final ip in _candidateIPs) {
+      try {
+        final uri = Uri.parse('http://$ip:8000/health');
+        final resp = await http.get(uri).timeout(const Duration(seconds: 3));
+        if (resp.statusCode < 500) {
+          _resolvedUrl = 'http://$ip:8000/api';
+          print('[ApiService] Resolved backend -> $_resolvedUrl');
+          return;
+        }
+      } catch (_) {
+        print('[ApiService] $ip unreachable, trying next...');
       }
     }
-    // Debug: print the URL being used (remove in production)
-    print('[ApiService] Using baseUrl: $url (kIsWeb: $kIsWeb)');
-    return url;
+    // No candidate responded — fall back to first entry so the app still starts.
+    _resolvedUrl = 'http://${_candidateIPs.first}:8000/api';
+    print('[ApiService] No backend reachable — defaulting to $_resolvedUrl');
   }
-  
+
+  static String get baseUrl {
+    if (_resolvedUrl != null) return _resolvedUrl!;
+    // resolveBaseUrl() not yet called (e.g. unit tests) — use safe default.
+    if (kIsWeb) return 'http://localhost:8000/api';
+    return 'http://${_candidateIPs.first}:8000/api';
+  }
+
   // Method to set custom backend IP (for switching between emulator and physical device)
   static Future<void> setBackendIP(String ip) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('backend_ip', ip);
   }
-  
+
   // Get saved backend IP
   static Future<String?> getBackendIP() async {
     final prefs = await SharedPreferences.getInstance();
