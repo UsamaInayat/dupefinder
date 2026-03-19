@@ -5,14 +5,24 @@ import '../theme/app_theme.dart';
 /// FYP Home: quick access to modules (no admin messaging).
 class HomeTab extends StatefulWidget {
   final VoidCallback onOpenSearch;
+  final VoidCallback onOpenCompare;
+  final VoidCallback onOpenWishlist;
+  final VoidCallback onOpenInsights;
 
-  const HomeTab({super.key, required this.onOpenSearch});
+  const HomeTab({
+    super.key,
+    required this.onOpenSearch,
+    required this.onOpenCompare,
+    required this.onOpenWishlist,
+    required this.onOpenInsights,
+  });
 
   @override
   State<HomeTab> createState() => _HomeTabState();
 }
 
 class _HomeTabState extends State<HomeTab> {
+  String? _userName;
   String? _userEmail;
   bool _guest = false;
 
@@ -25,6 +35,7 @@ class _HomeTabState extends State<HomeTab> {
   Future<void> _load() async {
     final p = await SharedPreferences.getInstance();
     setState(() {
+      _userName = p.getString('user_name');
       _userEmail = p.getString('user_email');
       _guest = p.getBool('guest_mode') == true;
     });
@@ -57,7 +68,11 @@ class _HomeTabState extends State<HomeTab> {
                   Text(
                     _guest
                         ? 'Search by image to find affordable dupes.'
-                        : (_userEmail ?? ''),
+                        : ((_userName != null && _userName!.trim().isNotEmpty)
+                            ? _userName!.trim()
+                            : ((_userEmail != null && _userEmail!.contains('@'))
+                                ? _userEmail!.split('@').first
+                                : 'User')),
                     style: TextStyle(color: AppColors.greySubtitle, fontSize: 14),
                     textAlign: TextAlign.center,
                   ),
@@ -97,9 +112,9 @@ class _HomeTabState extends State<HomeTab> {
             childAspectRatio: 1.05,
             children: [
               _tile(Icons.photo_camera_front_rounded, 'Find similar', 'Image search', AppColors.bluePrimary, widget.onOpenSearch),
-              _tile(Icons.compare_arrows_rounded, 'Compare', 'Side‑by‑side picks', AppColors.purpleDark, () => _snack(context, 'Open Compare tab')),
-              _tile(Icons.favorite_rounded, 'Wishlist', 'Saved items', const Color(0xFFE91E8C), () => _snack(context, 'Open Wishlist tab')),
-              _tile(Icons.insights_rounded, 'Insights', 'Trends & savings', const Color(0xFF7C3AED), () => _snack(context, 'Open Me → Insights')),
+              _tile(Icons.compare_arrows_rounded, 'Compare', 'Side‑by‑side picks', AppColors.purpleDark, widget.onOpenCompare),
+              _tile(Icons.favorite_rounded, 'Wishlist', 'Saved items', const Color(0xFFE91E8C), widget.onOpenWishlist),
+              _tile(Icons.insights_rounded, 'Insights', 'Trends & savings', const Color(0xFF7C3AED), widget.onOpenInsights),
             ],
           ),
           const SizedBox(height: 20),
@@ -137,12 +152,6 @@ class _HomeTabState extends State<HomeTab> {
           ),
         ],
       ),
-    );
-  }
-
-  void _snack(BuildContext context, String msg) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(msg), behavior: SnackBarBehavior.floating),
     );
   }
 

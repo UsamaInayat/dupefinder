@@ -2502,3 +2502,201 @@ Expected speedup: ~20s/batch → ~1-2s/batch → 23k images done in ~10 min inst
 - **Community**: Added `CommunityService` (local posts + replies in SharedPreferences). **CommunityScreen**: list of posts, FAB “New post”, tap post → bottom sheet with replies and reply field. Working module (no backend).
 - **Insights**: **InsightsScreen** is live: loads wishlist count, compare count, search count (incremented on each image search), and shows stat cards. Fourth card “Average savings” left as placeholder.
 - **Unique styling**: **AppTheme** — `AppColors.scaffoldBg`, `AppColors.cardSurface`, **AppDecor** (cardRadius, tileRadius, cardDecoration, welcomeBanner). Theme uses scaffoldBg, cardTheme with 20px radius. **Home**: welcome banner uses gradient; Explore section has blue accent bar; tiles and tip card use AppDecor. **Me**: cards use AppDecor.cardRadius. **Community/Insights**: AppBar uses cardSurface. All screens use consistent light blue/grey background and card style.
+
+---
+
+### Current Status / Progress Tracking — Executor Update (Mar 19, 2026)
+
+- **Mode**: Executor
+- **Milestone completed**: Image Search screen category dropdown now includes full current category set so users can select all available Women/Men categories.
+- **UI improvement**: Category and price dropdowns now have explicit menu max-height so long lists stay scrollable and accessible on small screens.
+- **Files updated**: `mobile/lib/screens/search/image_search_screen.dart`
+- **Verification**: `ReadLints` run on edited file — no linter errors.
+- **Next step (awaiting user verification)**: Confirm on device that all categories are visible and selectable in `Find Similar`.
+
+### Executor's Feedback or Assistance Requests — Mar 19, 2026
+
+- I completed the **first requested subtask only** (`sari categories show honi chahiye`) per one-task-at-a-time workflow.
+- Please manually test the category dropdown and confirm this milestone.
+- After your confirmation, I will proceed to the **next task**: password requirement checks visibility on the signup screen.
+
+---
+
+### Current Status / Progress Tracking — Executor Update (Mar 19, 2026, Batch 2)
+
+- Implemented requested mobile UX updates across profile, signup, search-history/reviews, and community feed.
+- **Signup**: password requirement checks are now visibly shown in real time under password field.
+- **Profile/Insights**: profile details expanded (username, joined date, login email, post/history counts), insights cards are clickable, and dedicated **Dupe History** screen added.
+- **Dupe click tracking + reviews**: clicking a dupe now records history, app-start prompt asks for review, and star ratings are saved and shown in history/search cards.
+- **Community feed**: switched to Instagram-like scrollable cards with image + description + username/pfp + relative time; posts older than 7 days auto-removed.
+- Added local persistence buckets for community posts and review records (database-like categories in app storage).
+- Validation run: `flutter test` passed (1/1). `flutter analyze` has only existing/style infos, no blocking errors.
+
+### Current Status / Progress Tracking — Executor Update (Mar 19, 2026, Batch 3)
+
+- Community persistence moved to backend MongoDB (`/api/community/*`) so posts survive app/server restarts.
+- Added authenticated user data persistence APIs (`/api/user-data`) for:
+  - wishlist
+  - compare list
+  - dupe history (including review metadata)
+- Mobile services `WishlistService`, `CompareService`, and `DupeHistoryService` now use backend storage for logged-in users with one-time local-to-backend migration.
+
+### Current Status / Progress Tracking — Executor Update (Mar 19, 2026, Batch 4)
+
+- Fixed profile photo flow so upload still completes even if web cropper throws an error (fallback to original selected image bytes).
+- Added an explicit "Edit name" option in `Me` screen so users can set display name (e.g., `Abdul Basit`) immediately.
+- Home welcome subtitle now never falls back to email; it shows saved display name or `User`.
+- Community author fallback now avoids email-prefix names and uses display name consistently for current user's posts/replies.
+- Lint check run on edited files: no lint errors remaining.
+
+### Executor's Feedback or Assistance Requests — Mar 19, 2026 (Batch 4)
+
+- Please open `Me` tab and use **Edit name** to set `Abdul Basit` once, then verify:
+  - Home welcome shows `Abdul Basit`
+  - New community posts/replies show `Abdul Basit` (not email/prefix)
+- Please test profile picture flow again with crop. If crop UI still fails on your browser, upload should still save the selected image because fallback is enabled.
+
+### Current Status / Progress Tracking — Executor Update (Mar 19, 2026, Batch 5)
+
+- Removed `Quick Actions` section from admin overview and replaced landing page with graph-style analytics blocks:
+  - usage breakdown graph (wishlist/compare/history/reviews/community)
+  - 7-day community activity graph (posts vs reports)
+- Added admin moderation backend APIs:
+  - fetch community posts for admin
+  - fetch report queue
+  - resolve reports (`ignore`, `delete_post`, `ban_user`)
+  - direct delete post
+  - ban user + remove user posts
+- Added user moderation APIs in community routes:
+  - user can delete own post
+  - user can report any post with reason
+- Added new Admin Dashboard module: **Community Moderation** with:
+  - report table + resolve actions
+  - all-posts table + delete/ban actions
+- Mobile community updated:
+  - post menu now supports **Delete my post** or **Report post**
+  - report reason dialog + success/error feedback
+  - login flow now stores `user_id` in prefs to identify ownership checks.
+
+### Executor's Feedback or Assistance Requests — Mar 19, 2026 (Batch 5)
+
+- Please manually test:
+  1. Mobile: report a post and delete own post
+  2. Admin: open **Community Moderation** and verify report appears
+  3. Admin: resolve report via delete/ban and verify effect in mobile feed
+- Note: `flutter analyze` shows existing/info-level style warnings (no new compile errors). Backend Python compile and frontend build are successful.
+
+### Current Status / Progress Tracking — Executor Update (Mar 19, 2026, Batch 6)
+
+- Admin Overview charts upgraded from simple bars to professional chart components using `recharts`.
+- Headings cleaned as requested:
+  - `Usage Breakdown` (removed "(Graph)")
+  - `7-Day Community Activity` (removed "(Graph)")
+- Added:
+  - proper `BarChart` for usage metrics
+  - proper `LineChart` for posts vs reports trend
+  - legend, tooltip, axis labels, and grid for readability
+- Frontend build re-run after changes: successful.
+
+### Executor's Feedback or Assistance Requests — Mar 19, 2026 (Batch 6)
+
+- `npm audit` reports 2 moderate vulnerabilities due to current `vite`/`esbuild` chain; automated fix requires `npm audit fix --force` (breaking major upgrade). Please confirm before I apply any force upgrade.
+
+### Current Status / Progress Tracking — Executor Update (Mar 19, 2026, Batch 7)
+
+- Removed `e.g. Abdul Basit` hint from Edit Name dialog as requested.
+- Implemented stronger name mapping for existing + new users:
+  - backend auth now exposes `/api/auth/me`
+  - login response now returns `_id`, `full_name`, and fallback fields (`name`, `username`)
+  - mobile now syncs profile from backend after login (`syncUserProfileFromBackend`) and stores `user_name`, `user_email`, `user_id`
+  - home/me/community now avoid raw `User` fallback whenever backend/email name can be resolved.
+- Updated profile image flow:
+  - after crop (or fallback), app now shows preview dialog with **Cancel** and **Upload**
+  - image saves only when user taps **Upload**.
+- Restarted mobile app on Chrome with latest code.
+
+### Executor's Feedback or Assistance Requests — Mar 19, 2026 (Batch 7)
+
+- Please test with an old registered account: logout/login again and verify full name appears on Home + Community.
+- Please test profile image flow: pick image → adjust crop → tap **Upload** in preview dialog and verify avatar updates.
+
+### Current Status / Progress Tracking — Executor Update (Mar 19, 2026, Batch 8)
+
+- Root-cause addressed: profile/name persistence now moved to backend profile API (instead of local-only behavior).
+- Backend updates:
+  - Added `GET/PUT /api/user-data/profile` for `display_name` + `profile_image`
+  - `PUT /profile` also syncs `users.full_name` so signup-name/edit-name remain consistent in auth responses.
+- Mobile updates:
+  - `UserProfileService` now syncs profile from backend on load.
+  - `setDisplayName` and `setProfileImageFromBytes` now persist to backend for logged-in users.
+  - Login/profile sync now consumes both `/api/auth/me` and `/api/user-data/profile`.
+- Relaunched mobile app on Chrome after these fixes.
+
+### Executor's Feedback or Assistance Requests — Mar 19, 2026 (Batch 8)
+
+- Please do one clean verification path:
+  1. Sign out → Sign in again with existing account
+  2. Check Home + Me name (should come from backend full name/profile)
+  3. Edit name → Save → re-open Home
+  4. Upload profile pic → restart backend/app → verify image still present
+
+### Current Status / Progress Tracking — Executor Update (Mar 19, 2026, Batch 9)
+
+- Implemented refresh/tab consistency:
+  - Main shell now persists selected bottom-tab index in prefs and restores after page refresh.
+- Implemented bottom-nav profile avatar:
+  - `Me` tab icon now shows user's profile picture (if available) in the navigation bar.
+- Improved community ownership logic:
+  - Own post detection now checks `author_user_id` plus fallback name/email-prefix matching for legacy posts.
+  - Own post menu: **Edit my post** + **Delete my post**
+  - Other users' post menu: **Report post** only
+- Added backend endpoint for own-post edit:
+  - `PUT /api/community/posts/{post_id}` for editing post description with ownership checks.
+- Improved dupe history persistence resilience:
+  - Added backend-cache fallback on mobile so history does not appear empty during transient backend reload issues.
+- Improved legacy full-name fallback on backend auth:
+  - if `full_name` equals email-prefix, backend tries better name fallback from user profile/community data.
+- Relaunched mobile app on Chrome with latest fixes.
+
+### Current Status / Progress Tracking — Executor Update (Mar 19, 2026, Batch 10)
+
+- Admin dashboard UI simplified as requested:
+  - Removed `ML Training` module from sidebar and routing in `frontend-app/src/pages/AdminDashboard.jsx`.
+  - Removed top `Admin Panel` header bar from admin main content area.
+- Product Catalogue page cleaned:
+  - Removed `Import Products from CSV` section.
+  - Removed `Image Link Cleanup` section.
+  - Page now shows filters and products listing section only (plus existing catalogue actions like clear-all).
+- Verification:
+  - Frontend production build completed successfully via `npm run build`.
+
+### Executor's Feedback or Assistance Requests — Mar 19, 2026 (Batch 10)
+
+- Please refresh admin dashboard and verify:
+  1. `ML Training` menu item is fully removed.
+  2. Product Catalogue only shows filters + products list (no CSV import, no broken-link cleanup blocks).
+  3. Top `Admin Panel` strip is gone.
+
+### Current Status / Progress Tracking — Executor Update (Mar 19, 2026, Batch 11)
+
+- Product card alignment improved in admin Product Catalogue so price row sits consistently at the same vertical level across cards.
+- CSS update applied in `frontend-app/src/styles/AdminDashboard.css`:
+  - `.product-card-item` set to full-height card behavior.
+  - `.product-info-wrapper` set to flex-grow layout.
+  - `.product-meta` changed to `margin-top: auto` to pin price row to bottom consistently.
+- Verification:
+  - Frontend build successful via `npm run build`.
+
+### Executor's Feedback or Assistance Requests — Mar 19, 2026 (Batch 11)
+
+- Please refresh Product Catalogue and verify product prices are now aligned in one line/level across the grid cards.
+
+### Current Status / Progress Tracking — Executor Update (Mar 19, 2026, Batch 12)
+
+- Admin **Community Moderation** now shows **current** author names (from `user_app_data.display_name` + `users.full_name` via `_effective_name_for_user`) instead of the stale `author` string stored on each post/report snapshot.
+- Backend: `backend/app/api/routes/admin_new.py` — `_community_user_display_name_map` + updated `GET /api/admin/community/posts` and `GET /api/admin/community/reports` (`post_author_name` resolved the same way).
+- Verification: `python -m py_compile` on `admin_new.py` succeeded.
+
+### Executor's Feedback or Assistance Requests — Mar 19, 2026 (Batch 12)
+
+- Restart backend, refresh Community Moderation, and confirm **All Community Posts** author column matches the app (e.g. `Abdul Basit` instead of `ab887812` / `qa`) when `author_user_id` is present on the post.

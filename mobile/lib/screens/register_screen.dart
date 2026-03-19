@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../services/api_service.dart';
+import '../services/user_profile_service.dart';
 import '../theme/app_theme.dart';
 class RegisterScreen extends StatefulWidget {
   const RegisterScreen({super.key});
@@ -16,11 +17,13 @@ class _RegisterScreenState extends State<RegisterScreen> {
   final _confirmPasswordController = TextEditingController();
   final _otpController = TextEditingController();
   final _apiService = ApiService();
+  final _profileService = UserProfileService();
   bool _isLoading = false;
   bool _obscurePassword = true;
   bool _obscureConfirm = true;
   bool _otpSent = false;
   String? _userEmail;
+  bool _showPasswordRequirements = false;
 
   bool _hasUppercase = false;
   bool _hasLowercase = false;
@@ -72,6 +75,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
       await _apiService.register(
         _emailController.text.trim(),
         _passwordController.text,
+        fullName: _nameController.text.trim(),
+      );
+      await _profileService.initializeAfterSignup(
+        username: _nameController.text.trim(),
       );
       setState(() {
         _otpSent = true;
@@ -184,7 +191,19 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   TextFormField(
                     controller: _passwordController,
                     obscureText: _obscurePassword,
-                    onChanged: (_) => _validatePassword(),
+                    onChanged: (_) {
+                      _validatePassword();
+                      final hasText = _passwordController.text.isNotEmpty;
+                      if (_showPasswordRequirements != hasText) {
+                        setState(() => _showPasswordRequirements = hasText);
+                      }
+                    },
+                    onTap: () {
+                      if (!_showPasswordRequirements &&
+                          _passwordController.text.isNotEmpty) {
+                        setState(() => _showPasswordRequirements = true);
+                      }
+                    },
                     decoration: InputDecoration(
                       labelText: 'Password',
                       prefixIcon: const Icon(Icons.lock_outline_rounded, color: AppColors.bluePrimary),
@@ -194,6 +213,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       ),
                     ),
                   ),
+                  if (_showPasswordRequirements) ...[
+                    const SizedBox(height: 10),
+                    _passwordChecksCard(),
+                  ],
                   const SizedBox(height: 16),
                   TextFormField(
                     controller: _confirmPasswordController,
@@ -293,4 +316,56 @@ class _RegisterScreenState extends State<RegisterScreen> {
     );
   }
 
+  Widget _passwordChecksCard() {
+    Widget row(bool ok, String label) {
+      return Padding(
+        padding: const EdgeInsets.only(bottom: 6),
+        child: Row(
+          children: [
+            Icon(
+              ok ? Icons.check_circle_rounded : Icons.radio_button_unchecked_rounded,
+              size: 18,
+              color: ok ? Colors.green : AppColors.greySubtitle,
+            ),
+            const SizedBox(width: 8),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 12,
+                color: ok ? Colors.green[700] : AppColors.greySubtitle,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: AppColors.cardSurface,
+        border: Border.all(color: AppColors.borderLightBlue),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Password requirements',
+            style: TextStyle(
+              fontWeight: FontWeight.w600,
+              color: AppColors.purpleDark,
+              fontSize: 13,
+            ),
+          ),
+          const SizedBox(height: 8),
+          row(_hasMinLength, 'At least 8 characters'),
+          row(_hasUppercase, 'At least 1 uppercase letter'),
+          row(_hasLowercase, 'At least 1 lowercase letter'),
+          row(_hasDigit, 'At least 1 number'),
+          row(_hasSpecial, 'At least 1 special character'),
+        ],
+      ),
+    );
+  }
 }

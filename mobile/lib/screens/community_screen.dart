@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
+import 'dart:convert';
 import 'package:intl/intl.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../theme/app_theme.dart';
 import '../services/community_service.dart';
 
@@ -15,8 +18,12 @@ class CommunityScreen extends StatefulWidget {
 
 class _CommunityScreenState extends State<CommunityScreen> {
   final _service = CommunityService();
+  final _picker = ImagePicker();
   List<CommunityPost> _posts = [];
   bool _loading = true;
+  String? _myUserId;
+  String _myName = '';
+  String _myEmailPrefix = '';
 
   @override
   void initState() {
@@ -27,15 +34,57 @@ class _CommunityScreenState extends State<CommunityScreen> {
   Future<void> _load() async {
     setState(() => _loading = true);
     final list = await _service.getPosts();
+    final me = await _service.currentUserId();
+    final prefs = await SharedPreferences.getInstance();
+    final myName = (prefs.getString('user_name') ?? '').trim();
+    final email = (prefs.getString('user_email') ?? '').trim();
+    final emailPrefix = email.contains('@') ? email.split('@').first.trim() : '';
     if (mounted) setState(() {
       _posts = list;
+      _myUserId = me;
+      _myName = myName.toLowerCase();
+      _myEmailPrefix = emailPrefix.toLowerCase();
       _loading = false;
     });
   }
 
+  bool _isMyPost(CommunityPost post) {
+    if (_myUserId != null && _myUserId!.isNotEmpty && post.authorUserId == _myUserId) {
+      return true;
+    }
+    final author = post.author.trim().toLowerCase();
+    if (_myName.isNotEmpty && author == _myName) return true;
+    if (_myEmailPrefix.isNotEmpty && author == _myEmailPrefix) return true;
+    return false;
+  }
+
+  Future<String?> _askReportReason() async {
+    final c = TextEditingController();
+    return showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Report post'),
+        content: TextField(
+          controller: c,
+          maxLines: 3,
+          decoration: const InputDecoration(
+            hintText: 'Reason (e.g. abuse/spam/inappropriate)',
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, c.text.trim()),
+            child: const Text('Report'),
+          ),
+        ],
+      ),
+    );
+  }
+
   void _showAddPost(BuildContext context) {
-    final titleController = TextEditingController();
-    final bodyController = TextEditingController();
+    final descController = TextEditingController();
+    String? selectedImageBase64;
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -52,26 +101,57 @@ class _CommunityScreenState extends State<CommunityScreen> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              const Text('Ask the community', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppColors.purpleDark)),
+              const Text('Create post', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppColors.purpleDark)),
               const SizedBox(height: 8),
-              TextField(
-                controller: titleController,
-                decoration: const InputDecoration(labelText: 'Title', hintText: 'e.g. Looking for a dupe of this kurta'),
-                maxLines: 1,
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: bodyController,
-                decoration: const InputDecoration(labelText: 'Description', hintText: 'Describe the item or paste image link'),
-                maxLines: 3,
-              ),
+              StatefulBuilder(builder: (ctx, setInnerState) {
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    OutlinedButton.icon(
+                      onPressed: () async {
+                        final x = await _picker.pickImage(
+                          source: ImageSource.gallery,
+                          imageQuality: 80,
+                        );
+                        if (x == null) return;
+                        final bytes = await x.readAsBytes();
+                        setInnerState(() => selectedImageBase64 = base64Encode(bytes));
+                      },
+                      icon: const Icon(Icons.image_outlined),
+                      label: Text(selectedImageBase64 == null ? 'Add image' : 'Image selected'),
+                    ),
+                    if (selectedImageBase64 != null) ...[
+                      const SizedBox(height: 10),
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(10),
+                        child: Image.memory(
+                          base64Decode(selectedImageBase64!),
+                          height: 120,
+                          fit: BoxFit.cover,
+                        ),
+                      ),
+                    ],
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: descController,
+                      decoration: const InputDecoration(
+                        labelText: 'Description',
+                        hintText: 'Write caption/description...',
+                      ),
+                      maxLines: 3,
+                    ),
+                  ],
+                );
+              }),
               const SizedBox(height: 20),
               FilledButton(
                 onPressed: () async {
-                  final title = titleController.text.trim();
-                  final body = bodyController.text.trim();
-                  if (title.isEmpty) return;
-                  await _service.addPost(title, body.isNotEmpty ? body : 'No description.');
+                  final desc = descController.text.trim();
+                  if (desc.isEmpty && selectedImageBase64 == null) return;
+                  await _service.addPost(
+                    desc.isNotEmpty ? desc : 'No description.',
+                    imageBase64: selectedImageBase64,
+                  );
                   if (mounted) {
                     Navigator.pop(ctx);
                     await _load();
@@ -88,13 +168,22 @@ class _CommunityScreenState extends State<CommunityScreen> {
     );
   }
 
-  void _showPostDetail(CommunityPost post) {
-    showModalBottomSheet(
+  Future<void> _showPostDetail(CommunityPost post) async {
+    await showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (ctx) => _PostDetailSheet(initialPost: post, service: _service),
+      builder: (ctx) => _PostDetailSheet(
+        initialPost: post,
+        service: _service,
+        myUserId: _myUserId,
+        myNameLower: _myName,
+        myEmailPrefixLower: _myEmailPrefix,
+      ),
     );
+    if (mounted) {
+      await _load();
+    }
   }
 
   @override
@@ -126,12 +215,12 @@ class _CommunityScreenState extends State<CommunityScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       const Text(
-                        'Ask the community',
+                        'Community feed',
                         style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppColors.purpleDark),
                       ),
                       const SizedBox(height: 8),
                       Text(
-                        "Post when you can't find a dupe in our catalogue. Others can reply with links to local stores.",
+                        'Share dupes like a social feed. Add image + description and get replies.',
                         style: TextStyle(color: AppColors.greySubtitle, height: 1.4),
                       ),
                     ],
@@ -153,28 +242,148 @@ class _CommunityScreenState extends State<CommunityScreen> {
                             return Card(
                               margin: const EdgeInsets.only(bottom: 12),
                               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                              child: ListTile(
-                                contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                                title: Text(post.title, style: const TextStyle(fontWeight: FontWeight.w600, color: AppColors.purpleDark)),
-                                subtitle: Padding(
-                                  padding: const EdgeInsets.only(top: 6),
+                              child: InkWell(
+                                onTap: () async => _showPostDetail(post),
+                                borderRadius: BorderRadius.circular(16),
+                                child: Padding(
+                                  padding: const EdgeInsets.all(12),
                                   child: Column(
                                     crossAxisAlignment: CrossAxisAlignment.start,
                                     children: [
-                                      Text(post.body, maxLines: 2, overflow: TextOverflow.ellipsis, style: TextStyle(color: AppColors.greySubtitle)),
-                                      const SizedBox(height: 6),
                                       Row(
                                         children: [
-                                          Icon(Icons.chat_bubble_outline, size: 14, color: Colors.grey[600]),
-                                          const SizedBox(width: 4),
-                                          Text('${post.replies.length} reply${post.replies.length == 1 ? '' : 's'}', style: TextStyle(fontSize: 12, color: Colors.grey[600])),
+                                          CircleAvatar(
+                                            radius: 16,
+                                            backgroundImage: (post.authorPfp != null && post.authorPfp!.isNotEmpty)
+                                                ? MemoryImage(base64Decode(post.authorPfp!))
+                                                : null,
+                                            child: (post.authorPfp == null || post.authorPfp!.isEmpty)
+                                                ? const Icon(Icons.person_outline_rounded, size: 16)
+                                                : null,
+                                          ),
+                                          const SizedBox(width: 8),
+                                          Expanded(
+                                            child: Column(
+                                              crossAxisAlignment: CrossAxisAlignment.start,
+                                              children: [
+                                                Text(
+                                                  post.author,
+                                                  style: const TextStyle(
+                                                    fontWeight: FontWeight.w600,
+                                                    color: AppColors.purpleDark,
+                                                  ),
+                                                ),
+                                                Text(
+                                                  _timeAgo(post.createdAt),
+                                                  style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                          Text(
+                                            '${post.replies.length} replies',
+                                            style: TextStyle(fontSize: 12, color: Colors.grey[700]),
+                                          ),
+                                          PopupMenuButton<String>(
+                                            onSelected: (v) async {
+                                              try {
+                                                if (v == 'delete') {
+                                                  await _service.deletePost(post.id);
+                                                  await _load();
+                                                  if (!mounted) return;
+                                                  ScaffoldMessenger.of(context).showSnackBar(
+                                                    const SnackBar(
+                                                      content: Text('Post deleted'),
+                                                      behavior: SnackBarBehavior.floating,
+                                                    ),
+                                                  );
+                                                }
+                                                if (v == 'edit') {
+                                                  final c = TextEditingController(text: post.description);
+                                                  final updated = await showDialog<String>(
+                                                    context: context,
+                                                    builder: (ctx) => AlertDialog(
+                                                      title: const Text('Edit post'),
+                                                      content: TextField(
+                                                        controller: c,
+                                                        maxLines: 4,
+                                                        decoration: const InputDecoration(hintText: 'Update message'),
+                                                      ),
+                                                      actions: [
+                                                        TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+                                                        FilledButton(
+                                                          onPressed: () => Navigator.pop(ctx, c.text.trim()),
+                                                          child: const Text('Save'),
+                                                        ),
+                                                      ],
+                                                    ),
+                                                  );
+                                                  if (updated == null || updated.isEmpty) return;
+                                                  await _service.editPost(post.id, updated);
+                                                  await _load();
+                                                  if (!mounted) return;
+                                                  ScaffoldMessenger.of(context).showSnackBar(
+                                                    const SnackBar(
+                                                      content: Text('Post updated'),
+                                                      behavior: SnackBarBehavior.floating,
+                                                    ),
+                                                  );
+                                                }
+                                                if (v == 'report') {
+                                                  final reason = await _askReportReason();
+                                                  if (reason == null || reason.isEmpty) return;
+                                                  await _service.reportPost(post.id, reason);
+                                                  if (!mounted) return;
+                                                  ScaffoldMessenger.of(context).showSnackBar(
+                                                    const SnackBar(
+                                                      content: Text('Report submitted to admin'),
+                                                      behavior: SnackBarBehavior.floating,
+                                                    ),
+                                                  );
+                                                }
+                                              } catch (e) {
+                                                if (!mounted) return;
+                                                ScaffoldMessenger.of(context).showSnackBar(
+                                                  SnackBar(
+                                                    content: Text('Action failed: $e'),
+                                                    behavior: SnackBarBehavior.floating,
+                                                  ),
+                                                );
+                                              }
+                                            },
+                                            itemBuilder: (_) => [
+                                              if (_isMyPost(post))
+                                                const PopupMenuItem(value: 'edit', child: Text('Edit my post')),
+                                              if (_isMyPost(post))
+                                                const PopupMenuItem(value: 'delete', child: Text('Delete my post')),
+                                              if (!_isMyPost(post))
+                                                const PopupMenuItem(value: 'report', child: Text('Report post')),
+                                            ],
+                                          ),
                                         ],
                                       ),
+                                      if (post.imageBase64 != null && post.imageBase64!.isNotEmpty) ...[
+                                        const SizedBox(height: 10),
+                                        ClipRRect(
+                                          borderRadius: BorderRadius.circular(12),
+                                          child: Image.memory(
+                                            base64Decode(post.imageBase64!),
+                                            width: double.infinity,
+                                            height: 220,
+                                            fit: BoxFit.cover,
+                                          ),
+                                        ),
+                                      ],
+                                      if (post.description.isNotEmpty) ...[
+                                        const SizedBox(height: 10),
+                                        Text(
+                                          post.description,
+                                          style: TextStyle(color: AppColors.greySubtitle, height: 1.4),
+                                        ),
+                                      ],
                                     ],
                                   ),
                                 ),
-                                trailing: const Icon(Icons.chevron_right_rounded),
-                                onTap: () => _showPostDetail(post),
                               ),
                             );
                           },
@@ -195,8 +404,17 @@ class _CommunityScreenState extends State<CommunityScreen> {
 class _PostDetailSheet extends StatefulWidget {
   final CommunityPost initialPost;
   final CommunityService service;
+  final String? myUserId;
+  final String myNameLower;
+  final String myEmailPrefixLower;
 
-  const _PostDetailSheet({required this.initialPost, required this.service});
+  const _PostDetailSheet({
+    required this.initialPost,
+    required this.service,
+    this.myUserId,
+    this.myNameLower = '',
+    this.myEmailPrefixLower = '',
+  });
 
   @override
   State<_PostDetailSheet> createState() => _PostDetailSheetState();
@@ -255,9 +473,114 @@ class _PostDetailSheetState extends State<_PostDetailSheet> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(_post.title, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppColors.purpleDark)),
-                  const SizedBox(height: 6),
-                  Text(_post.body, style: TextStyle(color: AppColors.greySubtitle, height: 1.4)),
+                  Row(
+                    children: [
+                      CircleAvatar(
+                        radius: 15,
+                        backgroundImage: (_post.authorPfp != null && _post.authorPfp!.isNotEmpty)
+                            ? MemoryImage(base64Decode(_post.authorPfp!))
+                            : null,
+                        child: (_post.authorPfp == null || _post.authorPfp!.isEmpty)
+                            ? const Icon(Icons.person_outline_rounded, size: 15)
+                            : null,
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        _post.author,
+                        style: const TextStyle(fontWeight: FontWeight.w600, color: AppColors.purpleDark),
+                      ),
+                      const Spacer(),
+                      PopupMenuButton<String>(
+                        onSelected: (v) async {
+                          try {
+                            if (v == 'delete') {
+                              await widget.service.deletePost(_post.id);
+                              if (!mounted) return;
+                              Navigator.pop(context);
+                            }
+                            if (v == 'edit') {
+                              final c = TextEditingController(text: _post.description);
+                              final updated = await showDialog<String>(
+                                context: context,
+                                builder: (ctx) => AlertDialog(
+                                  title: const Text('Edit post'),
+                                  content: TextField(
+                                    controller: c,
+                                    maxLines: 4,
+                                    decoration: const InputDecoration(hintText: 'Update message'),
+                                  ),
+                                  actions: [
+                                    TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+                                    FilledButton(onPressed: () => Navigator.pop(ctx, c.text.trim()), child: const Text('Save')),
+                                  ],
+                                ),
+                              );
+                              if (updated == null || updated.isEmpty) return;
+                              await widget.service.editPost(_post.id, updated);
+                              await _refreshPost();
+                            }
+                            if (v == 'report') {
+                              final c = TextEditingController();
+                              final reason = await showDialog<String>(
+                                context: context,
+                                builder: (ctx) => AlertDialog(
+                                  title: const Text('Report post'),
+                                  content: TextField(
+                                    controller: c,
+                                    maxLines: 3,
+                                    decoration: const InputDecoration(hintText: 'Reason'),
+                                  ),
+                                  actions: [
+                                    TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+                                    FilledButton(onPressed: () => Navigator.pop(ctx, c.text.trim()), child: const Text('Report')),
+                                  ],
+                                ),
+                              );
+                              if (reason == null || reason.isEmpty) return;
+                              await widget.service.reportPost(_post.id, reason);
+                              if (!mounted) return;
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(content: Text('Report sent to admin'), behavior: SnackBarBehavior.floating),
+                              );
+                            }
+                          } catch (e) {
+                            if (!mounted) return;
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(content: Text('Action failed: $e'), behavior: SnackBarBehavior.floating),
+                            );
+                          }
+                        },
+                        itemBuilder: (_) => [
+                          if ((widget.myUserId != null && widget.myUserId == _post.authorUserId) ||
+                              (_post.author.trim().toLowerCase() == widget.myNameLower) ||
+                              (_post.author.trim().toLowerCase() == widget.myEmailPrefixLower))
+                            const PopupMenuItem(value: 'edit', child: Text('Edit my post')),
+                          if ((widget.myUserId != null && widget.myUserId == _post.authorUserId) ||
+                              (_post.author.trim().toLowerCase() == widget.myNameLower) ||
+                              (_post.author.trim().toLowerCase() == widget.myEmailPrefixLower))
+                            const PopupMenuItem(value: 'delete', child: Text('Delete my post')),
+                          if (!((widget.myUserId != null && widget.myUserId == _post.authorUserId) ||
+                              (_post.author.trim().toLowerCase() == widget.myNameLower) ||
+                              (_post.author.trim().toLowerCase() == widget.myEmailPrefixLower)))
+                            const PopupMenuItem(value: 'report', child: Text('Report post')),
+                        ],
+                      ),
+                    ],
+                  ),
+                  if (_post.imageBase64 != null && _post.imageBase64!.isNotEmpty) ...[
+                    const SizedBox(height: 10),
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(12),
+                      child: Image.memory(
+                        base64Decode(_post.imageBase64!),
+                        width: double.infinity,
+                        height: 200,
+                        fit: BoxFit.cover,
+                      ),
+                    ),
+                  ],
+                  const SizedBox(height: 8),
+                  Text(_post.description, style: TextStyle(color: AppColors.greySubtitle, height: 1.4)),
                   const SizedBox(height: 8),
                   Text(DateFormat.yMMMd().add_Hm().format(_post.createdAt), style: TextStyle(fontSize: 12, color: Colors.grey[600])),
                 ],
@@ -323,4 +646,12 @@ class _PostDetailSheetState extends State<_PostDetailSheet> {
       ),
     );
   }
+}
+
+String _timeAgo(DateTime dt) {
+  final diff = DateTime.now().difference(dt);
+  if (diff.inMinutes < 1) return 'Just now';
+  if (diff.inHours < 1) return '${diff.inMinutes}m ago';
+  if (diff.inDays < 1) return '${diff.inHours}h ago';
+  return '${diff.inDays}d ago';
 }

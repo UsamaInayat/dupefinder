@@ -95,7 +95,7 @@ class ApiService {
   }
 
   // Register new user
-  Future<Map<String, dynamic>> register(String email, String password) async {
+  Future<Map<String, dynamic>> register(String email, String password, {String? fullName}) async {
     try {
       final response = await http.post(
         Uri.parse('$baseUrl/auth/signup'),
@@ -103,6 +103,7 @@ class ApiService {
         body: jsonEncode({
           'email': email,
           'password': password,
+          if (fullName != null && fullName.trim().isNotEmpty) 'full_name': fullName.trim(),
         }),
       );
 
@@ -160,9 +161,21 @@ class ApiService {
           await setAccessToken(data['access_token']);
           final prefs = await SharedPreferences.getInstance();
           await prefs.setString('user_email', email);
+          final user = data['user'] as Map<String, dynamic>?;
+          final fullName = _extractDisplayName(user);
+          final userId = (user?['_id'] ?? user?['id'] ?? '').toString().trim();
+          if (fullName.isNotEmpty) {
+            await prefs.setString('user_name', fullName);
+          }
+          if (userId.isNotEmpty) {
+            await prefs.setString('user_id', userId);
+          }
           if (data['refresh_token'] != null) {
             await prefs.setString('refresh_token', data['refresh_token']);
           }
+
+          // Strong sync for older accounts so existing users also get their real backend name.
+          await syncUserProfileFromBackend();
         }
         
         return data;
@@ -184,6 +197,67 @@ class ApiService {
   Future<bool> isLoggedIn() async {
     final token = await getAccessToken();
     return token != null && token.isNotEmpty;
+  }
+
+  String _extractDisplayName(Map<String, dynamic>? user) {
+    if (user == null) return '';
+    final candidates = [
+      user['full_name'],
+      user['name'],
+      user['username'],
+    ];
+    for (final c in candidates) {
+      final v = (c ?? '').toString().trim();
+      if (v.isNotEmpty) return v;
+    }
+    return '';
+  }
+
+  Future<void> syncUserProfileFromBackend() async {
+    final token = await getAccessToken();
+    if (token == null || token.isEmpty) return;
+    try {
+      final body = await getMe();
+      final user = Map<String, dynamic>.from((body['user'] as Map?) ?? {});
+      Map<String, dynamic> profile = {};
+      try {
+        profile = await getUserProfileData();
+      } catch (_) {}
+      final name = _extractDisplayName(user);
+      final profileName = (profile['display_name'] ?? '').toString().trim();
+      final resolvedName = profileName.isNotEmpty ? profileName : name;
+      final email = (user['email'] ?? '').toString().trim();
+      final userId = (user['_id'] ?? user['id'] ?? '').toString().trim();
+      final profileImage = (profile['profile_image'] ?? '').toString().trim();
+      final prefs = await SharedPreferences.getInstance();
+      if (resolvedName.isNotEmpty) {
+        await prefs.setString('user_name', resolvedName);
+      } else if (email.isNotEmpty) {
+        await prefs.setString('user_name', email.split('@').first);
+      }
+      if (email.isNotEmpty) {
+        await prefs.setString('user_email', email);
+      }
+      if (userId.isNotEmpty) {
+        await prefs.setString('user_id', userId);
+      }
+      if (profileImage.isNotEmpty) {
+        await prefs.setString('user_profile_image', profileImage);
+      }
+    } catch (_) {
+      // best effort sync only
+    }
+  }
+
+  Future<Map<String, dynamic>> getMe() async {
+    final response = await http.get(
+      Uri.parse('$baseUrl/auth/me'),
+      headers: await getHeaders(),
+    );
+    if (response.statusCode != 200) {
+      throw Exception('Failed to load current user');
+    }
+    return Map<String, dynamic>.from(jsonDecode(response.body) as Map);
   }
 
   /// Image-based similarity search (FYP: Image Matching & Recommendation).
@@ -246,5 +320,175 @@ class ApiService {
     }
 
     return jsonDecode(response.body) as Map<String, dynamic>;
+  }
+
+  Future<List<Map<String, dynamic>>> getCommunityPosts() async {
+    final response = await http.get(
+      Uri.parse('$baseUrl/community/posts'),
+      headers: await getHeaders(),
+    );
+    if (response.statusCode != 200) {
+      throw Exception('Failed to load community posts');
+    }
+    final body = jsonDecode(response.body) as Map<String, dynamic>;
+    final posts = (body['posts'] as List<dynamic>? ?? [])
+        .map((e) => Map<String, dynamic>.from(e as Map))
+        .toList();
+    return posts;
+  }
+
+  Future<Map<String, dynamic>> addCommunityPost({
+    required String description,
+    required String author,
+    String? authorPfp,
+    String? imageBase64,
+  }) async {
+    final response = await http.post(
+      Uri.parse('$baseUrl/community/posts'),
+      headers: await getHeaders(),
+      body: jsonEncode({
+        'description': description,
+        'author': author,
+        'author_pfp': authorPfp,
+        'image_base64': imageBase64,
+      }),
+    );
+    if (response.statusCode != 200) {
+      throw Exception('Failed to add post');
+    }
+    return Map<String, dynamic>.from(
+      (jsonDecode(response.body) as Map<String, dynamic>)['post'] as Map,
+    );
+  }
+
+  Future<Map<String, dynamic>> addCommunityReply({
+    required String postId,
+    required String body,
+    required String author,
+  }) async {
+    final response = await http.post(
+      Uri.parse('$baseUrl/community/posts/$postId/replies'),
+      headers: await getHeaders(),
+      body: jsonEncode({
+        'body': body,
+        'author': author,
+      }),
+    );
+    if (response.statusCode != 200) {
+      throw Exception('Failed to add reply');
+    }
+    return Map<String, dynamic>.from(
+      (jsonDecode(response.body) as Map<String, dynamic>)['post'] as Map,
+    );
+  }
+
+  Future<void> deleteCommunityPost(String postId) async {
+    final response = await http.delete(
+      Uri.parse('$baseUrl/community/posts/$postId'),
+      headers: await getHeaders(),
+    );
+    if (response.statusCode != 200) {
+      throw Exception('Failed to delete post');
+    }
+  }
+
+  Future<void> reportCommunityPost({
+    required String postId,
+    required String reason,
+  }) async {
+    final response = await http.post(
+      Uri.parse('$baseUrl/community/posts/$postId/report'),
+      headers: await getHeaders(),
+      body: jsonEncode({'reason': reason}),
+    );
+    if (response.statusCode != 200) {
+      throw Exception('Failed to report post');
+    }
+  }
+
+  Future<void> editCommunityPost({
+    required String postId,
+    required String description,
+  }) async {
+    final response = await http.put(
+      Uri.parse('$baseUrl/community/posts/$postId'),
+      headers: await getHeaders(),
+      body: jsonEncode({'description': description}),
+    );
+    if (response.statusCode != 200) {
+      throw Exception('Failed to edit post');
+    }
+  }
+
+  Future<Map<String, dynamic>> getUserData() async {
+    final response = await http.get(
+      Uri.parse('$baseUrl/user-data'),
+      headers: await getHeaders(),
+    );
+    if (response.statusCode != 200) {
+      throw Exception('Failed to load user data');
+    }
+    return Map<String, dynamic>.from(jsonDecode(response.body) as Map);
+  }
+
+  Future<void> putWishlist(List<Map<String, dynamic>> items) async {
+    final response = await http.put(
+      Uri.parse('$baseUrl/user-data/wishlist'),
+      headers: await getHeaders(),
+      body: jsonEncode({'items': items}),
+    );
+    if (response.statusCode != 200) {
+      throw Exception('Failed to save wishlist');
+    }
+  }
+
+  Future<void> putCompare(List<Map<String, dynamic>> items) async {
+    final response = await http.put(
+      Uri.parse('$baseUrl/user-data/compare'),
+      headers: await getHeaders(),
+      body: jsonEncode({'items': items}),
+    );
+    if (response.statusCode != 200) {
+      throw Exception('Failed to save compare list');
+    }
+  }
+
+  Future<void> putDupeHistory(List<Map<String, dynamic>> items) async {
+    final response = await http.put(
+      Uri.parse('$baseUrl/user-data/dupe-history'),
+      headers: await getHeaders(),
+      body: jsonEncode({'items': items}),
+    );
+    if (response.statusCode != 200) {
+      throw Exception('Failed to save dupe history');
+    }
+  }
+
+  Future<Map<String, dynamic>> getUserProfileData() async {
+    final response = await http.get(
+      Uri.parse('$baseUrl/user-data/profile'),
+      headers: await getHeaders(),
+    );
+    if (response.statusCode != 200) {
+      throw Exception('Failed to load profile');
+    }
+    return Map<String, dynamic>.from(jsonDecode(response.body) as Map);
+  }
+
+  Future<void> putUserProfileData({
+    String? displayName,
+    String? profileImageBase64,
+  }) async {
+    final response = await http.put(
+      Uri.parse('$baseUrl/user-data/profile'),
+      headers: await getHeaders(),
+      body: jsonEncode({
+        if (displayName != null) 'display_name': displayName,
+        if (profileImageBase64 != null) 'profile_image': profileImageBase64,
+      }),
+    );
+    if (response.statusCode != 200) {
+      throw Exception('Failed to save profile');
+    }
   }
 }

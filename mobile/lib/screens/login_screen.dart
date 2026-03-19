@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../services/api_service.dart';
+import '../services/user_profile_service.dart';
 import '../theme/app_theme.dart';
 import 'welcome_screen.dart';
 
@@ -15,6 +16,7 @@ class _LoginScreenState extends State<LoginScreen> {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   final _apiService = ApiService();
+  final _profileService = UserProfileService();
   bool _isLoading = false;
   bool _obscurePassword = true;
 
@@ -38,6 +40,8 @@ class _LoginScreenState extends State<LoginScreen> {
         _emailController.text.trim(),
         _passwordController.text,
       );
+      await _apiService.syncUserProfileFromBackend();
+      await _profileService.ensureDefaultsForLogin(_emailController.text.trim());
       if (mounted) {
         Navigator.of(context).pushNamedAndRemoveUntil('/home', (r) => false);
       }

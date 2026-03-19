@@ -1968,6 +1968,7 @@ button[style*="backgroundColor"] {
   overflow: hidden;
   display: flex;
   flex-direction: column;
+  height: 100%;
   transition: all 0.2s;
   max-width: 100%;
   box-shadow: 0 2px 8px rgba(255, 105, 135, 0.2);
@@ -2014,6 +2015,7 @@ button[style*="backgroundColor"] {
   display: flex;
   flex-direction: column;
   gap: 6px;
+  flex: 1;
 }
 
 .product-name-small {
@@ -2039,7 +2041,7 @@ button[style*="backgroundColor"] {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-top: 4px;
+  margin-top: auto;
 }
 
 .product-category-small {

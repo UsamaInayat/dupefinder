@@ -19,6 +19,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 from app.core.database import db_manager
 from app.api.routes import health, products, search, auth, admin
 from app.api.routes import admin_new
+from app.api.routes import community
+from app.api.routes import user_data
 
 # ============================================
 # Application Lifespan Events
@@ -125,6 +127,8 @@ app.include_router(auth.router, prefix="/api/auth", tags=["Authentication"])
 app.include_router(admin_new.router, prefix="/api/admin", tags=["Admin Dashboard"])
 app.include_router(products.router, prefix="/api/products", tags=["Products"])
 app.include_router(search.router, prefix="/api/search", tags=["Search"])
+app.include_router(community.router, prefix="/api/community", tags=["Community"])
+app.include_router(user_data.router, prefix="/api/user-data", tags=["User Data"])
 
 # Mount static files for product images
 data_dir = Path(__file__).parent.parent.parent / "data"

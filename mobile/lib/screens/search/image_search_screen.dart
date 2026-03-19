@@ -7,6 +7,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import '../../services/api_service.dart';
 import '../../services/wishlist_service.dart';
 import '../../services/compare_service.dart';
+import '../../services/dupe_history_service.dart';
 /// FYP: User Experience + Image Matching — upload/capture image, get similar products.
 class ImageSearchScreen extends StatefulWidget {
   final bool embedded;
@@ -20,6 +21,7 @@ class _ImageSearchScreenState extends State<ImageSearchScreen> {
   final _apiService = ApiService();
   final _wishlistService = WishlistService();
   final _compareService = CompareService();
+  final _historyService = DupeHistoryService();
   final _picker = ImagePicker();
 
   XFile? _pickedImage;
@@ -29,6 +31,7 @@ class _ImageSearchScreenState extends State<ImageSearchScreen> {
   String _selectedCategory = '';
   int _selectedPriceRangeIndex = 0; // 0 = Any
   Set<String> _savedIds = {};
+  Map<String, int> _reviewStarsById = {};
 
   /// [minPrice, maxPrice] in PKR; null = no limit.
   static const List<(double?, double?)> _priceRanges = [
@@ -52,12 +55,24 @@ class _ImageSearchScreenState extends State<ImageSearchScreen> {
     '',
     'Women Kurta',
     'Women Lawn',
+    'Women Luxe',
+    'Women Short Kurti',
+    'Women Anarkali Frock',
+    'Women Bottoms',
+    'Women Bags',
+    'Women Jewelry',
+    'Women Tops',
     'Women Unstitched',
     'Women Western',
+    'Women Winter Pants',
     'Women Accessories',
     'Men Standard Suit',
     'Men Traditional Suit',
     'Men Casual Wear',
+    'Men Footwear',
+    'Men Shoes',
+    'Men Sweater',
+    'Men Wrist Watches',
   ];
 
   Future<void> _pickImage(bool fromCamera) async {
@@ -118,6 +133,7 @@ class _ImageSearchScreenState extends State<ImageSearchScreen> {
           _searchResult = result;
           _savedIds = ids;
         });
+        await _refreshReviewMap();
       }
     } catch (e) {
       if (mounted) {
@@ -140,6 +156,25 @@ class _ImageSearchScreenState extends State<ImageSearchScreen> {
     final uri = Uri.tryParse(url);
     if (uri != null && await canLaunchUrl(uri)) {
       await launchUrl(uri, mode: LaunchMode.externalApplication);
+    }
+  }
+
+  Future<void> _openAndRecordProduct(Map<String, dynamic> product) async {
+    await _historyService.recordClick(product);
+    await _refreshReviewMap();
+    await _openProductUrl(product['product_url'] as String?);
+  }
+
+  Future<void> _refreshReviewMap() async {
+    final history = await _historyService.getHistory();
+    final map = <String, int>{};
+    for (final e in history) {
+      if (e.review != null) {
+        map[e.id] = e.review!.stars;
+      }
+    }
+    if (mounted) {
+      setState(() => _reviewStarsById = map);
     }
   }
 
@@ -209,6 +244,7 @@ class _ImageSearchScreenState extends State<ImageSearchScreen> {
                     Expanded(
                       child: DropdownButtonFormField<String>(
                         value: _selectedCategory.isEmpty ? null : _selectedCategory,
+                        menuMaxHeight: 420,
                         decoration: const InputDecoration(
                           labelText: 'Category',
                           border: OutlineInputBorder(),
@@ -228,6 +264,7 @@ class _ImageSearchScreenState extends State<ImageSearchScreen> {
                     Expanded(
                       child: DropdownButtonFormField<int>(
                         value: _selectedPriceRangeIndex,
+                        menuMaxHeight: 320,
                         decoration: const InputDecoration(
                           labelText: 'Price range',
                           border: OutlineInputBorder(),
@@ -366,8 +403,9 @@ class _ImageSearchScreenState extends State<ImageSearchScreen> {
               imageUrl: r['image_url'] as String?,
               productUrl: r['product_url'] as String?,
               finalScore: (r['final_score'] as num?)?.toDouble() ?? 0,
-              onTap: () => _openProductUrl(r['product_url'] as String?),
+              onTap: () => _openAndRecordProduct(r),
               isSaved: _savedIds.contains(id),
+              reviewStars: _reviewStarsById[id] ?? 0,
               onSaveToggle: () async {
                 await _wishlistService.toggleProduct(r);
                 if (mounted) {
@@ -408,6 +446,7 @@ class _ProductCard extends StatelessWidget {
   final double finalScore;
   final VoidCallback onTap;
   final bool isSaved;
+  final int reviewStars;
   final VoidCallback? onSaveToggle;
   final VoidCallback? onAddToCompare;
 
@@ -420,6 +459,7 @@ class _ProductCard extends StatelessWidget {
     required this.finalScore,
     required this.onTap,
     this.isSaved = false,
+    this.reviewStars = 0,
     this.onSaveToggle,
     this.onAddToCompare,
   });
@@ -543,6 +583,26 @@ class _ProductCard extends StatelessWidget {
                       ),
                     ),
                   ),
+                  if (reviewStars > 0) ...[
+                    const SizedBox(height: 4),
+                    Row(
+                      children: [
+                        ...List.generate(
+                          5,
+                          (i) => Icon(
+                            i < reviewStars ? Icons.star_rounded : Icons.star_border_rounded,
+                            size: 14,
+                            color: i < reviewStars ? Colors.amber[700] : Colors.grey[500],
+                          ),
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          '($reviewStars)',
+                          style: TextStyle(fontSize: 11, color: Colors.grey[600]),
+                        ),
+                      ],
+                    ),
+                  ],
                 ],
               ),
             ),

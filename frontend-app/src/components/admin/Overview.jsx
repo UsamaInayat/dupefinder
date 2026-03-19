@@ -1,5 +1,17 @@
 import { useState, useEffect } from 'react'
 import axios from 'axios'
+import {
+  ResponsiveContainer,
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  Legend,
+  LineChart,
+  Line
+} from 'recharts'
 
 function Overview({ onNavigate }) {
   const [stats, setStats] = useState(null)
@@ -10,41 +22,63 @@ function Overview({ onNavigate }) {
   }, [])
 
   const fetchStats = async () => {
-    // Set default stats immediately and stop loading
-    setStats({
-      users: 0,
-      products: 0
-    })
-    setLoading(false)
-    
-    // Then try to fetch real data in background
+    setLoading(true)
     const token = localStorage.getItem('adminToken') || localStorage.getItem('token')
-    
+
     if (!token) {
       console.log('No admin token found')
+      setStats({
+        users: 0,
+        products: 0,
+        communityPosts: 0,
+        wishlistItems: 0,
+        compareItems: 0,
+        dupeHistoryClicks: 0,
+        reviews: 0,
+        pendingReports: 0,
+        mostClicked: { name: 'N/A', clicks: 0, brand: null },
+        graphBreakdown: [],
+        graphDaily: { labels: [], community_posts: [], reports: [] }
+      })
+      setLoading(false)
       return
     }
-    
-    // Try to get user count
+
     try {
-      const response = await axios.get('http://localhost:8000/api/admin/users?page=1&page_size=1', {
+      const response = await axios.get('http://localhost:8000/api/admin/overview-insights', {
         headers: { Authorization: `Bearer ${token}` }
       })
-      if (response.data && response.data.total !== undefined) {
-        setStats(prev => ({ ...prev, users: response.data.total }))
-      }
+      const d = response.data || {}
+      setStats({
+        users: d.total_users || 0,
+        products: d.total_products || 0,
+        communityPosts: d.total_community_posts || 0,
+        wishlistItems: d.total_wishlist_items || 0,
+        compareItems: d.total_compare_items || 0,
+        dupeHistoryClicks: d.total_dupe_history_clicks || 0,
+        reviews: d.total_reviews || 0,
+        pendingReports: d.pending_reports || 0,
+        mostClicked: d.most_clicked_item || { name: 'N/A', clicks: 0, brand: null },
+        graphBreakdown: d.graph_breakdown || [],
+        graphDaily: d.graph_daily_activity || { labels: [], community_posts: [], reports: [] }
+      })
     } catch (err) {
-      console.log('Users endpoint not ready yet')
-    }
-    
-    // Try to get product count
-    try {
-      const productsResponse = await axios.get('http://localhost:8000/api/products?page=1&page_size=1')
-      if (productsResponse.data && productsResponse.data.total !== undefined) {
-        setStats(prev => ({ ...prev, products: productsResponse.data.total }))
-      }
-    } catch (err) {
-      console.log('Products endpoint not ready yet:', err.message)
+      console.log('Overview insights not ready yet:', err.message)
+      setStats({
+        users: 0,
+        products: 0,
+        communityPosts: 0,
+        wishlistItems: 0,
+        compareItems: 0,
+        dupeHistoryClicks: 0,
+        reviews: 0,
+        pendingReports: 0,
+        mostClicked: { name: 'N/A', clicks: 0, brand: null },
+        graphBreakdown: [],
+        graphDaily: { labels: [], community_posts: [], reports: [] }
+      })
+    } finally {
+      setLoading(false)
     }
   }
 
@@ -52,13 +86,19 @@ function Overview({ onNavigate }) {
     return <div className="loading">Loading statistics...</div>
   }
 
+  const usageData = (stats?.graphBreakdown || []).map((x) => ({
+    name: x.label,
+    value: x.value
+  }))
+
+  const dailyData = (stats?.graphDaily?.labels || []).map((label, idx) => ({
+    day: label,
+    posts: stats?.graphDaily?.community_posts?.[idx] || 0,
+    reports: stats?.graphDaily?.reports?.[idx] || 0
+  }))
+
   return (
     <div className="overview-module">
-      <div className="welcome-section">
-        <h2>Welcome to DupeFinder Admin Dashboard</h2>
-        <p>Manage users, products, ML training, and data scraping</p>
-      </div>
-
       <div className="stats-grid">
         <div className="stat-card">
           <div className="stat-icon">●</div>
@@ -79,48 +119,101 @@ function Overview({ onNavigate }) {
         <div className="stat-card">
           <div className="stat-icon">▸</div>
           <div className="stat-info">
-            <h3>Inactive</h3>
-            <p>ML Model Status</p>
+            <h3>{stats?.mostClicked?.clicks || 0}</h3>
+            <p>Most Clicked Item</p>
+            <small style={{ display: 'block', color: '#666', marginTop: 4 }}>
+              {stats?.mostClicked?.name || 'N/A'}
+            </small>
           </div>
         </div>
 
         <div className="stat-card">
           <div className="stat-icon">○</div>
           <div className="stat-info">
-            <h3>Ready</h3>
-            <p>Sync Status</p>
+            <h3>{stats?.communityPosts || 0}</h3>
+            <p>Community Posts</p>
+          </div>
+        </div>
+        <div className="stat-card">
+          <div className="stat-icon">◆</div>
+          <div className="stat-info">
+            <h3>{stats?.wishlistItems || 0}</h3>
+            <p>Wishlist Items</p>
+          </div>
+        </div>
+        <div className="stat-card">
+          <div className="stat-icon">◈</div>
+          <div className="stat-info">
+            <h3>{stats?.compareItems || 0}</h3>
+            <p>Compare Items</p>
+          </div>
+        </div>
+        <div className="stat-card">
+          <div className="stat-icon">◎</div>
+          <div className="stat-info">
+            <h3>{stats?.dupeHistoryClicks || 0}</h3>
+            <p>Dupe History Clicks</p>
+          </div>
+        </div>
+        <div className="stat-card">
+          <div className="stat-icon">★</div>
+          <div className="stat-info">
+            <h3>{stats?.reviews || 0}</h3>
+            <p>Total Reviews</p>
+          </div>
+        </div>
+        <div className="stat-card">
+          <div className="stat-icon">⚑</div>
+          <div className="stat-info">
+            <h3>{stats?.pendingReports || 0}</h3>
+            <p>Pending Reports</p>
           </div>
         </div>
       </div>
 
-      <div className="quick-actions">
-        <h3>Quick Actions</h3>
-        <div className="action-buttons">
-          <button 
-            className="action-btn"
-            onClick={() => onNavigate && onNavigate('users')}
-          >
-            Manage Users
-          </button>
-          <button 
-            className="action-btn"
-            onClick={() => onNavigate && onNavigate('products')}
-          >
-            Add Products
-          </button>
-          <button 
-            className="action-btn"
-            onClick={() => onNavigate && onNavigate('training')}
-          >
-            Train Model
-          </button>
-          <button 
-            className="action-btn"
-            onClick={() => onNavigate && onNavigate('scraping')}
-          >
-            Start Sync
-          </button>
+      <div className="section-card" style={{ marginBottom: 20 }}>
+        <h3>Usage Breakdown</h3>
+        <div style={{ width: '100%', height: 320 }}>
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart data={usageData} margin={{ top: 10, right: 20, left: 0, bottom: 10 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.2)" />
+              <XAxis dataKey="name" stroke="#fff" tick={{ fill: '#fff', fontSize: 12 }} />
+              <YAxis stroke="#fff" tick={{ fill: '#fff', fontSize: 12 }} allowDecimals={false} />
+              <Tooltip
+                contentStyle={{ background: '#2f2a7d', border: '1px solid #ef4444', borderRadius: 8 }}
+                labelStyle={{ color: '#fff' }}
+              />
+              <Legend wrapperStyle={{ color: '#fff' }} />
+              <Bar dataKey="value" name="Count" fill="#ef4444" radius={[6, 6, 0, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
         </div>
+      </div>
+
+      <div className="section-card">
+        <h3>7-Day Community Activity</h3>
+        <div style={{ width: '100%', height: 320 }}>
+          <ResponsiveContainer width="100%" height="100%">
+            <LineChart data={dailyData} margin={{ top: 10, right: 20, left: 0, bottom: 10 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.2)" />
+              <XAxis dataKey="day" stroke="#fff" tick={{ fill: '#fff', fontSize: 12 }} />
+              <YAxis stroke="#fff" tick={{ fill: '#fff', fontSize: 12 }} allowDecimals={false} />
+              <Tooltip
+                contentStyle={{ background: '#2f2a7d', border: '1px solid #ef4444', borderRadius: 8 }}
+                labelStyle={{ color: '#fff' }}
+              />
+              <Legend wrapperStyle={{ color: '#fff' }} />
+              <Line type="monotone" dataKey="posts" name="Posts" stroke="#8b85ff" strokeWidth={3} dot={{ r: 4 }} />
+              <Line type="monotone" dataKey="reports" name="Reports" stroke="#ef4444" strokeWidth={3} dot={{ r: 4 }} />
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+      </div>
+
+      <div style={{ marginTop: 14 }}>
+        <button className="action-btn" onClick={() => onNavigate && onNavigate('moderation')}>
+          Open Community Moderation
+        </button>
       </div>
     </div>
   )

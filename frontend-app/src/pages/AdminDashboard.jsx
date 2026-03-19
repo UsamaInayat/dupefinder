@@ -4,36 +4,43 @@ import '../styles/AdminDashboard.css'
 // Import module components
 import UserManagement from '../components/admin/UserManagement'
 import ProductManagement from '../components/admin/ProductManagement'
-import MLTraining from '../components/admin/MLTraining'
 import ScrapingManagement from '../components/admin/ScrapingManagement'
 import Overview from '../components/admin/Overview'
+import CommunityModeration from '../components/admin/CommunityModeration'
 
 function AdminDashboard({ onLogout }) {
-  const [activeModule, setActiveModule] = useState('overview')
+  const [activeModule, setActiveModule] = useState(() => {
+    return localStorage.getItem('admin_active_module') || 'overview'
+  })
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
+
+  const openModule = (moduleId) => {
+    setActiveModule(moduleId)
+    localStorage.setItem('admin_active_module', moduleId)
+  }
 
   const modules = [
     { id: 'overview', name: 'Overview', icon: '■' },
     { id: 'users', name: 'User Management', icon: '●' },
     { id: 'products', name: 'Product Catalogue', icon: '▪' },
-    { id: 'training', name: 'ML Training', icon: '▸' },
-    { id: 'scraping', name: 'Auto Sync', icon: '○' }
+    { id: 'scraping', name: 'Auto Sync', icon: '○' },
+    { id: 'moderation', name: 'Community Moderation', icon: '◈' }
   ]
 
   const renderModule = () => {
     switch (activeModule) {
       case 'overview':
-        return <Overview onNavigate={setActiveModule} />
+        return <Overview onNavigate={openModule} />
       case 'users':
         return <UserManagement />
       case 'products':
         return <ProductManagement />
-      case 'training':
-        return <MLTraining />
       case 'scraping':
         return <ScrapingManagement />
+      case 'moderation':
+        return <CommunityModeration />
       default:
-        return <Overview onNavigate={setActiveModule} />
+        return <Overview onNavigate={openModule} />
     }
   }
 
@@ -63,7 +70,7 @@ function AdminDashboard({ onLogout }) {
             <button
               key={module.id}
               className={`nav-item ${activeModule === module.id ? 'active' : ''}`}
-              onClick={() => setActiveModule(module.id)}
+              onClick={() => openModule(module.id)}
             >
               <span className="nav-text">{module.name}</span>
             </button>
@@ -79,12 +86,6 @@ function AdminDashboard({ onLogout }) {
 
       {/* Main Content */}
       <div className={`admin-main ${sidebarCollapsed ? 'expanded' : ''}`}>
-        <div className="admin-header">
-          <div className="admin-user-info">
-            <span>Admin Panel</span>
-          </div>
-        </div>
-
         <div className="admin-content" key={activeModule}>
           {renderModule()}
         </div>

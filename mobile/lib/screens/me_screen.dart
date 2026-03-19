@@ -1,9 +1,17 @@
 import 'package:flutter/material.dart';
+import 'dart:convert';
+import 'dart:typed_data';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:image_cropper/image_cropper.dart';
 import '../services/api_service.dart';
+import '../services/dupe_history_service.dart';
+import '../services/user_profile_service.dart';
 import '../theme/app_theme.dart';
 import 'welcome_screen.dart';
 import 'insights_screen.dart';
+import 'dupe_history_screen.dart';
 
 class MeScreen extends StatefulWidget {
   const MeScreen({super.key});
@@ -14,8 +22,16 @@ class MeScreen extends StatefulWidget {
 
 class _MeScreenState extends State<MeScreen> {
   final _api = ApiService();
+  final _profileService = UserProfileService();
+  final _historyService = DupeHistoryService();
+  final _picker = ImagePicker();
   String? _email;
+  String _username = '';
+  String? _joinedAt;
+  String? _profileImageBase64;
+  int _dupeHistoryCount = 0;
   bool _guest = false;
+  Uint8List? _pendingProfileBytes;
 
   @override
   void initState() {
@@ -25,9 +41,15 @@ class _MeScreenState extends State<MeScreen> {
 
   Future<void> _load() async {
     final p = await SharedPreferences.getInstance();
+    final profile = await _profileService.getProfile();
+    final history = await _historyService.getHistory();
     setState(() {
       _email = p.getString('user_email');
       _guest = p.getBool('guest_mode') == true;
+      _username = profile['username'] as String? ?? '';
+      _joinedAt = profile['joinedAt'] as String?;
+      _profileImageBase64 = profile['profileImage'] as String?;
+      _dupeHistoryCount = history.length;
     });
   }
 
@@ -39,25 +61,189 @@ class _MeScreenState extends State<MeScreen> {
     }
   }
 
+  Future<void> _pickProfileImage() async {
+    final x = await _picker.pickImage(source: ImageSource.gallery, imageQuality: 80);
+    if (x == null) return;
+    CroppedFile? cropped;
+    try {
+      cropped = await ImageCropper().cropImage(
+        sourcePath: x.path,
+        compressFormat: ImageCompressFormat.jpg,
+        compressQuality: 90,
+        aspectRatio: const CropAspectRatio(ratioX: 1, ratioY: 1),
+        uiSettings: [
+          if (kIsWeb)
+            WebUiSettings(
+              context: context,
+              presentStyle: WebPresentStyle.dialog,
+              size: const CropperSize(width: 420, height: 420),
+              dragMode: WebDragMode.move,
+              viewwMode: WebViewMode.mode_1,
+              initialAspectRatio: 1,
+              checkOrientation: true,
+            )
+          else
+            AndroidUiSettings(
+              toolbarTitle: 'Crop Profile Photo',
+              toolbarColor: Colors.black,
+              toolbarWidgetColor: Colors.white,
+              lockAspectRatio: true,
+              initAspectRatio: CropAspectRatioPreset.square,
+              hideBottomControls: false,
+            ),
+        ],
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Crop failed, using original image. ($e)'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+      cropped = null;
+    }
+    final bytes = cropped != null ? await cropped.readAsBytes() : await x.readAsBytes();
+    if (!mounted) return;
+    setState(() => _pendingProfileBytes = bytes);
+    await _showUploadPreview();
+  }
+
+  Future<void> _showUploadPreview() async {
+    if (_pendingProfileBytes == null) return;
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Preview profile image'),
+        content: ClipRRect(
+          borderRadius: BorderRadius.circular(10),
+          child: Image.memory(
+            _pendingProfileBytes!,
+            width: 220,
+            height: 220,
+            fit: BoxFit.cover,
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+            },
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () async {
+              final b = _pendingProfileBytes;
+              Navigator.pop(ctx);
+              if (b == null) return;
+              await _profileService.setProfileImageFromBytes(b);
+              if (!mounted) return;
+              setState(() => _pendingProfileBytes = null);
+              await _load();
+              if (!mounted) return;
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('Profile image uploaded'),
+                  behavior: SnackBarBehavior.floating,
+                ),
+              );
+            },
+            child: const Text('Upload'),
+          ),
+        ],
+      ),
+    );
+    if (!mounted) return;
+    setState(() => _pendingProfileBytes = null);
+  }
+
+  Future<void> _editDisplayName() async {
+    final controller = TextEditingController(text: _username);
+    final next = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Edit name'),
+        content: TextField(
+          controller: controller,
+          decoration: const InputDecoration(
+            labelText: 'Display name',
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, controller.text.trim()),
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+    if (next == null || next.trim().isEmpty) return;
+    await _profileService.setDisplayName(next);
+    await _load();
+  }
+
   @override
   Widget build(BuildContext context) {
     return ListView(
       padding: const EdgeInsets.all(20),
       children: [
-        CircleAvatar(
-          radius: 40,
-          backgroundColor: AppColors.bluePrimary.withValues(alpha: 0.15),
-          child: Icon(_guest ? Icons.person_outline : Icons.person_rounded,
-              size: 44, color: AppColors.bluePrimary),
+        Center(
+          child: Container(
+            width: 92,
+            height: 92,
+            decoration: BoxDecoration(
+              color: AppColors.bluePrimary.withValues(alpha: 0.15),
+              borderRadius: BorderRadius.circular(46),
+              border: Border.all(color: AppColors.borderLightBlue),
+            ),
+            clipBehavior: Clip.antiAlias,
+            child: (_profileImageBase64 != null && _profileImageBase64!.isNotEmpty)
+                ? Image.memory(
+                    base64Decode(_profileImageBase64!),
+                    fit: BoxFit.cover,
+                    alignment: Alignment.topCenter,
+                  )
+                : Icon(
+                    _guest ? Icons.person_outline : Icons.person_rounded,
+                    size: 44,
+                    color: AppColors.bluePrimary,
+                  ),
+          ),
         ),
         const SizedBox(height: 16),
+        if (!_guest)
+          TextButton.icon(
+            onPressed: _pickProfileImage,
+            icon: const Icon(Icons.photo_camera_outlined),
+            label: const Text('Change profile picture'),
+          ),
+        if (!_guest)
+          TextButton.icon(
+            onPressed: _editDisplayName,
+            icon: const Icon(Icons.edit_outlined),
+            label: const Text('Edit name'),
+          ),
         Text(
-          _guest ? 'Guest' : (_email ?? 'User'),
+          _guest
+              ? 'Guest'
+              : (_username.isNotEmpty
+                  ? _username
+                  : ((_email != null && _email!.contains('@'))
+                      ? _email!.split('@').first
+                      : 'User')),
           textAlign: TextAlign.center,
           style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppColors.purpleDark),
         ),
         if (!_guest && _email != null)
           Text(_email!, textAlign: TextAlign.center, style: TextStyle(color: AppColors.greySubtitle)),
+        if (!_guest && _joinedAt != null && _joinedAt!.isNotEmpty)
+          Text(
+            'Joined app: ${_joinedAt!.substring(0, 10)}',
+            textAlign: TextAlign.center,
+            style: TextStyle(color: AppColors.greySubtitle, fontSize: 12),
+          ),
         if (_guest)
           Padding(
             padding: const EdgeInsets.only(top: 8),
@@ -70,6 +256,9 @@ class _MeScreenState extends State<MeScreen> {
         const SizedBox(height: 24),
         _item(Icons.insights_outlined, 'Insights & trends', () {
           Navigator.push(context, MaterialPageRoute(builder: (_) => const InsightsScreen()));
+        }),
+        _item(Icons.history_rounded, 'Dupe history ($_dupeHistoryCount)', () {
+          Navigator.push(context, MaterialPageRoute(builder: (_) => const DupeHistoryScreen()));
         }),
         if (_guest)
           _item(Icons.login_rounded, 'Log in / Sign up', () {

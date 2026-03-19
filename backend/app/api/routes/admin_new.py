@@ -26,6 +26,7 @@ from app.services.category_normalizer import normalize_category, get_category_di
 from app.models.admin import AdminLogin, AdminToken, AdminResponse
 from app.core.security import verify_password
 from app.utils.auth import create_access_token
+from app.api.routes.auth import _effective_name_for_user
 import os
 import re
 import logging
@@ -2629,4 +2630,253 @@ async def delete_scraping_history(
         "message": "Scraping history deleted successfully",
         "job_id": job_id
     }
+
+
+@router.get("/overview-insights")
+async def get_overview_insights(
+    admin: dict = Depends(require_admin)
+):
+    """
+    Landing-page analytics for admin dashboard (mobile-app aligned):
+    - most clicked item
+    - wishlist/compare/history totals
+    - community activity
+    """
+    db = get_db()
+
+    users_col = db["users"]
+    products_col = db["products"]
+    user_data_col = db["user_app_data"]
+    community_col = db["community_posts"]
+    reports_col = db["community_reports"]
+
+    total_users = users_col.count_documents({})
+    total_products = products_col.count_documents({})
+    total_community_posts = community_col.count_documents({})
+    pending_reports = reports_col.count_documents({"status": "pending"})
+
+    wishlist_total = 0
+    compare_total = 0
+    history_total = 0
+    review_total = 0
+    item_clicks = {}
+
+    for row in user_data_col.find({}, {"wishlist": 1, "compare": 1, "dupe_history": 1}):
+        wishlist = row.get("wishlist") or []
+        compare = row.get("compare") or []
+        history = row.get("dupe_history") or []
+
+        wishlist_total += len(wishlist)
+        compare_total += len(compare)
+        history_total += len(history)
+
+        for h in history:
+            pid = h.get("id") or ""
+            if pid:
+                item_clicks[pid] = item_clicks.get(pid, 0) + 1
+            if h.get("review"):
+                review_total += 1
+
+    most_clicked = {"id": None, "name": "N/A", "clicks": 0, "brand": None}
+    if item_clicks:
+        top_id, top_count = max(item_clicks.items(), key=lambda kv: kv[1])
+        top_name = "N/A"
+        top_brand = None
+        # best effort: resolve from product_url or fallback by product_id.
+        doc = products_col.find_one({"product_url": top_id}, {"name": 1, "brand": 1, "product_id": 1})
+        if doc:
+            top_name = doc.get("name") or "N/A"
+            top_brand = doc.get("brand")
+        most_clicked = {
+            "id": top_id,
+            "name": top_name,
+            "brand": top_brand,
+            "clicks": int(top_count),
+        }
+
+    graph_items = [
+        {"label": "Wishlist", "value": int(wishlist_total)},
+        {"label": "Compare", "value": int(compare_total)},
+        {"label": "History Clicks", "value": int(history_total)},
+        {"label": "Reviews", "value": int(review_total)},
+        {"label": "Community Posts", "value": int(total_community_posts)},
+    ]
+
+    today = datetime.utcnow().date()
+    daily_labels = []
+    daily_posts = []
+    daily_reports = []
+    for i in range(6, -1, -1):
+        day = today - timedelta(days=i)
+        start = datetime(day.year, day.month, day.day)
+        end = start + timedelta(days=1)
+        daily_labels.append(day.strftime("%d %b"))
+        daily_posts.append(community_col.count_documents({"created_at": {"$gte": start, "$lt": end}}))
+        daily_reports.append(reports_col.count_documents({"created_at": {"$gte": start, "$lt": end}}))
+
+    return {
+        "total_users": int(total_users),
+        "total_products": int(total_products),
+        "total_community_posts": int(total_community_posts),
+        "total_wishlist_items": int(wishlist_total),
+        "total_compare_items": int(compare_total),
+        "total_dupe_history_clicks": int(history_total),
+        "total_reviews": int(review_total),
+        "pending_reports": int(pending_reports),
+        "most_clicked_item": most_clicked,
+        "graph_breakdown": graph_items,
+        "graph_daily_activity": {
+            "labels": daily_labels,
+            "community_posts": daily_posts,
+            "reports": daily_reports,
+        },
+    }
+
+
+def _community_user_display_name_map(db, user_id_strs: set) -> dict:
+    """
+    Map user_id (str) -> current display name using profile + users collection
+    (same rules as /auth/me). Fixes admin/community tables showing stale author
+    strings saved on posts at creation time.
+    """
+    if not user_id_strs:
+        return {}
+    oids = []
+    for s in user_id_strs:
+        if s and ObjectId.is_valid(str(s)):
+            oids.append(ObjectId(str(s)))
+    if not oids:
+        return {}
+    users_col = db["users"]
+    name_map: dict = {}
+    for u in users_col.find({"_id": {"$in": oids}}):
+        uid_str = str(u["_id"])
+        payload = {"_id": uid_str, "full_name": u.get("full_name"), "email": u.get("email")}
+        resolved = _effective_name_for_user(payload)
+        fallback = (u.get("full_name") or "").strip() or (u.get("email") or "").split("@")[0] or "Unknown"
+        name_map[uid_str] = (resolved.strip() if isinstance(resolved, str) and resolved.strip() else fallback)
+    return name_map
+
+
+@router.get("/community/reports")
+async def get_community_reports(admin: dict = Depends(require_admin)):
+    db = get_db()
+    reports = db["community_reports"]
+    docs = list(reports.find({}).sort("created_at", -1).limit(300))
+    author_ids = set()
+    for d in docs:
+        uid = d.get("post_author_user_id")
+        if uid:
+            author_ids.add(str(uid))
+    name_map = _community_user_display_name_map(db, author_ids)
+    out = []
+    for d in docs:
+        uid = d.get("post_author_user_id")
+        stored_post_author = d.get("post_author_name", "Unknown")
+        resolved_post_author = name_map.get(str(uid), stored_post_author) if uid else stored_post_author
+        out.append({
+            "id": str(d.get("_id")),
+            "post_id": d.get("post_id"),
+            "reason": d.get("reason", ""),
+            "status": d.get("status", "pending"),
+            "reporter_name": d.get("reporter_name", "Unknown"),
+            "reporter_email": d.get("reporter_email"),
+            "post_author_user_id": d.get("post_author_user_id"),
+            "post_author_name": resolved_post_author,
+            "post_excerpt": d.get("post_excerpt", ""),
+            "created_at": (d.get("created_at") or datetime.utcnow()).isoformat(),
+            "handled_at": (d.get("handled_at") or "").isoformat() if d.get("handled_at") else None,
+            "handled_action": d.get("handled_action"),
+        })
+    return {"reports": out}
+
+
+@router.get("/community/posts")
+async def get_community_posts_for_admin(admin: dict = Depends(require_admin)):
+    db = get_db()
+    posts_col = db["community_posts"]
+    posts = list(posts_col.find({}).sort("created_at", -1).limit(300))
+    author_ids = set()
+    for p in posts:
+        uid = p.get("author_user_id")
+        if uid:
+            author_ids.add(str(uid))
+    name_map = _community_user_display_name_map(db, author_ids)
+    out = []
+    for p in posts:
+        uid = p.get("author_user_id")
+        stored = p.get("author", "Unknown")
+        display_author = name_map.get(str(uid), stored) if uid else stored
+        out.append({
+            "id": str(p.get("_id")),
+            "description": p.get("description", ""),
+            "author": display_author,
+            "author_user_id": p.get("author_user_id"),
+            "created_at": (p.get("created_at") or datetime.utcnow()).isoformat(),
+            "replies_count": len(p.get("replies") or []),
+        })
+    return {"posts": out}
+
+
+@router.delete("/community/posts/{post_id}")
+async def admin_delete_community_post(post_id: str, admin: dict = Depends(require_admin)):
+    db = get_db()
+    posts_col = db["community_posts"]
+    reports_col = db["community_reports"]
+    if not ObjectId.is_valid(post_id):
+        raise HTTPException(status_code=400, detail="Invalid post id")
+    result = posts_col.delete_one({"_id": ObjectId(post_id)})
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Post not found")
+    reports_col.update_many(
+        {"post_id": post_id, "status": "pending"},
+        {"$set": {"status": "resolved", "handled_action": "delete_post", "handled_at": datetime.utcnow()}},
+    )
+    return {"success": True, "message": "Post deleted by admin"}
+
+
+@router.put("/community/users/{user_id}/ban")
+async def admin_ban_community_user(user_id: str, admin: dict = Depends(require_admin)):
+    db = get_db()
+    users_col = db["users"]
+    posts_col = db["community_posts"]
+    if not ObjectId.is_valid(user_id):
+        raise HTTPException(status_code=400, detail="Invalid user id")
+    u = users_col.find_one({"_id": ObjectId(user_id)})
+    if not u:
+        raise HTTPException(status_code=404, detail="User not found")
+    users_col.update_one({"_id": ObjectId(user_id)}, {"$set": {"is_active": False, "updated_at": datetime.utcnow()}})
+    posts_col.delete_many({"author_user_id": user_id})
+    return {"success": True, "message": "User banned and posts removed"}
+
+
+@router.put("/community/reports/{report_id}/resolve")
+async def resolve_community_report(
+    report_id: str,
+    action: str = Query("ignore", pattern="^(ignore|delete_post|ban_user)$"),
+    admin: dict = Depends(require_admin),
+):
+    db = get_db()
+    reports_col = db["community_reports"]
+    posts_col = db["community_posts"]
+    users_col = db["users"]
+    if not ObjectId.is_valid(report_id):
+        raise HTTPException(status_code=400, detail="Invalid report id")
+    report = reports_col.find_one({"_id": ObjectId(report_id)})
+    if not report:
+        raise HTTPException(status_code=404, detail="Report not found")
+
+    if action == "delete_post" and ObjectId.is_valid(report.get("post_id", "")):
+        posts_col.delete_one({"_id": ObjectId(report["post_id"])})
+    elif action == "ban_user":
+        uid = report.get("post_author_user_id")
+        if uid and ObjectId.is_valid(uid):
+            users_col.update_one({"_id": ObjectId(uid)}, {"$set": {"is_active": False, "updated_at": datetime.utcnow()}})
+            posts_col.delete_many({"author_user_id": uid})
+
+    reports_col.update_one(
+        {"_id": ObjectId(report_id)},
+        {"$set": {"status": "resolved", "handled_action": action, "handled_at": datetime.utcnow()}},
+    )
+    return {"success": True, "message": "Report resolved", "action": action}
 

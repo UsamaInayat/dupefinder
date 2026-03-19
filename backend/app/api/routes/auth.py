@@ -3,7 +3,7 @@ Authentication Routes
 Endpoints for user signup, login, OTP verification, token refresh, logout
 """
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, status, Depends
 from datetime import datetime, timedelta
 from typing import Dict
 from bson import ObjectId
@@ -33,11 +33,46 @@ from app.services.email_service import (
 )
 from app.core.database import (
     get_users_collection,
-    get_refresh_tokens_collection
+    get_refresh_tokens_collection,
+    db_manager,
 )
 from app.core.config import settings
+from app.dependencies.auth import get_current_user
 
 router = APIRouter(tags=["Authentication"])
+
+
+def _effective_name_for_user(user: Dict) -> str | None:
+    """
+    Prefer explicit app profile display_name, then users.full_name.
+    """
+    try:
+        if db_manager.is_connected():
+            user_data = db_manager.get_collection("user_app_data").find_one({"user_id": str(user.get("_id"))})
+            display_name = (user_data or {}).get("display_name")
+            if isinstance(display_name, str) and display_name.strip():
+                return display_name.strip()
+    except Exception:
+        pass
+    full_name = user.get("full_name")
+    if isinstance(full_name, str) and full_name.strip():
+        cleaned = full_name.strip()
+        email_prefix = (user.get("email") or "").split("@")[0].strip().lower()
+        # If legacy data stored email-prefix as full_name, try better fallback from community history.
+        if email_prefix and cleaned.lower() == email_prefix:
+            try:
+                if db_manager.is_connected():
+                    cp = db_manager.get_collection("community_posts").find_one(
+                        {"author_user_id": str(user.get("_id")), "author": {"$exists": True}},
+                        sort=[("created_at", -1)],
+                    )
+                    candidate = (cp or {}).get("author")
+                    if isinstance(candidate, str) and candidate.strip() and candidate.strip().lower() != email_prefix:
+                        return candidate.strip()
+            except Exception:
+                pass
+        return cleaned
+    return None
 
 
 # ============================================
@@ -72,6 +107,7 @@ async def signup(request: SignupRequest):
     # Create user document
     user_doc = {
         "email": request.email,
+        "full_name": (request.full_name or "").strip() or None,
         "password_hash": password_hash,
         "is_active": True,
         "is_verified": False,
@@ -241,7 +277,11 @@ async def login(request: LoginRequest):
         access_token=access_token,
         refresh_token=refresh_token,
         user={
+            "_id": str(user["_id"]),
             "email": user["email"],
+            "full_name": _effective_name_for_user(user),
+            "name": user.get("name"),
+            "username": user.get("username"),
             "is_active": user.get("is_active", True),
             "is_verified": user.get("is_verified", False)
         }
@@ -378,3 +418,21 @@ async def resend_otp(email: str):
         email=email,
         otp_sent=True
     )
+
+
+@router.get("/me")
+async def get_me(current_user: Dict = Depends(get_current_user)):
+    """
+    Return current logged-in user profile for mobile sync.
+    """
+    return {
+        "user": {
+            "_id": current_user.get("_id"),
+            "email": current_user.get("email"),
+            "full_name": _effective_name_for_user(current_user),
+            "name": current_user.get("name"),
+            "username": current_user.get("username"),
+            "is_active": current_user.get("is_active", True),
+            "is_verified": current_user.get("is_verified", False),
+        }
+    }

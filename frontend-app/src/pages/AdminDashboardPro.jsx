@@ -5,7 +5,9 @@ import '../styles/AdminPro.css'
 const API_BASE = 'http://localhost:8000'
 
 function AdminDashboardPro({ admin, token, onLogout }) {
-  const [activeTab, setActiveTab] = useState('overview')
+  const [activeTab, setActiveTab] = useState(() => {
+    return localStorage.getItem('admin_pro_active_tab') || 'overview'
+  })
   const [stats, setStats] = useState(null)
   const [users, setUsers] = useState([])
   const [products, setProducts] = useState([])
@@ -15,6 +17,11 @@ function AdminDashboardPro({ admin, token, onLogout }) {
 
   const apiConfig = {
     headers: { Authorization: `Bearer ${token}` }
+  }
+
+  const openTab = (tabId) => {
+    setActiveTab(tabId)
+    localStorage.setItem('admin_pro_active_tab', tabId)
   }
 
   useEffect(() => {
@@ -148,28 +155,28 @@ function AdminDashboardPro({ admin, token, onLogout }) {
           <nav>
             <button
               className={activeTab === 'overview' ? 'active' : ''}
-              onClick={() => setActiveTab('overview')}
+              onClick={() => openTab('overview')}
             >
               <span className="nav-icon">▪</span>
               Dashboard Overview
             </button>
             <button
               className={activeTab === 'users' ? 'active' : ''}
-              onClick={() => setActiveTab('users')}
+              onClick={() => openTab('users')}
             >
               <span className="nav-icon">▪</span>
               User Management
             </button>
             <button
               className={activeTab === 'products' ? 'active' : ''}
-              onClick={() => setActiveTab('products')}
+              onClick={() => openTab('products')}
             >
               <span className="nav-icon">▪</span>
               Product Management
             </button>
             <button
               className={activeTab === 'analytics' ? 'active' : ''}
-              onClick={() => setActiveTab('analytics')}
+              onClick={() => openTab('analytics')}
             >
               <span className="nav-icon">▪</span>
               Analytics & Reports
