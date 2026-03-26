@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'dart:convert';
+import 'package:flutter/gestures.dart';
 import 'package:intl/intl.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../theme/app_theme.dart';
 import '../services/community_service.dart';
 
@@ -366,19 +368,25 @@ class _CommunityScreenState extends State<CommunityScreen> {
                                         const SizedBox(height: 10),
                                         ClipRRect(
                                           borderRadius: BorderRadius.circular(12),
-                                          child: Image.memory(
-                                            base64Decode(post.imageBase64!),
+                                          child: Container(
                                             width: double.infinity,
-                                            height: 220,
-                                            fit: BoxFit.cover,
+                                            color: Colors.black12,
+                                            child: Image.memory(
+                                              base64Decode(post.imageBase64!),
+                                              width: double.infinity,
+                                              fit: BoxFit.contain,
+                                            ),
                                           ),
                                         ),
                                       ],
                                       if (post.description.isNotEmpty) ...[
                                         const SizedBox(height: 10),
-                                        Text(
+                                        _LinkText(
                                           post.description,
-                                          style: TextStyle(color: AppColors.greySubtitle, height: 1.4),
+                                          style: TextStyle(
+                                            color: AppColors.greySubtitle,
+                                            height: 1.4,
+                                          ),
                                         ),
                                       ],
                                     ],
@@ -456,6 +464,7 @@ class _PostDetailSheetState extends State<_PostDetailSheet> {
 
   @override
   Widget build(BuildContext context) {
+    final keyboardInset = MediaQuery.of(context).viewInsets.bottom;
     return DraggableScrollableSheet(
       initialChildSize: 0.6,
       minChildSize: 0.3,
@@ -571,16 +580,22 @@ class _PostDetailSheetState extends State<_PostDetailSheet> {
                     const SizedBox(height: 10),
                     ClipRRect(
                       borderRadius: BorderRadius.circular(12),
-                      child: Image.memory(
-                        base64Decode(_post.imageBase64!),
+                      child: Container(
                         width: double.infinity,
-                        height: 200,
-                        fit: BoxFit.cover,
+                        color: Colors.black12,
+                        child: Image.memory(
+                          base64Decode(_post.imageBase64!),
+                          width: double.infinity,
+                          fit: BoxFit.contain,
+                        ),
                       ),
                     ),
                   ],
                   const SizedBox(height: 8),
-                  Text(_post.description, style: TextStyle(color: AppColors.greySubtitle, height: 1.4)),
+                  _LinkText(
+                    _post.description,
+                    style: TextStyle(color: AppColors.greySubtitle, height: 1.4),
+                  ),
                   const SizedBox(height: 8),
                   Text(DateFormat.yMMMd().add_Hm().format(_post.createdAt), style: TextStyle(fontSize: 12, color: Colors.grey[600])),
                 ],
@@ -605,7 +620,10 @@ class _PostDetailSheetState extends State<_PostDetailSheet> {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Text(r.body, style: const TextStyle(fontSize: 14)),
+                              _LinkText(
+                                r.body,
+                                style: const TextStyle(fontSize: 14, color: AppColors.purpleDark),
+                              ),
                               Text(DateFormat.yMMMd().format(r.createdAt), style: TextStyle(fontSize: 11, color: Colors.grey[600])),
                             ],
                           ),
@@ -616,13 +634,22 @@ class _PostDetailSheetState extends State<_PostDetailSheet> {
                 },
               ),
             ),
-            Padding(
-              padding: EdgeInsets.fromLTRB(16, 8, 16, 8 + MediaQuery.of(context).padding.bottom),
+            AnimatedPadding(
+              duration: const Duration(milliseconds: 180),
+              curve: Curves.easeOut,
+              padding: EdgeInsets.fromLTRB(
+                16,
+                8,
+                16,
+                8 + MediaQuery.of(context).padding.bottom + keyboardInset,
+              ),
               child: Row(
                 children: [
                   Expanded(
                     child: TextField(
                       controller: _replyController,
+                      style: const TextStyle(color: AppColors.purpleDark),
+                      cursorColor: AppColors.bluePrimary,
                       decoration: const InputDecoration(
                         hintText: 'Reply with a store link or suggestion...',
                         border: OutlineInputBorder(),
@@ -644,6 +671,59 @@ class _PostDetailSheetState extends State<_PostDetailSheet> {
           ],
         ),
       ),
+    );
+  }
+}
+
+class _LinkText extends StatelessWidget {
+  final String text;
+  final TextStyle? style;
+
+  const _LinkText(this.text, {this.style});
+
+  static final RegExp _urlRegex = RegExp(
+    r'((https?:\/\/|www\.)[^\s]+)',
+    caseSensitive: false,
+  );
+
+  Future<void> _open(String raw) async {
+    final normalized = raw.startsWith('http://') || raw.startsWith('https://') ? raw : 'https://$raw';
+    final uri = Uri.tryParse(normalized);
+    if (uri == null) return;
+    await launchUrl(uri, mode: LaunchMode.platformDefault);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final base = style ?? const TextStyle(fontSize: 14, color: AppColors.greySubtitle);
+    final linkStyle = base.copyWith(
+      color: AppColors.bluePrimary,
+      decoration: TextDecoration.underline,
+      fontWeight: FontWeight.w600,
+    );
+    final spans = <InlineSpan>[];
+    int start = 0;
+    for (final m in _urlRegex.allMatches(text)) {
+      if (m.start > start) {
+        spans.add(TextSpan(text: text.substring(start, m.start), style: base));
+      }
+      final link = m.group(0)!;
+      spans.add(
+        TextSpan(
+          text: link,
+          style: linkStyle,
+          recognizer: TapGestureRecognizer()..onTap = () => _open(link),
+        ),
+      );
+      start = m.end;
+    }
+    if (start < text.length) {
+      spans.add(TextSpan(text: text.substring(start), style: base));
+    }
+
+    return SelectableText.rich(
+      TextSpan(children: spans),
+      textAlign: TextAlign.left,
     );
   }
 }
