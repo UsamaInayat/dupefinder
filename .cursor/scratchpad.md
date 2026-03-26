@@ -2700,3 +2700,48 @@ Expected speedup: ~20s/batch → ~1-2s/batch → 23k images done in ~10 min inst
 ### Executor's Feedback or Assistance Requests — Mar 19, 2026 (Batch 12)
 
 - Restart backend, refresh Community Moderation, and confirm **All Community Posts** author column matches the app (e.g. `Abdul Basit` instead of `ab887812` / `qa`) when `author_user_id` is present on the post.
+
+### Current Status / Progress Tracking — Executor Update (Mar 19, 2026, Batch 13)
+
+- Fixed Android crash in profile image crop flow by registering uCrop activity in app manifest.
+- File updated: `mobile/android/app/src/main/AndroidManifest.xml`
+  - Added `com.yalantis.ucrop.UCropActivity` under `<application>`.
+- Root cause addressed from runtime log:
+  - `ActivityNotFoundException: ... UCropActivity ... not declared in AndroidManifest.xml`
+- Verification:
+  - Confirmed manifest now contains `UCropActivity` entry.
+
+### Executor's Feedback or Assistance Requests — Mar 19, 2026 (Batch 13)
+
+- Please run mobile app on Android again and test: `Me -> Change profile picture -> crop -> upload`.
+- If crash persists, share fresh log after this manifest fix so I can handle the next layer immediately.
+
+### Current Status / Progress Tracking — Executor Update (Mar 26, 2026, Batch 14)
+
+- Community UX consistency fixes implemented for both Android and Chrome in `mobile/lib/screens/community_screen.dart`:
+  - Added auto URL detection + clickable links in post descriptions and replies.
+  - Improved reply composer visibility with keyboard-aware `AnimatedPadding` using `viewInsets.bottom`.
+  - Set explicit reply input text/cursor colors so typed text remains clearly visible.
+- Added reusable `_LinkText` renderer with URL regex + `url_launcher` tap handling.
+- Verification:
+  - Lint check run on updated screen file; no linter errors.
+
+### Executor's Feedback or Assistance Requests — Mar 26, 2026 (Batch 14)
+
+- Please verify on both Android and Chrome:
+  1. Post/reply containing `https://...` or `www...` opens when tapped.
+  2. While typing reply, text is visible and input area stays above keyboard.
+  3. Same behavior is consistent across both platforms.
+
+### Current Status / Progress Tracking — Executor Update (Mar 26, 2026, Batch 15)
+
+- Community post image rendering adjusted to show full uploaded image (no center-crop cut-off) in both feed cards and detail sheet.
+- Updated `mobile/lib/screens/community_screen.dart`:
+  - Changed post image fit from `BoxFit.cover` to `BoxFit.contain`.
+  - Added neutral background container behind images for cleaner letterbox space.
+- Result: user-uploaded images now remain fully visible (mobile + Chrome share same Flutter UI codepath).
+- Verification: lints checked for updated screen file; no errors.
+
+### Executor's Feedback or Assistance Requests — Mar 26, 2026 (Batch 15)
+
+- Please verify on Android and Chrome that community post images now display completely (not half-cut/cropped).
