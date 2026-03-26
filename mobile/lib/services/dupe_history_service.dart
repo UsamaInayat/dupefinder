@@ -24,6 +24,7 @@ class DupeHistoryEntry {
   final String id;
   final Map<String, dynamic> product;
   final DateTime clickedAt;
+  final int clickCount;
   final DupeReview? review;
   final bool promptShown;
 
@@ -31,6 +32,7 @@ class DupeHistoryEntry {
     required this.id,
     required this.product,
     required this.clickedAt,
+    this.clickCount = 1,
     this.review,
     this.promptShown = false,
   });
@@ -39,6 +41,7 @@ class DupeHistoryEntry {
         'id': id,
         'product': product,
         'clickedAt': clickedAt.toIso8601String(),
+        'clickCount': clickCount,
         'promptShown': promptShown,
         if (review != null) 'review': review!.toJson(),
       };
@@ -48,6 +51,7 @@ class DupeHistoryEntry {
         product: Map<String, dynamic>.from((json['product'] as Map?) ?? {}),
         clickedAt:
             DateTime.tryParse(json['clickedAt'] as String? ?? '') ?? DateTime.now(),
+        clickCount: (json['clickCount'] as num?)?.toInt() ?? 1,
         review: json['review'] is Map<String, dynamic>
             ? DupeReview.fromJson(json['review'] as Map<String, dynamic>)
             : (json['review'] is Map
@@ -158,6 +162,7 @@ class DupeHistoryService {
       id: id,
       product: product,
       clickedAt: now,
+      clickCount: idx >= 0 ? (list[idx].clickCount + 1) : 1,
       review: idx >= 0 ? list[idx].review : null,
       promptShown: false,
     );
@@ -217,6 +222,7 @@ class DupeHistoryService {
       id: curr.id,
       product: curr.product,
       clickedAt: curr.clickedAt,
+      clickCount: curr.clickCount,
       review: curr.review,
       promptShown: true,
     );

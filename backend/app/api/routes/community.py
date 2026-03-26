@@ -24,6 +24,7 @@ _index_ready = False
 class CommunityReplyIn(BaseModel):
     body: str = Field(..., min_length=1, max_length=2000)
     author: Optional[str] = "Anonymous"
+    author_pfp: Optional[str] = None
 
 
 class CommunityPostIn(BaseModel):
@@ -79,8 +80,10 @@ def _serialize(doc: dict) -> dict:
         "authorUserId": doc.get("author_user_id"),
         "replies": [
             {
+                "id": r.get("id"),
                 "body": r.get("body", ""),
                 "author": r.get("author", "Anonymous"),
+                "authorPfp": r.get("author_pfp"),
                 "createdAt": (r.get("created_at") or datetime.utcnow()).isoformat(),
                 "authorUserId": r.get("author_user_id"),
             }
@@ -139,8 +142,10 @@ async def add_reply(post_id: str, payload: CommunityReplyIn, current_user: Optio
         author_email = current_user.get("email")
         resolved_author = (current_user.get("full_name") or current_user.get("email") or resolved_author).strip()
     reply_doc = {
+        "id": str(ObjectId()),
         "body": payload.body.strip(),
         "author": resolved_author,
+        "author_pfp": payload.author_pfp,
         "author_user_id": author_user_id,
         "author_email": author_email,
         "created_at": datetime.utcnow(),
@@ -153,6 +158,43 @@ async def add_reply(post_id: str, payload: CommunityReplyIn, current_user: Optio
         raise HTTPException(status_code=404, detail="Post not found")
     updated = c.find_one({"_id": ObjectId(post_id)})
     return {"post": _serialize(updated)}
+
+
+@router.delete("/posts/{post_id}/replies/{reply_id}")
+async def delete_own_reply(
+    post_id: str,
+    reply_id: str,
+    current_user: dict = Depends(get_current_user),
+):
+    _ensure_indexes()
+    c = _col()
+    if not ObjectId.is_valid(post_id):
+        raise HTTPException(status_code=400, detail="Invalid post id")
+    post = c.find_one({"_id": ObjectId(post_id)})
+    if not post:
+        raise HTTPException(status_code=404, detail="Post not found")
+
+    reply = None
+    for r in (post.get("replies") or []):
+        if (r.get("id") or "") == reply_id:
+            reply = r
+            break
+    if reply is None:
+        raise HTTPException(status_code=404, detail="Reply not found")
+
+    is_owner_by_id = reply.get("author_user_id") == current_user.get("_id")
+    current_name = ((current_user.get("full_name") or current_user.get("email") or "").strip().lower())
+    reply_author = (reply.get("author") or "").strip().lower()
+    is_owner_by_name = bool(current_name) and reply_author == current_name
+    if not (is_owner_by_id or is_owner_by_name):
+        raise HTTPException(status_code=403, detail="You can only delete your own reply")
+
+    c.update_one(
+        {"_id": ObjectId(post_id)},
+        {"$pull": {"replies": {"id": reply_id}}},
+    )
+    updated = c.find_one({"_id": ObjectId(post_id)})
+    return {"post": _serialize(updated), "success": True}
 
 
 @router.delete("/posts/{post_id}")

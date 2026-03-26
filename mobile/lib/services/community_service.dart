@@ -52,22 +52,38 @@ class CommunityPost {
 }
 
 class CommunityReply {
+  final String id;
   final String body;
   final String author;
+  final String? authorPfp;
+  final String? authorUserId;
   final DateTime createdAt;
 
-  CommunityReply({required this.body, this.author = 'Anonymous', required this.createdAt});
+  CommunityReply({
+    required this.id,
+    required this.body,
+    this.author = 'Anonymous',
+    this.authorPfp,
+    this.authorUserId,
+    required this.createdAt,
+  });
 
   Map<String, dynamic> toJson() => {
+        'id': id,
         'body': body,
         'author': author,
+        'authorPfp': authorPfp,
+        'authorUserId': authorUserId,
         'createdAt': createdAt.toIso8601String(),
       };
 
   static CommunityReply fromJson(Map<String, dynamic> m) {
     return CommunityReply(
+      id: m['id'] as String? ?? '',
       body: m['body'] as String? ?? '',
       author: m['author'] as String? ?? 'Anonymous',
+      authorPfp: m['authorPfp'] as String?,
+      authorUserId: m['authorUserId'] as String?,
       createdAt: DateTime.tryParse(m['createdAt'] as String? ?? '') ?? DateTime.now(),
     );
   }
@@ -169,11 +185,17 @@ class CommunityService {
     final author = username.isNotEmpty
         ? username
         : (email.isNotEmpty ? email.split('@').first : 'User');
+    final pfp = prefs.getString(_profileImageKey);
     await _api.addCommunityReply(
       postId: postId,
       body: body,
       author: author,
+      authorPfp: pfp,
     );
+  }
+
+  Future<void> deleteReply(String postId, String replyId) async {
+    await _api.deleteCommunityReply(postId: postId, replyId: replyId);
   }
 
   Future<void> deletePost(String postId) async {

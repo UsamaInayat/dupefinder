@@ -153,16 +153,52 @@ class _ImageSearchScreenState extends State<ImageSearchScreen> {
 
   Future<void> _openProductUrl(String? url) async {
     if (url == null || url.isEmpty) return;
-    final uri = Uri.tryParse(url);
+    final normalized = url.startsWith('http://') || url.startsWith('https://') ? url : 'https://$url';
+    final uri = Uri.tryParse(normalized);
     if (uri != null && await canLaunchUrl(uri)) {
       await launchUrl(uri, mode: LaunchMode.externalApplication);
     }
   }
 
+  String _apiOrigin() {
+    final base = ApiService.baseUrl;
+    return base.endsWith('/api') ? base.substring(0, base.length - 4) : base;
+  }
+
+  String? _resolveImageUrl(Map<String, dynamic> product) {
+    final origin = _apiOrigin();
+    final imageUrl = (product['image_url'] as String?)?.trim();
+    final imagePath = (product['image_path'] as String?)?.trim();
+
+    if (imagePath != null && imagePath.isNotEmpty) {
+      final path = imagePath.replaceAll('\\', '/');
+      if (!path.startsWith('http://') && !path.startsWith('https://')) {
+        return '$origin/data/$path';
+      }
+    }
+    if (imageUrl != null && imageUrl.isNotEmpty) {
+      if (imageUrl.startsWith('http://') || imageUrl.startsWith('https://')) {
+        return '$origin/api/products/image-proxy?url=${Uri.encodeComponent(imageUrl)}';
+      }
+      return imageUrl;
+    }
+    if (imagePath != null && imagePath.isNotEmpty) {
+      return imagePath;
+    }
+    return null;
+  }
+
+  String? _resolveProductUrl(Map<String, dynamic> product) {
+    final raw = ((product['product_url'] ?? product['product_link'] ?? product['url'] ?? '') as String?)?.trim();
+    if (raw == null || raw.isEmpty) return null;
+    if (raw.startsWith('http://') || raw.startsWith('https://')) return raw;
+    return 'https://$raw';
+  }
+
   Future<void> _openAndRecordProduct(Map<String, dynamic> product) async {
     await _historyService.recordClick(product);
     await _refreshReviewMap();
-    await _openProductUrl(product['product_url'] as String?);
+    await _openProductUrl(_resolveProductUrl(product));
   }
 
   Future<void> _refreshReviewMap() async {
@@ -400,8 +436,8 @@ class _ImageSearchScreenState extends State<ImageSearchScreen> {
               name: r['name'] as String? ?? '',
               brand: r['brand'] as String? ?? '',
               price: r['price'] != null ? (r['price'] as num).toDouble() : null,
-              imageUrl: r['image_url'] as String?,
-              productUrl: r['product_url'] as String?,
+              imageUrl: _resolveImageUrl(r),
+              productUrl: _resolveProductUrl(r),
               finalScore: (r['final_score'] as num?)?.toDouble() ?? 0,
               onTap: () => _openAndRecordProduct(r),
               isSaved: _savedIds.contains(id),
@@ -488,8 +524,7 @@ class _ProductCard extends StatelessWidget {
                           height: double.infinity,
                           placeholder: (_, __) => const Center(
                               child: CircularProgressIndicator()),
-                          errorWidget: (_, __, ___) => const Icon(
-                              Icons.broken_image, size: 48),
+                          errorWidget: (_, __, ___) => const Icon(Icons.image_not_supported, size: 48),
                         )
                       : const Center(
                           child: Icon(Icons.image_not_supported, size: 48),

@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../theme/app_theme.dart';
 import '../services/wishlist_service.dart';
 import '../services/dupe_history_service.dart';
-import 'dupe_history_screen.dart';
 
 /// Insights: old 3 options, all live from local data.
 class InsightsScreen extends StatefulWidget {
@@ -17,8 +17,7 @@ class _InsightsScreenState extends State<InsightsScreen> {
   final _wishlistService = WishlistService();
   final _historyService = DupeHistoryService();
   List<Map<String, dynamic>> _wishlist = [];
-  int _historyCount = 0;
-  int _reviewedCount = 0;
+  List<DupeHistoryEntry> _history = [];
   List<String> _searchCategories = [];
   bool _loading = true;
 
@@ -35,8 +34,7 @@ class _InsightsScreenState extends State<InsightsScreen> {
     final categories = prefs.getStringList('insights_search_categories') ?? [];
     if (mounted) setState(() {
       _wishlist = wishlist;
-      _historyCount = history.length;
-      _reviewedCount = history.where((e) => e.review != null).length;
+      _history = history;
       _searchCategories = categories;
       _loading = false;
     });
@@ -63,16 +61,55 @@ class _InsightsScreenState extends State<InsightsScreen> {
     return list.take(5).toList();
   }
 
-  /// Top brands in wishlist (trending for you).
-  List<MapEntry<String, int>> get _trendingBrands {
-    final counts = <String, int>{};
-    for (final p in _wishlist) {
-      final brand = p['brand'] as String? ?? 'Unknown';
-      if (brand.isNotEmpty) counts[brand] = (counts[brand] ?? 0) + 1;
-    }
-    final list = counts.entries.toList();
-    list.sort((a, b) => b.value.compareTo(a.value));
-    return list.take(5).toList();
+  List<DupeHistoryEntry> get _topClickedDupes {
+    final list = [..._history];
+    list.sort((a, b) {
+      final byCount = b.clickCount.compareTo(a.clickCount);
+      if (byCount != 0) return byCount;
+      return b.clickedAt.compareTo(a.clickedAt);
+    });
+    return list.take(10).toList();
+  }
+
+  Future<void> _openProduct(Map<String, dynamic> product) async {
+    final raw = ((product['product_url'] ?? product['product_link'] ?? product['url'] ?? '') as String).trim();
+    if (raw.isEmpty) return;
+    final normalized = raw.startsWith('http://') || raw.startsWith('https://') ? raw : 'https://$raw';
+    final uri = Uri.tryParse(normalized);
+    if (uri == null) return;
+    await launchUrl(uri, mode: LaunchMode.externalApplication);
+  }
+
+  void _showTrendingDupes() {
+    final items = _topClickedDupes;
+    showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (ctx) => SafeArea(
+        child: items.isEmpty
+            ? const Padding(
+                padding: EdgeInsets.all(20),
+                child: Text('No clicked dupes yet. Open products from Find Similar first.'),
+              )
+            : ListView.separated(
+                itemCount: items.length,
+                separatorBuilder: (_, __) => const Divider(height: 1),
+                itemBuilder: (_, i) {
+                  final e = items[i];
+                  final name = (e.product['name'] ?? 'Unknown product').toString();
+                  final brand = (e.product['brand'] ?? '').toString();
+                  return ListTile(
+                    title: Text(name, maxLines: 2, overflow: TextOverflow.ellipsis),
+                    subtitle: Text(
+                      '${brand.isNotEmpty ? '$brand • ' : ''}${e.clickCount} click${e.clickCount == 1 ? '' : 's'}',
+                    ),
+                    trailing: const Icon(Icons.open_in_new_rounded),
+                    onTap: () => _openProduct(e.product),
+                  );
+                },
+              ),
+      ),
+    );
   }
 
   @override
@@ -109,20 +146,13 @@ class _InsightsScreenState extends State<InsightsScreen> {
             _card(
               Icons.local_fire_department_outlined,
               'Trending alternatives',
-              _trendingBrands.isEmpty
-                  ? 'Popular dupes in your list will appear here once you save items from search.'
-                  : 'Top in your list: ${_trendingBrands.map((e) => '${e.key} (${e.value})').join(', ')}.',
-            ),
-            _card(
-              Icons.history_rounded,
-              'Dupe history & reviews',
-              'Clicked dupes: $_historyCount | Reviewed: $_reviewedCount. Tap to open and rate with stars.',
-              onTap: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (_) => const DupeHistoryScreen()),
-                );
-              },
+              _topClickedDupes.isEmpty
+                  ? 'Most-clicked dupes will appear here. Tap to open items once available.'
+                  : _topClickedDupes
+                      .take(3)
+                      .map((e) => '${(e.product['name'] ?? 'Item').toString()} (${e.clickCount})')
+                      .join(' • '),
+              onTap: _showTrendingDupes,
             ),
           ],
         ),

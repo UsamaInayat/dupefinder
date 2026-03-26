@@ -2745,3 +2745,86 @@ Expected speedup: ~20s/batch → ~1-2s/batch → 23k images done in ~10 min inst
 ### Executor's Feedback or Assistance Requests — Mar 26, 2026 (Batch 15)
 
 - Please verify on Android and Chrome that community post images now display completely (not half-cut/cropped).
+
+### Current Status / Progress Tracking — Executor Update (Mar 26, 2026, Batch 16)
+
+- Implemented requested multi-fix batch for mobile + Chrome consistency:
+  1. **Community reply overflow fix** (`mobile/lib/screens/community_screen.dart`)
+     - Post detail bottom sheet now uses safer sizing (`initialChildSize` increased, `minChildSize` adjusted, `useSafeArea: true`).
+     - Removed extra keyboard-bottom inset that was causing render overflow when reply box opened.
+  2. **Insights updates** (`mobile/lib/screens/insights_screen.dart`)
+     - Removed **Dupe history & reviews** card/tab from Insights.
+     - **Trending alternatives** now uses most-clicked dupes (from click history), not wishlist brands.
+     - Trending alternatives card is now openable and shows actual items list in a bottom sheet; tapping item opens product link.
+  3. **Dupe click counting** (`mobile/lib/services/dupe_history_service.dart`)
+     - Added `clickCount` in history entries and increment logic on repeated product clicks.
+  4. **Find Similar image + link reliability** (`mobile/lib/screens/search/image_search_screen.dart`)
+     - Product links now resolve from multiple fields (`product_url`, `product_link`, `url`) and normalize missing scheme.
+     - Product image URL resolution improved with backend origin logic, local `image_path` support, and proxy fallback for external image URLs.
+
+- Verification:
+  - Lints on edited files checked.
+  - `flutter analyze` on changed files returned only existing/info-level warnings (no compile-blocking errors).
+
+### Executor's Feedback or Assistance Requests — Mar 26, 2026 (Batch 16)
+
+- Please test these exact flows on **Android and Chrome**:
+  1. Community post detail -> type reply with keyboard open (no overflow, typed text visible).
+  2. Insights -> no Dupe History card; Trending alternatives opens list and items open on tap.
+  3. Find Similar -> product cards open product links; previously missing images should now load more reliably.
+
+### Current Status / Progress Tracking — Executor Update (Mar 26, 2026, Batch 17)
+
+- Follow-up fix for persisted community overflow issue:
+  - Added explicit max-height constraints to community post images in both feed card and post detail sheet.
+  - File: `mobile/lib/screens/community_screen.dart`
+  - Feed image max-height: `260`
+  - Detail image max-height: `280`
+- This keeps images fully visible with `BoxFit.contain` while preventing `RenderFlex overflow` on smaller Android screens.
+- Verification: lint check run on updated file; no errors.
+
+### Executor's Feedback or Assistance Requests — Mar 26, 2026 (Batch 17)
+
+- Please retest the same post on Android:
+  1. Open post detail with large image.
+  2. Confirm yellow/black overflow strip is gone.
+  3. Confirm reply box remains usable and typed text visible.
+
+### Current Status / Progress Tracking — Executor Update (Mar 26, 2026, Batch 18)
+
+- Implemented **delete own comment/reply** functionality for community posts (backend + mobile):
+  - Backend: `DELETE /api/community/posts/{post_id}/replies/{reply_id}`
+  - Added reply `id` in backend serialization and creation.
+  - Ownership check enforced (by `author_user_id` or author-name fallback).
+  - Mobile API/service wired with `deleteCommunityReply` and `deleteReply`.
+  - Community detail UI now shows **Delete my reply** option on own replies and refreshes list after deletion.
+- Improved post image presentation (Instagram-like, no forced gray side fill):
+  - Removed custom gray background wrapper behind community post images.
+  - Kept full-image display behavior with `BoxFit.contain` + max-height bounds.
+- Validation:
+  - Backend `community.py` compiles successfully.
+  - Lint checks on updated mobile files: no lint errors.
+
+### Executor's Feedback or Assistance Requests — Mar 26, 2026 (Batch 18)
+
+- Please test:
+  1. Create a new reply from same user, then open menu on that reply and delete it.
+  2. Confirm community images now show without gray side fill in feed and detail.
+
+### Current Status / Progress Tracking — Executor Update (Mar 26, 2026, Batch 19)
+
+- Added reply-avatar support so whenever a user replies, their profile picture is sent and rendered with the reply.
+- Backend (`backend/app/api/routes/community.py`):
+  - `CommunityReplyIn` now accepts `author_pfp`.
+  - Reply document persists `author_pfp`.
+  - Reply serialization now returns `authorPfp`.
+- Mobile API/Service:
+  - `addCommunityReply` now sends `author_pfp`.
+  - `CommunityService.addReply` passes current profile image from prefs.
+  - `CommunityReply` model updated with `authorPfp`.
+- Mobile UI (`mobile/lib/screens/community_screen.dart`):
+  - Reply row now shows `CircleAvatar` with reply author profile pic (fallback icon when missing).
+
+### Executor's Feedback or Assistance Requests — Mar 26, 2026 (Batch 19)
+
+- Please test by posting a fresh reply from a user with profile pic set; avatar should appear next to that reply.

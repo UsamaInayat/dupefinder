@@ -174,6 +174,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
     await showModalBottomSheet(
       context: context,
       isScrollControlled: true,
+      useSafeArea: true,
       backgroundColor: Colors.transparent,
       builder: (ctx) => _PostDetailSheet(
         initialPost: post,
@@ -368,13 +369,13 @@ class _CommunityScreenState extends State<CommunityScreen> {
                                         const SizedBox(height: 10),
                                         ClipRRect(
                                           borderRadius: BorderRadius.circular(12),
-                                          child: Container(
-                                            width: double.infinity,
-                                            color: Colors.black12,
-                                            child: Image.memory(
-                                              base64Decode(post.imageBase64!),
-                                              width: double.infinity,
-                                              fit: BoxFit.contain,
+                                          child: ConstrainedBox(
+                                            constraints: const BoxConstraints(maxHeight: 260),
+                                            child: Center(
+                                              child: Image.memory(
+                                                base64Decode(post.imageBase64!),
+                                                fit: BoxFit.contain,
+                                              ),
                                             ),
                                           ),
                                         ),
@@ -462,12 +463,21 @@ class _PostDetailSheetState extends State<_PostDetailSheet> {
     if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Reply added'), behavior: SnackBarBehavior.floating));
   }
 
+  bool _isMyReply(CommunityReply r) {
+    if (widget.myUserId != null && widget.myUserId!.isNotEmpty && r.authorUserId == widget.myUserId) {
+      return true;
+    }
+    final author = r.author.trim().toLowerCase();
+    if (widget.myNameLower.isNotEmpty && author == widget.myNameLower) return true;
+    if (widget.myEmailPrefixLower.isNotEmpty && author == widget.myEmailPrefixLower) return true;
+    return false;
+  }
+
   @override
   Widget build(BuildContext context) {
-    final keyboardInset = MediaQuery.of(context).viewInsets.bottom;
     return DraggableScrollableSheet(
-      initialChildSize: 0.6,
-      minChildSize: 0.3,
+      initialChildSize: 0.82,
+      minChildSize: 0.45,
       maxChildSize: 0.95,
       expand: false,
       builder: (_, scrollController) => Container(
@@ -580,13 +590,13 @@ class _PostDetailSheetState extends State<_PostDetailSheet> {
                     const SizedBox(height: 10),
                     ClipRRect(
                       borderRadius: BorderRadius.circular(12),
-                      child: Container(
-                        width: double.infinity,
-                        color: Colors.black12,
-                        child: Image.memory(
-                          base64Decode(_post.imageBase64!),
-                          width: double.infinity,
-                          fit: BoxFit.contain,
+                      child: ConstrainedBox(
+                        constraints: const BoxConstraints(maxHeight: 280),
+                        child: Center(
+                          child: Image.memory(
+                            base64Decode(_post.imageBase64!),
+                            fit: BoxFit.contain,
+                          ),
                         ),
                       ),
                     ),
@@ -611,21 +621,77 @@ class _PostDetailSheetState extends State<_PostDetailSheet> {
                   final r = _post.replies[i];
                   return Padding(
                     padding: const EdgeInsets.only(bottom: 12),
-                    child: Row(
+                    child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Icon(Icons.reply_rounded, size: 18, color: AppColors.bluePrimary),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              _LinkText(
-                                r.body,
-                                style: const TextStyle(fontSize: 14, color: AppColors.purpleDark),
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            CircleAvatar(
+                              radius: 12,
+                              backgroundImage: (r.authorPfp != null && r.authorPfp!.isNotEmpty)
+                                  ? MemoryImage(base64Decode(r.authorPfp!))
+                                  : null,
+                              child: (r.authorPfp == null || r.authorPfp!.isEmpty)
+                                  ? const Icon(Icons.person_outline_rounded, size: 13)
+                                  : null,
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    r.author,
+                                    style: const TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w600,
+                                      color: AppColors.purpleDark,
+                                    ),
+                                  ),
+                                  Text(
+                                    DateFormat.yMMMd().format(r.createdAt),
+                                    style: TextStyle(fontSize: 11, color: Colors.grey[600]),
+                                  ),
+                                ],
                               ),
-                              Text(DateFormat.yMMMd().format(r.createdAt), style: TextStyle(fontSize: 11, color: Colors.grey[600])),
-                            ],
+                            ),
+                            if (_isMyReply(r) && r.id.isNotEmpty)
+                              PopupMenuButton<String>(
+                                onSelected: (v) async {
+                                  if (v != 'delete_reply') return;
+                                  try {
+                                    await widget.service.deleteReply(_post.id, r.id);
+                                    await _refreshPost();
+                                    if (!mounted) return;
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      const SnackBar(
+                                        content: Text('Reply deleted'),
+                                        behavior: SnackBarBehavior.floating,
+                                      ),
+                                    );
+                                  } catch (e) {
+                                    if (!mounted) return;
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      SnackBar(
+                                        content: Text('Delete failed: $e'),
+                                        behavior: SnackBarBehavior.floating,
+                                      ),
+                                    );
+                                  }
+                                },
+                                itemBuilder: (_) => const [
+                                  PopupMenuItem(value: 'delete_reply', child: Text('Delete my reply')),
+                                ],
+                              ),
+                          ],
+                        ),
+                        const SizedBox(height: 6),
+                        Padding(
+                          padding: const EdgeInsets.only(left: 26),
+                          child: _LinkText(
+                            r.body,
+                            style: const TextStyle(fontSize: 14, color: AppColors.purpleDark),
                           ),
                         ),
                       ],
@@ -641,7 +707,7 @@ class _PostDetailSheetState extends State<_PostDetailSheet> {
                 16,
                 8,
                 16,
-                8 + MediaQuery.of(context).padding.bottom + keyboardInset,
+                8 + MediaQuery.of(context).padding.bottom,
               ),
               child: Row(
                 children: [

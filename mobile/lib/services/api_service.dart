@@ -363,6 +363,7 @@ class ApiService {
     required String postId,
     required String body,
     required String author,
+    String? authorPfp,
   }) async {
     final response = await http.post(
       Uri.parse('$baseUrl/community/posts/$postId/replies'),
@@ -370,6 +371,7 @@ class ApiService {
       body: jsonEncode({
         'body': body,
         'author': author,
+        'author_pfp': authorPfp,
       }),
     );
     if (response.statusCode != 200) {
@@ -378,6 +380,19 @@ class ApiService {
     return Map<String, dynamic>.from(
       (jsonDecode(response.body) as Map<String, dynamic>)['post'] as Map,
     );
+  }
+
+  Future<void> deleteCommunityReply({
+    required String postId,
+    required String replyId,
+  }) async {
+    final response = await http.delete(
+      Uri.parse('$baseUrl/community/posts/$postId/replies/$replyId'),
+      headers: await getHeaders(),
+    );
+    if (response.statusCode != 200) {
+      throw Exception('Failed to delete reply');
+    }
   }
 
   Future<void> deleteCommunityPost(String postId) async {
