@@ -2828,3 +2828,151 @@ Expected speedup: ~20s/batch → ~1-2s/batch → 23k images done in ~10 min inst
 ### Executor's Feedback or Assistance Requests — Mar 26, 2026 (Batch 19)
 
 - Please test by posting a fresh reply from a user with profile pic set; avatar should appear next to that reply.
+
+### Current Status / Progress Tracking — Executor Update (Mar 26, 2026, Batch 20)
+
+- Reply UX stability + visibility polish (`mobile/lib/screens/community_screen.dart`):
+  - Reply input now explicitly high-contrast (filled white field + strong text color + focused border).
+  - Input is disabled while sending (`_sendingReply`) to prevent accidental rapid duplicate sends.
+  - Send via keyboard submit now also respects `_sendingReply` guard.
+- Profile notification bottom-message behavior (`mobile/lib/screens/me_screen.dart`):
+  - On opening Me/Profile, latest unread notification now appears as bottom SnackBar message.
+  - SnackBar includes **Open** action; tapping it navigates to related community post/reply flow already wired in MainShell.
+  - Added simple de-dup guard so same notification snackbar does not spam repeatedly.
+- Existing already-wired behavior remains active:
+  - notification tap routes to Community post
+  - target reply is highlighted for a few seconds
+
+### Executor's Feedback or Assistance Requests — Mar 26, 2026 (Batch 20)
+
+- Please verify on Android + Chrome:
+  1. While typing reply, text is clearly visible.
+  2. Single tap on send does not duplicate reply.
+  3. Open Me tab with unread comment notification: bottom message appears, and **Open** goes to your post with new reply highlight.
+
+### Current Status / Progress Tracking — Executor Update (Mar 27, 2026, Batch 20)
+
+- Implemented duplicate-reply protection for community replies (backend + app):
+  - UI send button now enters a short loading/lock state after one tap so accidental double-click does not create repeated replies.
+  - Backend now performs short-window idempotency check (same author + same body within a few seconds) and ignores rapid duplicate submissions.
+- Added community notifications when someone replies on your post:
+  - Backend now creates notifications for post owner on new replies.
+  - New APIs added:
+    - `GET /api/community/notifications?limit=&unread_only=`
+    - `POST /api/community/notifications/{notification_id}/read`
+- Profile (`Me`) screen now shows reply notifications near bottom:
+  - "Recent notifications" cards appear with message + preview.
+  - Tapping a notification marks it as read and opens the related community post.
+- Deep-link to post + reply highlight implemented in community screen:
+  - App opens the target post from notification.
+  - The new reply is highlighted for a few seconds for easy visibility.
+- Added profile tab notification dot/badge in bottom navigation when unread community notifications exist.
+- Validation run:
+  - Python syntax compile passed for `backend/app/api/routes/community.py`.
+  - Dart formatting run on all edited files.
+  - Flutter analyze reports only existing/info-level style hints; no new blocking compile errors.
+
+### Executor's Feedback or Assistance Requests — Mar 27, 2026 (Batch 20)
+
+- Please manually test this milestone before moving to next task:
+  1. Open one post from User A and reply to it from User B.
+  2. In User A profile (`Me`), confirm notification appears under "Recent notifications" and red dot appears on profile tab.
+  3. Tap notification: it should open the exact post and highlight the new reply briefly.
+  4. In post detail, tap send once quickly (or double tap): confirm duplicate reply is no longer created.
+
+### Current Status / Progress Tracking — Executor Update (Mar 27, 2026, Batch 21)
+
+- Added community reply interaction enhancements requested by user:
+  - **Reply back** option on each reply (prefills mention in reply box).
+  - **Report reply** action for non-own replies.
+  - **Block user** action for non-own replies.
+- Backend additions in `community.py`:
+  - `POST /api/community/posts/{post_id}/replies/{reply_id}/report`
+  - `POST /api/community/users/{target_user_id}/block`
+  - Block-list filtering inside `GET /api/community/posts` so blocked users' posts/replies are hidden for blocker.
+  - Added `community_user_blocks` collection + indexes.
+- Mobile/web (shared Flutter code) additions:
+  - Reply item menu now supports `Reply back`, `Report reply`, and `Block user`.
+  - Report reason dialog integrated for reply report flow.
+  - Mention hint appears in input when replying back to a specific user.
+- Validation:
+  - `python -m py_compile backend/app/api/routes/community.py` passed.
+  - `dart format` applied on edited files.
+  - Lint check on edited files: no lint errors.
+
+### Executor's Feedback or Assistance Requests — Mar 27, 2026 (Batch 21)
+
+- Please verify this milestone:
+  1. On another user's reply, use **Reply back** and confirm mention text auto-fills.
+  2. Use **Report reply** and confirm success toast appears.
+  3. Use **Block user** and confirm that user's content disappears from your community feed.
+  4. Confirm same behavior on mobile and web build.
+
+### Current Status / Progress Tracking — Executor Update (Mar 27, 2026, Batch 22)
+
+- Fixed community detail close behavior causing unnecessary feed refresh.
+- Change implemented in `mobile/lib/screens/community_screen.dart`:
+  - Parent community list now refreshes **only when a mutation actually occurs** (reply/add/edit/delete/block) via `onMutated` callback.
+  - Plain dismiss/minimize (tap outside sheet) no longer triggers `_load()` refresh.
+  - Post delete from detail returns with explicit mutation signal and refreshes correctly.
+- Validation:
+  - Dart format run on updated file.
+  - Lint check: no lint errors.
+
+### Current Status / Progress Tracking — Executor Update (Mar 27, 2026, Batch 23)
+
+- Improved community interaction to avoid full-page refresh even after mutations.
+- `mobile/lib/screens/community_screen.dart` now uses in-place state sync:
+  - Post detail sheet sends updated post back via callback (`onPostChanged`).
+  - Parent feed updates only the affected post card locally.
+  - On post delete, parent removes only that post locally (`onPostDeleted`).
+- Result:
+  - Dismiss/minimize does not refresh.
+  - Reply/add/edit/delete/block changes appear in feed immediately without reloading whole community list.
+- Validation:
+  - Dart format run.
+  - Lint check clean on edited file.
+
+### Current Status / Progress Tracking — Executor Update (Mar 27, 2026, Batch 24)
+
+- Implemented Instagram-style nested reply threading for community comments.
+- Backend (`backend/app/api/routes/community.py`):
+  - Reply payload now supports `parent_reply_id`.
+  - Reply serialization now returns `parentReplyId`.
+  - Duplicate-reply guard now also matches parent thread context.
+- Mobile/web shared app (`mobile/lib`):
+  - `CommunityReply` model now includes `parentReplyId`.
+  - `addReply`/API now send optional `parentReplyId`.
+  - `Reply back` now targets a specific reply id (not only text mention).
+  - Post detail renders replies in threaded order; child replies appear directly under parent with indentation.
+- Validation:
+  - `python -m py_compile backend/app/api/routes/community.py` passed.
+  - `dart format` run on updated files.
+  - Lint check on edited files: no lint errors.
+
+### Current Status / Progress Tracking — Executor Update (Mar 27, 2026, Batch 25)
+
+- Added requested threaded-comment visual polish in community detail:
+  - Vertical thread indicator for nested replies.
+  - "Replying to @username" badge shown on child replies.
+  - Collapsible nested replies with max visible depth; users can tap "View more replies" and "Hide nested replies".
+- Applied in shared Flutter screen so behavior is consistent on mobile + web.
+- Validation:
+  - `dart format` applied to `community_screen.dart`.
+  - `flutter analyze` run on file (only existing/info-level style hints, no blocking errors).
+
+### Current Status / Progress Tracking — Executor Update (Mar 27, 2026, Batch 26)
+
+- Optimized Saved/Wishlist and Compare tab open performance.
+- Main cause fixed:
+  - Bottom-tab navigation previously forced refresh keys for Saved/Compare every time user opened tab.
+  - Removed forced per-open refresh in `main_shell.dart`; tabs now reuse existing in-memory state for instant switch.
+- Added lightweight in-memory cache in services:
+  - `WishlistService` and `CompareService` now cache list data with short TTL (20s).
+  - Cache is updated immediately on add/remove/clear, reducing repeated backend fetch latency.
+- Result:
+  - Opening Saved/Compare after first load is significantly faster.
+  - Data still updates on user actions and pull-to-refresh remains available.
+- Validation:
+  - `dart format` run on updated files.
+  - Lint check on edited files: no lint errors.

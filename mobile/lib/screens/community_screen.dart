@@ -11,8 +11,15 @@ import '../services/community_service.dart';
 /// Community: local posts and replies. Ask for dupes, others can reply with store links.
 class CommunityScreen extends StatefulWidget {
   final bool embedded;
+  final String? focusPostId;
+  final String? focusReplyId;
 
-  const CommunityScreen({super.key, this.embedded = false});
+  const CommunityScreen({
+    super.key,
+    this.embedded = false,
+    this.focusPostId,
+    this.focusReplyId,
+  });
 
   @override
   State<CommunityScreen> createState() => _CommunityScreenState();
@@ -26,6 +33,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
   String? _myUserId;
   String _myName = '';
   String _myEmailPrefix = '';
+  bool _openedFocusedPost = false;
 
   @override
   void initState() {
@@ -40,18 +48,36 @@ class _CommunityScreenState extends State<CommunityScreen> {
     final prefs = await SharedPreferences.getInstance();
     final myName = (prefs.getString('user_name') ?? '').trim();
     final email = (prefs.getString('user_email') ?? '').trim();
-    final emailPrefix = email.contains('@') ? email.split('@').first.trim() : '';
-    if (mounted) setState(() {
-      _posts = list;
-      _myUserId = me;
-      _myName = myName.toLowerCase();
-      _myEmailPrefix = emailPrefix.toLowerCase();
-      _loading = false;
-    });
+    final emailPrefix =
+        email.contains('@') ? email.split('@').first.trim() : '';
+    if (mounted)
+      setState(() {
+        _posts = list;
+        _myUserId = me;
+        _myName = myName.toLowerCase();
+        _myEmailPrefix = emailPrefix.toLowerCase();
+        _loading = false;
+      });
+    _openFocusedPostIfNeeded();
+  }
+
+  Future<void> _openFocusedPostIfNeeded() async {
+    if (_openedFocusedPost) return;
+    final postId = (widget.focusPostId ?? '').trim();
+    if (postId.isEmpty) return;
+    CommunityPost? target;
+    try {
+      target = _posts.firstWhere((p) => p.id == postId);
+    } catch (_) {}
+    if (target == null) return;
+    _openedFocusedPost = true;
+    await _showPostDetail(target, highlightReplyId: widget.focusReplyId);
   }
 
   bool _isMyPost(CommunityPost post) {
-    if (_myUserId != null && _myUserId!.isNotEmpty && post.authorUserId == _myUserId) {
+    if (_myUserId != null &&
+        _myUserId!.isNotEmpty &&
+        post.authorUserId == _myUserId) {
       return true;
     }
     final author = post.author.trim().toLowerCase();
@@ -74,7 +100,8 @@ class _CommunityScreenState extends State<CommunityScreen> {
           ),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+          TextButton(
+              onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
           FilledButton(
             onPressed: () => Navigator.pop(ctx, c.text.trim()),
             child: const Text('Report'),
@@ -103,7 +130,11 @@ class _CommunityScreenState extends State<CommunityScreen> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              const Text('Create post', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppColors.purpleDark)),
+              const Text('Create post',
+                  style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                      color: AppColors.purpleDark)),
               const SizedBox(height: 8),
               StatefulBuilder(builder: (ctx, setInnerState) {
                 return Column(
@@ -117,10 +148,13 @@ class _CommunityScreenState extends State<CommunityScreen> {
                         );
                         if (x == null) return;
                         final bytes = await x.readAsBytes();
-                        setInnerState(() => selectedImageBase64 = base64Encode(bytes));
+                        setInnerState(
+                            () => selectedImageBase64 = base64Encode(bytes));
                       },
                       icon: const Icon(Icons.image_outlined),
-                      label: Text(selectedImageBase64 == null ? 'Add image' : 'Image selected'),
+                      label: Text(selectedImageBase64 == null
+                          ? 'Add image'
+                          : 'Image selected'),
                     ),
                     if (selectedImageBase64 != null) ...[
                       const SizedBox(height: 10),
@@ -157,11 +191,14 @@ class _CommunityScreenState extends State<CommunityScreen> {
                   if (mounted) {
                     Navigator.pop(ctx);
                     await _load();
-                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Post added'), behavior: SnackBarBehavior.floating));
+                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                        content: Text('Post added'),
+                        behavior: SnackBarBehavior.floating));
                   }
                 },
                 child: const Text('Post'),
-                style: FilledButton.styleFrom(backgroundColor: AppColors.bluePrimary),
+                style: FilledButton.styleFrom(
+                    backgroundColor: AppColors.bluePrimary),
               ),
             ],
           ),
@@ -170,7 +207,8 @@ class _CommunityScreenState extends State<CommunityScreen> {
     );
   }
 
-  Future<void> _showPostDetail(CommunityPost post) async {
+  Future<void> _showPostDetail(CommunityPost post,
+      {String? highlightReplyId}) async {
     await showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -182,11 +220,22 @@ class _CommunityScreenState extends State<CommunityScreen> {
         myUserId: _myUserId,
         myNameLower: _myName,
         myEmailPrefixLower: _myEmailPrefix,
+        initialHighlightReplyId: highlightReplyId,
+        onPostChanged: (updatedPost) {
+          if (!mounted) return;
+          setState(() {
+            final idx = _posts.indexWhere((p) => p.id == updatedPost.id);
+            if (idx >= 0) {
+              _posts[idx] = updatedPost;
+            }
+          });
+        },
+        onPostDeleted: () {
+          if (!mounted) return;
+          setState(() => _posts.removeWhere((p) => p.id == post.id));
+        },
       ),
     );
-    if (mounted) {
-      await _load();
-    }
   }
 
   @override
@@ -209,7 +258,10 @@ class _CommunityScreenState extends State<CommunityScreen> {
                   padding: const EdgeInsets.all(18),
                   decoration: BoxDecoration(
                     gradient: LinearGradient(
-                      colors: [AppColors.bluePrimary.withValues(alpha: 0.12), Colors.white],
+                      colors: [
+                        AppColors.bluePrimary.withValues(alpha: 0.12),
+                        Colors.white
+                      ],
                     ),
                     borderRadius: BorderRadius.circular(16),
                     border: Border.all(color: AppColors.borderLightBlue),
@@ -219,12 +271,16 @@ class _CommunityScreenState extends State<CommunityScreen> {
                     children: [
                       const Text(
                         'Community feed',
-                        style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppColors.purpleDark),
+                        style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                            color: AppColors.purpleDark),
                       ),
                       const SizedBox(height: 8),
                       Text(
                         'Share dupes like a social feed. Add image + description and get replies.',
-                        style: TextStyle(color: AppColors.greySubtitle, height: 1.4),
+                        style: TextStyle(
+                            color: AppColors.greySubtitle, height: 1.4),
                       ),
                     ],
                   ),
@@ -244,30 +300,40 @@ class _CommunityScreenState extends State<CommunityScreen> {
                             final post = _posts[i];
                             return Card(
                               margin: const EdgeInsets.only(bottom: 12),
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                              shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(16)),
                               child: InkWell(
                                 onTap: () async => _showPostDetail(post),
                                 borderRadius: BorderRadius.circular(16),
                                 child: Padding(
                                   padding: const EdgeInsets.all(12),
                                   child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
                                     children: [
                                       Row(
                                         children: [
                                           CircleAvatar(
                                             radius: 16,
-                                            backgroundImage: (post.authorPfp != null && post.authorPfp!.isNotEmpty)
-                                                ? MemoryImage(base64Decode(post.authorPfp!))
+                                            backgroundImage: (post.authorPfp !=
+                                                        null &&
+                                                    post.authorPfp!.isNotEmpty)
+                                                ? MemoryImage(base64Decode(
+                                                    post.authorPfp!))
                                                 : null,
-                                            child: (post.authorPfp == null || post.authorPfp!.isEmpty)
-                                                ? const Icon(Icons.person_outline_rounded, size: 16)
+                                            child: (post.authorPfp == null ||
+                                                    post.authorPfp!.isEmpty)
+                                                ? const Icon(
+                                                    Icons
+                                                        .person_outline_rounded,
+                                                    size: 16)
                                                 : null,
                                           ),
                                           const SizedBox(width: 8),
                                           Expanded(
                                             child: Column(
-                                              crossAxisAlignment: CrossAxisAlignment.start,
+                                              crossAxisAlignment:
+                                                  CrossAxisAlignment.start,
                                               children: [
                                                 Text(
                                                   post.author,
@@ -278,99 +344,151 @@ class _CommunityScreenState extends State<CommunityScreen> {
                                                 ),
                                                 Text(
                                                   _timeAgo(post.createdAt),
-                                                  style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                                                  style: TextStyle(
+                                                      fontSize: 12,
+                                                      color: Colors.grey[600]),
                                                 ),
                                               ],
                                             ),
                                           ),
                                           Text(
                                             '${post.replies.length} replies',
-                                            style: TextStyle(fontSize: 12, color: Colors.grey[700]),
+                                            style: TextStyle(
+                                                fontSize: 12,
+                                                color: Colors.grey[700]),
                                           ),
                                           PopupMenuButton<String>(
                                             onSelected: (v) async {
                                               try {
                                                 if (v == 'delete') {
-                                                  await _service.deletePost(post.id);
+                                                  await _service
+                                                      .deletePost(post.id);
                                                   await _load();
                                                   if (!mounted) return;
-                                                  ScaffoldMessenger.of(context).showSnackBar(
+                                                  ScaffoldMessenger.of(context)
+                                                      .showSnackBar(
                                                     const SnackBar(
-                                                      content: Text('Post deleted'),
-                                                      behavior: SnackBarBehavior.floating,
+                                                      content:
+                                                          Text('Post deleted'),
+                                                      behavior: SnackBarBehavior
+                                                          .floating,
                                                     ),
                                                   );
                                                 }
                                                 if (v == 'edit') {
-                                                  final c = TextEditingController(text: post.description);
-                                                  final updated = await showDialog<String>(
+                                                  final c =
+                                                      TextEditingController(
+                                                          text:
+                                                              post.description);
+                                                  final updated =
+                                                      await showDialog<String>(
                                                     context: context,
-                                                    builder: (ctx) => AlertDialog(
-                                                      title: const Text('Edit post'),
+                                                    builder: (ctx) =>
+                                                        AlertDialog(
+                                                      title: const Text(
+                                                          'Edit post'),
                                                       content: TextField(
                                                         controller: c,
                                                         maxLines: 4,
-                                                        decoration: const InputDecoration(hintText: 'Update message'),
+                                                        decoration:
+                                                            const InputDecoration(
+                                                                hintText:
+                                                                    'Update message'),
                                                       ),
                                                       actions: [
-                                                        TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+                                                        TextButton(
+                                                            onPressed: () =>
+                                                                Navigator.pop(
+                                                                    ctx),
+                                                            child: const Text(
+                                                                'Cancel')),
                                                         FilledButton(
-                                                          onPressed: () => Navigator.pop(ctx, c.text.trim()),
-                                                          child: const Text('Save'),
+                                                          onPressed: () =>
+                                                              Navigator.pop(
+                                                                  ctx,
+                                                                  c.text
+                                                                      .trim()),
+                                                          child: const Text(
+                                                              'Save'),
                                                         ),
                                                       ],
                                                     ),
                                                   );
-                                                  if (updated == null || updated.isEmpty) return;
-                                                  await _service.editPost(post.id, updated);
+                                                  if (updated == null ||
+                                                      updated.isEmpty) return;
+                                                  await _service.editPost(
+                                                      post.id, updated);
                                                   await _load();
                                                   if (!mounted) return;
-                                                  ScaffoldMessenger.of(context).showSnackBar(
+                                                  ScaffoldMessenger.of(context)
+                                                      .showSnackBar(
                                                     const SnackBar(
-                                                      content: Text('Post updated'),
-                                                      behavior: SnackBarBehavior.floating,
+                                                      content:
+                                                          Text('Post updated'),
+                                                      behavior: SnackBarBehavior
+                                                          .floating,
                                                     ),
                                                   );
                                                 }
                                                 if (v == 'report') {
-                                                  final reason = await _askReportReason();
-                                                  if (reason == null || reason.isEmpty) return;
-                                                  await _service.reportPost(post.id, reason);
+                                                  final reason =
+                                                      await _askReportReason();
+                                                  if (reason == null ||
+                                                      reason.isEmpty) return;
+                                                  await _service.reportPost(
+                                                      post.id, reason);
                                                   if (!mounted) return;
-                                                  ScaffoldMessenger.of(context).showSnackBar(
+                                                  ScaffoldMessenger.of(context)
+                                                      .showSnackBar(
                                                     const SnackBar(
-                                                      content: Text('Report submitted to admin'),
-                                                      behavior: SnackBarBehavior.floating,
+                                                      content: Text(
+                                                          'Report submitted to admin'),
+                                                      behavior: SnackBarBehavior
+                                                          .floating,
                                                     ),
                                                   );
                                                 }
                                               } catch (e) {
                                                 if (!mounted) return;
-                                                ScaffoldMessenger.of(context).showSnackBar(
+                                                ScaffoldMessenger.of(context)
+                                                    .showSnackBar(
                                                   SnackBar(
-                                                    content: Text('Action failed: $e'),
-                                                    behavior: SnackBarBehavior.floating,
+                                                    content: Text(
+                                                        'Action failed: $e'),
+                                                    behavior: SnackBarBehavior
+                                                        .floating,
                                                   ),
                                                 );
                                               }
                                             },
                                             itemBuilder: (_) => [
                                               if (_isMyPost(post))
-                                                const PopupMenuItem(value: 'edit', child: Text('Edit my post')),
+                                                const PopupMenuItem(
+                                                    value: 'edit',
+                                                    child:
+                                                        Text('Edit my post')),
                                               if (_isMyPost(post))
-                                                const PopupMenuItem(value: 'delete', child: Text('Delete my post')),
+                                                const PopupMenuItem(
+                                                    value: 'delete',
+                                                    child:
+                                                        Text('Delete my post')),
                                               if (!_isMyPost(post))
-                                                const PopupMenuItem(value: 'report', child: Text('Report post')),
+                                                const PopupMenuItem(
+                                                    value: 'report',
+                                                    child: Text('Report post')),
                                             ],
                                           ),
                                         ],
                                       ),
-                                      if (post.imageBase64 != null && post.imageBase64!.isNotEmpty) ...[
+                                      if (post.imageBase64 != null &&
+                                          post.imageBase64!.isNotEmpty) ...[
                                         const SizedBox(height: 10),
                                         ClipRRect(
-                                          borderRadius: BorderRadius.circular(12),
+                                          borderRadius:
+                                              BorderRadius.circular(12),
                                           child: ConstrainedBox(
-                                            constraints: const BoxConstraints(maxHeight: 260),
+                                            constraints: const BoxConstraints(
+                                                maxHeight: 260),
                                             child: Center(
                                               child: Image.memory(
                                                 base64Decode(post.imageBase64!),
@@ -416,6 +534,9 @@ class _PostDetailSheet extends StatefulWidget {
   final String? myUserId;
   final String myNameLower;
   final String myEmailPrefixLower;
+  final String? initialHighlightReplyId;
+  final ValueChanged<CommunityPost> onPostChanged;
+  final VoidCallback onPostDeleted;
 
   const _PostDetailSheet({
     required this.initialPost,
@@ -423,6 +544,9 @@ class _PostDetailSheet extends StatefulWidget {
     this.myUserId,
     this.myNameLower = '',
     this.myEmailPrefixLower = '',
+    this.initialHighlightReplyId,
+    required this.onPostChanged,
+    required this.onPostDeleted,
   });
 
   @override
@@ -432,11 +556,24 @@ class _PostDetailSheet extends StatefulWidget {
 class _PostDetailSheetState extends State<_PostDetailSheet> {
   late CommunityPost _post;
   final _replyController = TextEditingController();
+  bool _sendingReply = false;
+  String? _highlightReplyId;
+  String? _replyingToName;
+  String? _replyingToReplyId;
+  final Set<String> _expandedThreadParents = <String>{};
+  static const int _maxVisibleDepth = 2;
 
   @override
   void initState() {
     super.initState();
     _post = widget.initialPost;
+    _highlightReplyId = widget.initialHighlightReplyId;
+    if (_highlightReplyId != null && _highlightReplyId!.isNotEmpty) {
+      Future.delayed(const Duration(seconds: 4), () {
+        if (!mounted) return;
+        setState(() => _highlightReplyId = null);
+      });
+    }
   }
 
   @override
@@ -452,25 +589,124 @@ class _PostDetailSheetState extends State<_PostDetailSheet> {
       next = list.firstWhere((p) => p.id == _post.id);
     } catch (_) {}
     if (next != null && mounted) setState(() => _post = next!);
+    if (next != null) widget.onPostChanged(next);
   }
 
   Future<void> _sendReply() async {
+    if (_sendingReply) return;
     final body = _replyController.text.trim();
     if (body.isEmpty) return;
-    await widget.service.addReply(_post.id, body);
-    _replyController.clear();
-    await _refreshPost();
-    if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Reply added'), behavior: SnackBarBehavior.floating));
+    setState(() => _sendingReply = true);
+    try {
+      await widget.service.addReply(
+        _post.id,
+        body,
+        parentReplyId: _replyingToReplyId,
+      );
+      _replyController.clear();
+      setState(() {
+        _replyingToName = null;
+        _replyingToReplyId = null;
+      });
+      await _refreshPost();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+              content: Text('Reply added'),
+              behavior: SnackBarBehavior.floating),
+        );
+      }
+    } finally {
+      await Future.delayed(const Duration(milliseconds: 450));
+      if (mounted) setState(() => _sendingReply = false);
+    }
   }
 
   bool _isMyReply(CommunityReply r) {
-    if (widget.myUserId != null && widget.myUserId!.isNotEmpty && r.authorUserId == widget.myUserId) {
+    if (widget.myUserId != null &&
+        widget.myUserId!.isNotEmpty &&
+        r.authorUserId == widget.myUserId) {
       return true;
     }
     final author = r.author.trim().toLowerCase();
-    if (widget.myNameLower.isNotEmpty && author == widget.myNameLower) return true;
-    if (widget.myEmailPrefixLower.isNotEmpty && author == widget.myEmailPrefixLower) return true;
+    if (widget.myNameLower.isNotEmpty && author == widget.myNameLower)
+      return true;
+    if (widget.myEmailPrefixLower.isNotEmpty &&
+        author == widget.myEmailPrefixLower) return true;
     return false;
+  }
+
+  Future<String?> _askReason({
+    String title = 'Report reply',
+    String hint = 'Reason (abuse/spam/inappropriate)',
+  }) async {
+    final c = TextEditingController();
+    return showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(title),
+        content: TextField(
+          controller: c,
+          maxLines: 3,
+          decoration: InputDecoration(hintText: hint),
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+          FilledButton(
+              onPressed: () => Navigator.pop(ctx, c.text.trim()),
+              child: const Text('Submit')),
+        ],
+      ),
+    );
+  }
+
+  List<Map<String, dynamic>> _threadedReplies() {
+    final replies = List<CommunityReply>.from(_post.replies);
+    final byParent = <String, List<CommunityReply>>{};
+    final ids = replies.map((e) => e.id).where((e) => e.isNotEmpty).toSet();
+    final roots = <CommunityReply>[];
+    for (final r in replies) {
+      final p = (r.parentReplyId ?? '').trim();
+      if (p.isEmpty || !ids.contains(p)) {
+        roots.add(r);
+      } else {
+        byParent.putIfAbsent(p, () => []).add(r);
+      }
+    }
+    int byTime(CommunityReply a, CommunityReply b) =>
+        a.createdAt.compareTo(b.createdAt);
+    roots.sort(byTime);
+    for (final list in byParent.values) {
+      list.sort(byTime);
+    }
+    final out = <Map<String, dynamic>>[];
+    void addNode(CommunityReply r, int depth, {required bool forceShow}) {
+      final children = byParent[r.id] ?? const <CommunityReply>[];
+      final expanded = r.id.isNotEmpty && _expandedThreadParents.contains(r.id);
+      final visible = forceShow || depth <= _maxVisibleDepth;
+      out.add({
+        'reply': r,
+        'depth': depth,
+        'visible': visible,
+        'expanded': expanded,
+        'hasHiddenChildren': children.isNotEmpty &&
+            depth >= _maxVisibleDepth &&
+            !expanded &&
+            !forceShow,
+        'hiddenChildrenCount': children.length,
+      });
+      final nextForceShow =
+          forceShow || (depth >= _maxVisibleDepth && expanded);
+      for (final child in children) {
+        addNode(child, depth + 1, forceShow: nextForceShow);
+      }
+    }
+
+    for (final root in roots) {
+      addNode(root, 0, forceShow: false);
+    }
+    return out;
   }
 
   @override
@@ -496,17 +732,21 @@ class _PostDetailSheetState extends State<_PostDetailSheet> {
                     children: [
                       CircleAvatar(
                         radius: 15,
-                        backgroundImage: (_post.authorPfp != null && _post.authorPfp!.isNotEmpty)
+                        backgroundImage: (_post.authorPfp != null &&
+                                _post.authorPfp!.isNotEmpty)
                             ? MemoryImage(base64Decode(_post.authorPfp!))
                             : null,
-                        child: (_post.authorPfp == null || _post.authorPfp!.isEmpty)
+                        child: (_post.authorPfp == null ||
+                                _post.authorPfp!.isEmpty)
                             ? const Icon(Icons.person_outline_rounded, size: 15)
                             : null,
                       ),
                       const SizedBox(width: 8),
                       Text(
                         _post.author,
-                        style: const TextStyle(fontWeight: FontWeight.w600, color: AppColors.purpleDark),
+                        style: const TextStyle(
+                            fontWeight: FontWeight.w600,
+                            color: AppColors.purpleDark),
                       ),
                       const Spacer(),
                       PopupMenuButton<String>(
@@ -514,11 +754,13 @@ class _PostDetailSheetState extends State<_PostDetailSheet> {
                           try {
                             if (v == 'delete') {
                               await widget.service.deletePost(_post.id);
+                              widget.onPostDeleted();
                               if (!mounted) return;
-                              Navigator.pop(context);
+                              Navigator.pop(context, true);
                             }
                             if (v == 'edit') {
-                              final c = TextEditingController(text: _post.description);
+                              final c = TextEditingController(
+                                  text: _post.description);
                               final updated = await showDialog<String>(
                                 context: context,
                                 builder: (ctx) => AlertDialog(
@@ -526,11 +768,17 @@ class _PostDetailSheetState extends State<_PostDetailSheet> {
                                   content: TextField(
                                     controller: c,
                                     maxLines: 4,
-                                    decoration: const InputDecoration(hintText: 'Update message'),
+                                    decoration: const InputDecoration(
+                                        hintText: 'Update message'),
                                   ),
                                   actions: [
-                                    TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
-                                    FilledButton(onPressed: () => Navigator.pop(ctx, c.text.trim()), child: const Text('Save')),
+                                    TextButton(
+                                        onPressed: () => Navigator.pop(ctx),
+                                        child: const Text('Cancel')),
+                                    FilledButton(
+                                        onPressed: () =>
+                                            Navigator.pop(ctx, c.text.trim()),
+                                        child: const Text('Save')),
                                   ],
                                 ),
                               );
@@ -547,11 +795,17 @@ class _PostDetailSheetState extends State<_PostDetailSheet> {
                                   content: TextField(
                                     controller: c,
                                     maxLines: 3,
-                                    decoration: const InputDecoration(hintText: 'Reason'),
+                                    decoration: const InputDecoration(
+                                        hintText: 'Reason'),
                                   ),
                                   actions: [
-                                    TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
-                                    FilledButton(onPressed: () => Navigator.pop(ctx, c.text.trim()), child: const Text('Report')),
+                                    TextButton(
+                                        onPressed: () => Navigator.pop(ctx),
+                                        child: const Text('Cancel')),
+                                    FilledButton(
+                                        onPressed: () =>
+                                            Navigator.pop(ctx, c.text.trim()),
+                                        child: const Text('Report')),
                                   ],
                                 ),
                               );
@@ -559,34 +813,51 @@ class _PostDetailSheetState extends State<_PostDetailSheet> {
                               await widget.service.reportPost(_post.id, reason);
                               if (!mounted) return;
                               ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(content: Text('Report sent to admin'), behavior: SnackBarBehavior.floating),
+                                const SnackBar(
+                                    content: Text('Report sent to admin'),
+                                    behavior: SnackBarBehavior.floating),
                               );
                             }
                           } catch (e) {
                             if (!mounted) return;
                             ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(content: Text('Action failed: $e'), behavior: SnackBarBehavior.floating),
+                              SnackBar(
+                                  content: Text('Action failed: $e'),
+                                  behavior: SnackBarBehavior.floating),
                             );
                           }
                         },
                         itemBuilder: (_) => [
-                          if ((widget.myUserId != null && widget.myUserId == _post.authorUserId) ||
-                              (_post.author.trim().toLowerCase() == widget.myNameLower) ||
-                              (_post.author.trim().toLowerCase() == widget.myEmailPrefixLower))
-                            const PopupMenuItem(value: 'edit', child: Text('Edit my post')),
-                          if ((widget.myUserId != null && widget.myUserId == _post.authorUserId) ||
-                              (_post.author.trim().toLowerCase() == widget.myNameLower) ||
-                              (_post.author.trim().toLowerCase() == widget.myEmailPrefixLower))
-                            const PopupMenuItem(value: 'delete', child: Text('Delete my post')),
-                          if (!((widget.myUserId != null && widget.myUserId == _post.authorUserId) ||
-                              (_post.author.trim().toLowerCase() == widget.myNameLower) ||
-                              (_post.author.trim().toLowerCase() == widget.myEmailPrefixLower)))
-                            const PopupMenuItem(value: 'report', child: Text('Report post')),
+                          if ((widget.myUserId != null &&
+                                  widget.myUserId == _post.authorUserId) ||
+                              (_post.author.trim().toLowerCase() ==
+                                  widget.myNameLower) ||
+                              (_post.author.trim().toLowerCase() ==
+                                  widget.myEmailPrefixLower))
+                            const PopupMenuItem(
+                                value: 'edit', child: Text('Edit my post')),
+                          if ((widget.myUserId != null &&
+                                  widget.myUserId == _post.authorUserId) ||
+                              (_post.author.trim().toLowerCase() ==
+                                  widget.myNameLower) ||
+                              (_post.author.trim().toLowerCase() ==
+                                  widget.myEmailPrefixLower))
+                            const PopupMenuItem(
+                                value: 'delete', child: Text('Delete my post')),
+                          if (!((widget.myUserId != null &&
+                                  widget.myUserId == _post.authorUserId) ||
+                              (_post.author.trim().toLowerCase() ==
+                                  widget.myNameLower) ||
+                              (_post.author.trim().toLowerCase() ==
+                                  widget.myEmailPrefixLower)))
+                            const PopupMenuItem(
+                                value: 'report', child: Text('Report post')),
                         ],
                       ),
                     ],
                   ),
-                  if (_post.imageBase64 != null && _post.imageBase64!.isNotEmpty) ...[
+                  if (_post.imageBase64 != null &&
+                      _post.imageBase64!.isNotEmpty) ...[
                     const SizedBox(height: 10),
                     ClipRRect(
                       borderRadius: BorderRadius.circular(12),
@@ -604,101 +875,295 @@ class _PostDetailSheetState extends State<_PostDetailSheet> {
                   const SizedBox(height: 8),
                   _LinkText(
                     _post.description,
-                    style: TextStyle(color: AppColors.greySubtitle, height: 1.4),
+                    style:
+                        TextStyle(color: AppColors.greySubtitle, height: 1.4),
                   ),
                   const SizedBox(height: 8),
-                  Text(DateFormat.yMMMd().add_Hm().format(_post.createdAt), style: TextStyle(fontSize: 12, color: Colors.grey[600])),
+                  Text(DateFormat.yMMMd().add_Hm().format(_post.createdAt),
+                      style: TextStyle(fontSize: 12, color: Colors.grey[600])),
                 ],
               ),
             ),
             const Divider(height: 1),
             Expanded(
-              child: ListView.builder(
-                controller: scrollController,
-                padding: const EdgeInsets.all(16),
-                itemCount: _post.replies.length,
-                itemBuilder: (_, i) {
-                  final r = _post.replies[i];
-                  return Padding(
-                    padding: const EdgeInsets.only(bottom: 12),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            CircleAvatar(
-                              radius: 12,
-                              backgroundImage: (r.authorPfp != null && r.authorPfp!.isNotEmpty)
-                                  ? MemoryImage(base64Decode(r.authorPfp!))
-                                  : null,
-                              child: (r.authorPfp == null || r.authorPfp!.isEmpty)
-                                  ? const Icon(Icons.person_outline_rounded, size: 13)
-                                  : null,
-                            ),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    r.author,
-                                    style: const TextStyle(
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.w600,
-                                      color: AppColors.purpleDark,
-                                    ),
-                                  ),
-                                  Text(
-                                    DateFormat.yMMMd().format(r.createdAt),
-                                    style: TextStyle(fontSize: 11, color: Colors.grey[600]),
-                                  ),
-                                ],
+              child: Builder(builder: (context) {
+                final threaded = _threadedReplies();
+                final visibleNodes =
+                    threaded.where((x) => x['visible'] == true).toList();
+                final replyById = <String, CommunityReply>{
+                  for (final r in _post.replies)
+                    if (r.id.isNotEmpty) r.id: r
+                };
+                return ListView.builder(
+                  controller: scrollController,
+                  padding: const EdgeInsets.all(16),
+                  itemCount: visibleNodes.length,
+                  itemBuilder: (_, i) {
+                    final node = visibleNodes[i];
+                    final r = node['reply'] as CommunityReply;
+                    final depth = (node['depth'] as int?) ?? 0;
+                    final indent =
+                        depth <= 0 ? 0.0 : 22.0 * (depth > 4 ? 4 : depth);
+                    final parentReplyId = (r.parentReplyId ?? '').trim();
+                    final parentReply =
+                        parentReplyId.isEmpty ? null : replyById[parentReplyId];
+                    final hasHiddenChildren = node['hasHiddenChildren'] == true;
+                    final hiddenChildrenCount =
+                        (node['hiddenChildrenCount'] as int?) ?? 0;
+                    final isHighlighted =
+                        _highlightReplyId != null && _highlightReplyId == r.id;
+                    return AnimatedContainer(
+                      duration: const Duration(milliseconds: 250),
+                      margin: const EdgeInsets.only(bottom: 12),
+                      padding: const EdgeInsets.all(6),
+                      decoration: BoxDecoration(
+                        color: isHighlighted
+                            ? AppColors.bluePrimary.withValues(alpha: 0.16)
+                            : Colors.transparent,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              CircleAvatar(
+                                radius: 12,
+                                backgroundImage: (r.authorPfp != null &&
+                                        r.authorPfp!.isNotEmpty)
+                                    ? MemoryImage(base64Decode(r.authorPfp!))
+                                    : null,
+                                child: (r.authorPfp == null ||
+                                        r.authorPfp!.isEmpty)
+                                    ? const Icon(Icons.person_outline_rounded,
+                                        size: 13)
+                                    : null,
                               ),
-                            ),
-                            if (_isMyReply(r) && r.id.isNotEmpty)
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      r.author,
+                                      style: const TextStyle(
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w600,
+                                        color: AppColors.purpleDark,
+                                      ),
+                                    ),
+                                    Text(
+                                      DateFormat.yMMMd().format(r.createdAt),
+                                      style: TextStyle(
+                                          fontSize: 11,
+                                          color: Colors.grey[600]),
+                                    ),
+                                  ],
+                                ),
+                              ),
                               PopupMenuButton<String>(
                                 onSelected: (v) async {
-                                  if (v != 'delete_reply') return;
                                   try {
-                                    await widget.service.deleteReply(_post.id, r.id);
-                                    await _refreshPost();
-                                    if (!mounted) return;
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      const SnackBar(
-                                        content: Text('Reply deleted'),
-                                        behavior: SnackBarBehavior.floating,
-                                      ),
-                                    );
+                                    if (v == 'reply_back') {
+                                      final mention = '@${r.author} ';
+                                      final current =
+                                          _replyController.text.trim();
+                                      final next = current.isEmpty
+                                          ? mention
+                                          : '$mention$current';
+                                      setState(() {
+                                        _replyingToName = r.author;
+                                        _replyingToReplyId =
+                                            r.id.isNotEmpty ? r.id : null;
+                                      });
+                                      _replyController
+                                        ..text = next
+                                        ..selection = TextSelection.collapsed(
+                                            offset: next.length);
+                                      return;
+                                    }
+                                    if (v == 'delete_reply') {
+                                      await widget.service
+                                          .deleteReply(_post.id, r.id);
+                                      await _refreshPost();
+                                      if (!mounted) return;
+                                      ScaffoldMessenger.of(context)
+                                          .showSnackBar(
+                                        const SnackBar(
+                                          content: Text('Reply deleted'),
+                                          behavior: SnackBarBehavior.floating,
+                                        ),
+                                      );
+                                      return;
+                                    }
+                                    if (v == 'report_reply') {
+                                      if (r.id.isEmpty) return;
+                                      final reason = await _askReason();
+                                      if (reason == null || reason.isEmpty)
+                                        return;
+                                      await widget.service.reportReply(
+                                        postId: _post.id,
+                                        replyId: r.id,
+                                        reason: reason,
+                                      );
+                                      if (!mounted) return;
+                                      ScaffoldMessenger.of(context)
+                                          .showSnackBar(
+                                        const SnackBar(
+                                          content: Text('Reply reported'),
+                                          behavior: SnackBarBehavior.floating,
+                                        ),
+                                      );
+                                      return;
+                                    }
+                                    if (v == 'block_user') {
+                                      final targetId =
+                                          (r.authorUserId ?? '').trim();
+                                      if (targetId.isEmpty) {
+                                        if (!mounted) return;
+                                        ScaffoldMessenger.of(context)
+                                            .showSnackBar(
+                                          const SnackBar(
+                                            content: Text(
+                                                'Cannot block this legacy user'),
+                                            behavior: SnackBarBehavior.floating,
+                                          ),
+                                        );
+                                        return;
+                                      }
+                                      await widget.service.blockUser(targetId);
+                                      await _refreshPost();
+                                      if (!mounted) return;
+                                      ScaffoldMessenger.of(context)
+                                          .showSnackBar(
+                                        SnackBar(
+                                          content: Text('${r.author} blocked'),
+                                          behavior: SnackBarBehavior.floating,
+                                        ),
+                                      );
+                                    }
                                   } catch (e) {
                                     if (!mounted) return;
                                     ScaffoldMessenger.of(context).showSnackBar(
                                       SnackBar(
-                                        content: Text('Delete failed: $e'),
+                                        content: Text('Action failed: $e'),
                                         behavior: SnackBarBehavior.floating,
                                       ),
                                     );
                                   }
                                 },
-                                itemBuilder: (_) => const [
-                                  PopupMenuItem(value: 'delete_reply', child: Text('Delete my reply')),
+                                itemBuilder: (_) => [
+                                  const PopupMenuItem(
+                                    value: 'reply_back',
+                                    child: Text('Reply back'),
+                                  ),
+                                  if (_isMyReply(r) && r.id.isNotEmpty)
+                                    const PopupMenuItem(
+                                      value: 'delete_reply',
+                                      child: Text('Delete my reply'),
+                                    ),
+                                  if (!_isMyReply(r) && r.id.isNotEmpty)
+                                    const PopupMenuItem(
+                                      value: 'report_reply',
+                                      child: Text('Report reply'),
+                                    ),
+                                  if (!_isMyReply(r))
+                                    const PopupMenuItem(
+                                      value: 'block_user',
+                                      child: Text('Block user'),
+                                    ),
                                 ],
                               ),
-                          ],
-                        ),
-                        const SizedBox(height: 6),
-                        Padding(
-                          padding: const EdgeInsets.only(left: 26),
-                          child: _LinkText(
-                            r.body,
-                            style: const TextStyle(fontSize: 14, color: AppColors.purpleDark),
+                            ],
                           ),
-                        ),
-                      ],
-                    ),
-                  );
-                },
-              ),
+                          const SizedBox(height: 6),
+                          Padding(
+                            padding: EdgeInsets.only(left: 26 + indent),
+                            child: Container(
+                              decoration: BoxDecoration(
+                                border: depth > 0
+                                    ? Border(
+                                        left: BorderSide(
+                                          color: AppColors.borderLightBlue,
+                                          width: 1.2,
+                                        ),
+                                      )
+                                    : null,
+                              ),
+                              padding: EdgeInsets.only(
+                                left: depth > 0 ? 8 : 0,
+                              ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  if (parentReply != null)
+                                    Container(
+                                      margin: const EdgeInsets.only(bottom: 4),
+                                      padding: const EdgeInsets.symmetric(
+                                          horizontal: 8, vertical: 3),
+                                      decoration: BoxDecoration(
+                                        color: AppColors.bluePrimary
+                                            .withValues(alpha: 0.12),
+                                        borderRadius:
+                                            BorderRadius.circular(999),
+                                      ),
+                                      child: Text(
+                                        'Replying to @${parentReply.author}',
+                                        style: const TextStyle(
+                                          fontSize: 11,
+                                          fontWeight: FontWeight.w600,
+                                          color: AppColors.purpleDark,
+                                        ),
+                                      ),
+                                    ),
+                                  _LinkText(
+                                    r.body,
+                                    style: const TextStyle(
+                                        fontSize: 14,
+                                        color: AppColors.purpleDark),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                          if (hasHiddenChildren)
+                            Padding(
+                              padding: EdgeInsets.only(
+                                  left: 26 + indent + 6, top: 4),
+                              child: TextButton(
+                                onPressed: () {
+                                  if (!mounted || r.id.isEmpty) return;
+                                  setState(
+                                      () => _expandedThreadParents.add(r.id));
+                                },
+                                child: Text(
+                                  hiddenChildrenCount > 0
+                                      ? 'View more replies ($hiddenChildrenCount)'
+                                      : 'View more replies',
+                                ),
+                              ),
+                            ),
+                          if (depth >= _maxVisibleDepth &&
+                              r.id.isNotEmpty &&
+                              _expandedThreadParents.contains(r.id))
+                            Padding(
+                              padding: EdgeInsets.only(left: 26 + indent + 6),
+                              child: TextButton(
+                                onPressed: () {
+                                  if (!mounted) return;
+                                  setState(() =>
+                                      _expandedThreadParents.remove(r.id));
+                                },
+                                child: const Text('Hide nested replies'),
+                              ),
+                            ),
+                        ],
+                      ),
+                    );
+                  },
+                );
+              }),
             ),
             AnimatedPadding(
               duration: const Duration(milliseconds: 180),
@@ -714,22 +1179,54 @@ class _PostDetailSheetState extends State<_PostDetailSheet> {
                   Expanded(
                     child: TextField(
                       controller: _replyController,
-                      style: const TextStyle(color: AppColors.purpleDark),
+                      enabled: !_sendingReply,
+                      style: const TextStyle(
+                        color: AppColors.purpleDark,
+                        fontSize: 15,
+                        fontWeight: FontWeight.w500,
+                      ),
                       cursorColor: AppColors.bluePrimary,
-                      decoration: const InputDecoration(
-                        hintText: 'Reply with a store link or suggestion...',
-                        border: OutlineInputBorder(),
-                        contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                      decoration: InputDecoration(
+                        filled: true,
+                        fillColor: Colors.white,
+                        hintText: _replyingToName != null &&
+                                _replyingToName!.isNotEmpty
+                            ? 'Replying to $_replyingToName...'
+                            : 'Reply with a store link or suggestion...',
+                        hintStyle: TextStyle(
+                          color: Colors.grey[600],
+                          fontSize: 14,
+                        ),
+                        border: const OutlineInputBorder(),
+                        enabledBorder: OutlineInputBorder(
+                          borderSide: BorderSide(color: Colors.grey[350]!),
+                        ),
+                        focusedBorder: const OutlineInputBorder(
+                          borderSide: BorderSide(
+                              color: AppColors.bluePrimary, width: 1.5),
+                        ),
+                        contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 12, vertical: 10),
                       ),
                       maxLines: 1,
-                      onSubmitted: (_) => _sendReply(),
+                      onSubmitted: (_) => _sendingReply ? null : _sendReply(),
                     ),
                   ),
                   const SizedBox(width: 8),
                   IconButton.filled(
-                    onPressed: _sendReply,
-                    icon: const Icon(Icons.send_rounded),
-                    style: IconButton.styleFrom(backgroundColor: AppColors.bluePrimary),
+                    onPressed: _sendingReply ? null : _sendReply,
+                    icon: _sendingReply
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Colors.white,
+                            ),
+                          )
+                        : const Icon(Icons.send_rounded),
+                    style: IconButton.styleFrom(
+                        backgroundColor: AppColors.bluePrimary),
                   ),
                 ],
               ),
@@ -753,7 +1250,9 @@ class _LinkText extends StatelessWidget {
   );
 
   Future<void> _open(String raw) async {
-    final normalized = raw.startsWith('http://') || raw.startsWith('https://') ? raw : 'https://$raw';
+    final normalized = raw.startsWith('http://') || raw.startsWith('https://')
+        ? raw
+        : 'https://$raw';
     final uri = Uri.tryParse(normalized);
     if (uri == null) return;
     await launchUrl(uri, mode: LaunchMode.platformDefault);
@@ -761,7 +1260,8 @@ class _LinkText extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final base = style ?? const TextStyle(fontSize: 14, color: AppColors.greySubtitle);
+    final base =
+        style ?? const TextStyle(fontSize: 14, color: AppColors.greySubtitle);
     final linkStyle = base.copyWith(
       color: AppColors.bluePrimary,
       decoration: TextDecoration.underline,

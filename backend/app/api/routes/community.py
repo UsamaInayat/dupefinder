@@ -6,7 +6,7 @@ Posts are kept for 7 days.
 from datetime import datetime, timedelta
 from typing import List, Optional
 
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Query
 from pydantic import BaseModel, Field
 from bson import ObjectId
 
@@ -17,6 +17,8 @@ router = APIRouter(tags=["Community"])
 
 COMMUNITY_COLLECTION = "community_posts"
 COMMUNITY_REPORTS_COLLECTION = "community_reports"
+COMMUNITY_NOTIFICATIONS_COLLECTION = "community_notifications"
+COMMUNITY_BLOCKS_COLLECTION = "community_user_blocks"
 RETENTION_DAYS = 7
 _index_ready = False
 
@@ -25,6 +27,7 @@ class CommunityReplyIn(BaseModel):
     body: str = Field(..., min_length=1, max_length=2000)
     author: Optional[str] = "Anonymous"
     author_pfp: Optional[str] = None
+    parent_reply_id: Optional[str] = None
 
 
 class CommunityPostIn(BaseModel):
@@ -53,6 +56,18 @@ def _reports_col():
     return db_manager.get_collection(COMMUNITY_REPORTS_COLLECTION)
 
 
+def _notifications_col():
+    if not db_manager.is_connected():
+        raise RuntimeError("Database not connected")
+    return db_manager.get_collection(COMMUNITY_NOTIFICATIONS_COLLECTION)
+
+
+def _blocks_col():
+    if not db_manager.is_connected():
+        raise RuntimeError("Database not connected")
+    return db_manager.get_collection(COMMUNITY_BLOCKS_COLLECTION)
+
+
 def _ensure_indexes():
     global _index_ready
     if _index_ready:
@@ -66,6 +81,13 @@ def _ensure_indexes():
     r = _reports_col()
     r.create_index([("post_id", 1)])
     r.create_index([("status", 1), ("created_at", -1)])
+    n = _notifications_col()
+    n.create_index([("recipient_user_id", 1), ("is_read", 1), ("created_at", -1)])
+    n.create_index([("post_id", 1), ("reply_id", 1)])
+    n.create_index([("created_at", -1)])
+    b = _blocks_col()
+    b.create_index([("blocker_user_id", 1), ("blocked_user_id", 1)], unique=True)
+    b.create_index([("blocker_user_id", 1)])
     _index_ready = True
 
 
@@ -86,20 +108,49 @@ def _serialize(doc: dict) -> dict:
                 "authorPfp": r.get("author_pfp"),
                 "createdAt": (r.get("created_at") or datetime.utcnow()).isoformat(),
                 "authorUserId": r.get("author_user_id"),
+                "parentReplyId": r.get("parent_reply_id"),
             }
             for r in (doc.get("replies") or [])
         ],
     }
 
+def _serialize_notification(doc: dict) -> dict:
+    return {
+        "id": str(doc.get("_id")),
+        "recipientUserId": doc.get("recipient_user_id"),
+        "postId": doc.get("post_id"),
+        "replyId": doc.get("reply_id"),
+        "message": doc.get("message", "Someone replied to your post"),
+        "isRead": bool(doc.get("is_read", False)),
+        "createdAt": (doc.get("created_at") or datetime.utcnow()).isoformat(),
+        "actorName": doc.get("actor_name", "Someone"),
+        "replyPreview": doc.get("reply_preview", ""),
+    }
+
 
 @router.get("/posts")
-async def get_posts():
+async def get_posts(current_user: Optional[dict] = Depends(get_optional_user)):
     _ensure_indexes()
     c = _col()
+    b = _blocks_col()
     # Defensive cleanup in addition to TTL monitor.
     c.delete_many({"created_at": {"$lt": datetime.utcnow() - timedelta(days=RETENTION_DAYS)}})
     docs: List[dict] = list(c.find({}).sort("created_at", -1))
-    return {"posts": [_serialize(d) for d in docs]}
+    blocked_ids = set()
+    if current_user and current_user.get("_id"):
+        blocked_cursor = b.find({"blocker_user_id": current_user.get("_id")})
+        blocked_ids = {str(x.get("blocked_user_id")) for x in blocked_cursor if x.get("blocked_user_id")}
+    safe_docs: List[dict] = []
+    for d in docs:
+        if blocked_ids and (d.get("author_user_id") in blocked_ids):
+            continue
+        replies = d.get("replies") or []
+        if blocked_ids:
+            replies = [r for r in replies if r.get("author_user_id") not in blocked_ids]
+        next_doc = dict(d)
+        next_doc["replies"] = replies
+        safe_docs.append(next_doc)
+    return {"posts": [_serialize(d) for d in safe_docs]}
 
 
 @router.post("/posts")
@@ -132,8 +183,12 @@ async def add_post(payload: CommunityPostIn, current_user: Optional[dict] = Depe
 async def add_reply(post_id: str, payload: CommunityReplyIn, current_user: Optional[dict] = Depends(get_optional_user)):
     _ensure_indexes()
     c = _col()
+    n = _notifications_col()
     if not ObjectId.is_valid(post_id):
         raise HTTPException(status_code=400, detail="Invalid post id")
+    post = c.find_one({"_id": ObjectId(post_id)})
+    if not post:
+        raise HTTPException(status_code=404, detail="Post not found")
     resolved_author = (payload.author or "Anonymous").strip() or "Anonymous"
     author_user_id = None
     author_email = None
@@ -148,8 +203,32 @@ async def add_reply(post_id: str, payload: CommunityReplyIn, current_user: Optio
         "author_pfp": payload.author_pfp,
         "author_user_id": author_user_id,
         "author_email": author_email,
+        "parent_reply_id": (payload.parent_reply_id or "").strip() or None,
         "created_at": datetime.utcnow(),
     }
+    existing_replies = post.get("replies") or []
+    if existing_replies:
+        latest = existing_replies[-1]
+        latest_author_id = latest.get("author_user_id")
+        latest_author = (latest.get("author") or "").strip().lower()
+        now_author = (resolved_author or "").strip().lower()
+        latest_body = (latest.get("body") or "").strip().lower()
+        now_body = reply_doc["body"].strip().lower()
+        latest_parent_id = (latest.get("parent_reply_id") or "").strip()
+        now_parent_id = (reply_doc.get("parent_reply_id") or "").strip()
+        latest_created = latest.get("created_at")
+        if (
+            latest_body == now_body
+            and latest_parent_id == now_parent_id
+            and (
+                (author_user_id and latest_author_id == author_user_id)
+                or (not author_user_id and latest_author == now_author)
+            )
+            and isinstance(latest_created, datetime)
+            and (datetime.utcnow() - latest_created).total_seconds() <= 8
+        ):
+            # Treat rapid duplicate sends as an idempotent success.
+            return {"post": _serialize(post), "duplicate_ignored": True}
     result = c.update_one(
         {"_id": ObjectId(post_id)},
         {"$push": {"replies": reply_doc}},
@@ -157,7 +236,58 @@ async def add_reply(post_id: str, payload: CommunityReplyIn, current_user: Optio
     if result.matched_count == 0:
         raise HTTPException(status_code=404, detail="Post not found")
     updated = c.find_one({"_id": ObjectId(post_id)})
+    post_owner_id = post.get("author_user_id")
+    is_self_reply = bool(post_owner_id) and post_owner_id == author_user_id
+    if post_owner_id and not is_self_reply:
+        n.insert_one(
+            {
+                "recipient_user_id": post_owner_id,
+                "post_id": str(post.get("_id")),
+                "reply_id": reply_doc["id"],
+                "message": f'{resolved_author} replied to your post',
+                "actor_name": resolved_author,
+                "reply_preview": reply_doc["body"][:140],
+                "is_read": False,
+                "created_at": datetime.utcnow(),
+            }
+        )
     return {"post": _serialize(updated)}
+
+
+@router.get("/notifications")
+async def get_my_notifications(
+    limit: int = Query(default=20, ge=1, le=100),
+    unread_only: bool = Query(default=False),
+    current_user: dict = Depends(get_current_user),
+):
+    _ensure_indexes()
+    n = _notifications_col()
+    user_id = current_user.get("_id")
+    if not user_id:
+        return {"notifications": [], "unreadCount": 0}
+    criteria = {"recipient_user_id": user_id}
+    if unread_only:
+        criteria["is_read"] = False
+    docs = list(n.find(criteria).sort("created_at", -1).limit(limit))
+    unread_count = n.count_documents({"recipient_user_id": user_id, "is_read": False})
+    return {"notifications": [_serialize_notification(d) for d in docs], "unreadCount": unread_count}
+
+
+@router.post("/notifications/{notification_id}/read")
+async def mark_notification_read(notification_id: str, current_user: dict = Depends(get_current_user)):
+    _ensure_indexes()
+    n = _notifications_col()
+    if not ObjectId.is_valid(notification_id):
+        raise HTTPException(status_code=400, detail="Invalid notification id")
+    user_id = current_user.get("_id")
+    result = n.update_one(
+        {"_id": ObjectId(notification_id), "recipient_user_id": user_id},
+        {"$set": {"is_read": True, "read_at": datetime.utcnow()}},
+    )
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Notification not found")
+    unread_count = n.count_documents({"recipient_user_id": user_id, "is_read": False})
+    return {"success": True, "unreadCount": unread_count}
 
 
 @router.delete("/posts/{post_id}/replies/{reply_id}")
@@ -263,3 +393,80 @@ async def report_post(post_id: str, payload: CommunityReportIn, current_user: di
     }
     out = r.insert_one(doc)
     return {"success": True, "report_id": str(out.inserted_id)}
+
+
+@router.post("/posts/{post_id}/replies/{reply_id}/report")
+async def report_reply(
+    post_id: str,
+    reply_id: str,
+    payload: CommunityReportIn,
+    current_user: dict = Depends(get_current_user),
+):
+    _ensure_indexes()
+    c = _col()
+    r = _reports_col()
+    if not ObjectId.is_valid(post_id):
+        raise HTTPException(status_code=400, detail="Invalid post id")
+    post = c.find_one({"_id": ObjectId(post_id)})
+    if not post:
+        raise HTTPException(status_code=404, detail="Post not found")
+    target_reply = None
+    for x in (post.get("replies") or []):
+        if (x.get("id") or "") == reply_id:
+            target_reply = x
+            break
+    if target_reply is None:
+        raise HTTPException(status_code=404, detail="Reply not found")
+    reporter_id = current_user.get("_id")
+    existing = r.find_one(
+        {
+            "post_id": post_id,
+            "reply_id": reply_id,
+            "reporter_user_id": reporter_id,
+            "status": "pending",
+        }
+    )
+    if existing:
+        return {"success": True, "message": "Already reported", "report_id": str(existing["_id"])}
+    doc = {
+        "post_id": post_id,
+        "reply_id": reply_id,
+        "reason": payload.reason.strip(),
+        "status": "pending",
+        "reporter_user_id": reporter_id,
+        "reporter_name": current_user.get("full_name") or current_user.get("email"),
+        "reporter_email": current_user.get("email"),
+        "target_type": "reply",
+        "reply_author_user_id": target_reply.get("author_user_id"),
+        "reply_author_name": target_reply.get("author"),
+        "reply_excerpt": (target_reply.get("body") or "")[:300],
+        "created_at": datetime.utcnow(),
+    }
+    out = r.insert_one(doc)
+    return {"success": True, "report_id": str(out.inserted_id)}
+
+
+@router.post("/users/{target_user_id}/block")
+async def block_user(target_user_id: str, current_user: dict = Depends(get_current_user)):
+    _ensure_indexes()
+    b = _blocks_col()
+    if not target_user_id.strip():
+        raise HTTPException(status_code=400, detail="Invalid user id")
+    me = current_user.get("_id")
+    if not me:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    if target_user_id == me:
+        raise HTTPException(status_code=400, detail="You cannot block yourself")
+    b.update_one(
+        {"blocker_user_id": me, "blocked_user_id": target_user_id},
+        {
+            "$set": {
+                "blocker_user_id": me,
+                "blocked_user_id": target_user_id,
+                "updated_at": datetime.utcnow(),
+            },
+            "$setOnInsert": {"created_at": datetime.utcnow()},
+        },
+        upsert=True,
+    )
+    return {"success": True, "message": "User blocked"}

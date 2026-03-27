@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'dart:convert';
 import '../theme/app_theme.dart';
+import '../services/community_service.dart';
 import '../services/dupe_history_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'home_tab.dart';
@@ -23,16 +24,22 @@ class MainShell extends StatefulWidget {
 class _MainShellState extends State<MainShell> {
   static const _lastTabKey = 'main_shell_last_tab';
   int _index = 0;
-  int _wishlistRefreshKey = 0;
-  int _compareRefreshKey = 0;
   final _dupeHistoryService = DupeHistoryService();
+  final _communityService = CommunityService();
   String? _navProfileImage;
+  int _unreadCommunityNotifications = 0;
+  String? _focusCommunityPostId;
+  String? _focusCommunityReplyId;
+  int _communityFocusEpoch = 0;
 
   @override
   void initState() {
     super.initState();
     _restoreState();
-    WidgetsBinding.instance.addPostFrameCallback((_) => _maybeShowReviewPrompt());
+    WidgetsBinding.instance
+        .addPostFrameCallback((_) => _maybeShowReviewPrompt());
+    WidgetsBinding.instance
+        .addPostFrameCallback((_) => _refreshCommunityNotificationCount());
   }
 
   Future<void> _restoreState() async {
@@ -58,6 +65,14 @@ class _MainShellState extends State<MainShell> {
     setState(() {
       _navProfileImage = (pfp != null && pfp.isNotEmpty) ? pfp : null;
     });
+  }
+
+  Future<void> _refreshCommunityNotificationCount() async {
+    try {
+      final count = await _communityService.unreadNotificationsCount();
+      if (!mounted) return;
+      setState(() => _unreadCommunityNotifications = count);
+    } catch (_) {}
   }
 
   Future<void> _maybeShowReviewPrompt() async {
@@ -99,11 +114,31 @@ class _MainShellState extends State<MainShell> {
   void _openTab(int targetIndex) {
     setState(() {
       _index = targetIndex;
-      if (targetIndex == 2) _wishlistRefreshKey++;
-      if (targetIndex == 3) _compareRefreshKey++;
     });
     _saveCurrentTab();
     _refreshNavProfile();
+    if (targetIndex == 4 || targetIndex == 5) {
+      _refreshCommunityNotificationCount();
+    }
+  }
+
+  Future<void> _openCommunityFromNotification(
+    String postId,
+    String replyId,
+    String notificationId,
+  ) async {
+    if (notificationId.isEmpty) {
+      // Keep signature consistent; id can be used for future analytics/debugging.
+    }
+    if (!mounted) return;
+    setState(() {
+      _focusCommunityPostId = postId;
+      _focusCommunityReplyId = replyId;
+      _communityFocusEpoch++;
+      _index = 4;
+    });
+    await _saveCurrentTab();
+    await _refreshCommunityNotificationCount();
   }
 
   void _openInsightsPage() {
@@ -115,19 +150,47 @@ class _MainShellState extends State<MainShell> {
 
   @override
   Widget build(BuildContext context) {
-    final titles = ['DupeFinder', 'Find similar', 'Wishlist', 'Compare', 'Community', 'Me'];
-    final Widget meIcon = (_navProfileImage != null)
-        ? CircleAvatar(
-            radius: 12,
-            backgroundImage: MemoryImage(base64Decode(_navProfileImage!)),
-          )
-        : const Icon(Icons.person_outline_rounded);
-    final Widget meSelectedIcon = (_navProfileImage != null)
-        ? CircleAvatar(
-            radius: 12,
-            backgroundImage: MemoryImage(base64Decode(_navProfileImage!)),
-          )
-        : const Icon(Icons.person_rounded);
+    final titles = [
+      'DupeFinder',
+      'Find similar',
+      'Wishlist',
+      'Compare',
+      'Community',
+      'Me'
+    ];
+    Widget baseMeIcon(bool selected) {
+      if (_navProfileImage != null) {
+        return CircleAvatar(
+          radius: 12,
+          backgroundImage: MemoryImage(base64Decode(_navProfileImage!)),
+        );
+      }
+      return Icon(
+          selected ? Icons.person_rounded : Icons.person_outline_rounded);
+    }
+
+    Widget badgeWrap(Widget icon) {
+      if (_unreadCommunityNotifications <= 0) return icon;
+      return Stack(
+        clipBehavior: Clip.none,
+        children: [
+          icon,
+          Positioned(
+            right: -2,
+            top: -2,
+            child: Container(
+              width: 8,
+              height: 8,
+              decoration: const BoxDecoration(
+                color: Colors.redAccent,
+                shape: BoxShape.circle,
+              ),
+            ),
+          ),
+        ],
+      );
+    }
+
     return Scaffold(
       appBar: AppBar(
         title: Text(titles[_index]),
@@ -150,10 +213,18 @@ class _MainShellState extends State<MainShell> {
             onOpenInsights: _openInsightsPage,
           ),
           const ImageSearchScreen(embedded: true),
-          WishlistScreen(refreshKey: _wishlistRefreshKey),
-          CompareScreen(refreshKey: _compareRefreshKey),
-          const CommunityScreen(embedded: true),
-          const MeScreen(),
+          const WishlistScreen(),
+          const CompareScreen(),
+          CommunityScreen(
+            key: ValueKey('community_$_communityFocusEpoch'),
+            embedded: true,
+            focusPostId: _focusCommunityPostId,
+            focusReplyId: _focusCommunityReplyId,
+          ),
+          MeScreen(
+            onOpenCommunityFromNotification: _openCommunityFromNotification,
+            onNotificationStateChanged: _refreshCommunityNotificationCount,
+          ),
         ],
       ),
       bottomNavigationBar: NavigationBar(
@@ -163,12 +234,31 @@ class _MainShellState extends State<MainShell> {
         },
         indicatorColor: AppColors.bluePrimary.withValues(alpha: 0.2),
         destinations: [
-          NavigationDestination(icon: Icon(Icons.home_outlined), selectedIcon: Icon(Icons.home_rounded), label: 'Home'),
-          NavigationDestination(icon: Icon(Icons.image_search_outlined), selectedIcon: Icon(Icons.image_search_rounded), label: 'Search'),
-          NavigationDestination(icon: Icon(Icons.favorite_outline), selectedIcon: Icon(Icons.favorite_rounded), label: 'Saved'),
-          NavigationDestination(icon: Icon(Icons.compare_arrows_outlined), selectedIcon: Icon(Icons.compare_arrows_rounded), label: 'Compare'),
-          NavigationDestination(icon: Icon(Icons.forum_outlined), selectedIcon: Icon(Icons.forum_rounded), label: 'Community'),
-          NavigationDestination(icon: meIcon, selectedIcon: meSelectedIcon, label: 'Me'),
+          NavigationDestination(
+              icon: Icon(Icons.home_outlined),
+              selectedIcon: Icon(Icons.home_rounded),
+              label: 'Home'),
+          NavigationDestination(
+              icon: Icon(Icons.image_search_outlined),
+              selectedIcon: Icon(Icons.image_search_rounded),
+              label: 'Search'),
+          NavigationDestination(
+              icon: Icon(Icons.favorite_outline),
+              selectedIcon: Icon(Icons.favorite_rounded),
+              label: 'Saved'),
+          NavigationDestination(
+              icon: Icon(Icons.compare_arrows_outlined),
+              selectedIcon: Icon(Icons.compare_arrows_rounded),
+              label: 'Compare'),
+          NavigationDestination(
+              icon: Icon(Icons.forum_outlined),
+              selectedIcon: Icon(Icons.forum_rounded),
+              label: 'Community'),
+          NavigationDestination(
+            icon: badgeWrap(baseMeIcon(false)),
+            selectedIcon: badgeWrap(baseMeIcon(true)),
+            label: 'Me',
+          ),
         ],
       ),
     );

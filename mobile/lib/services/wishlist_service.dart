@@ -6,16 +6,29 @@ import 'api_service.dart';
 class WishlistService {
   static const _key = 'wishlist_products';
   static const _migratedKey = 'wishlist_migrated_to_backend';
+  static const Duration _cacheTtl = Duration(seconds: 20);
   final _api = ApiService();
+  List<Map<String, dynamic>>? _memoryCache;
+  DateTime? _cacheAt;
 
   Future<List<Map<String, dynamic>>> getSavedProducts() async {
+    if (_memoryCache != null &&
+        _cacheAt != null &&
+        DateTime.now().difference(_cacheAt!) < _cacheTtl) {
+      return _cloneList(_memoryCache!);
+    }
     if (await _api.isLoggedIn()) {
       await _migrateLocalIfNeeded();
       final data = await _api.getUserData();
       final list = data['wishlist'] as List<dynamic>? ?? [];
-      return list.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+      final parsed =
+          list.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+      _setCache(parsed);
+      return _cloneList(parsed);
     }
-    return _getLocal();
+    final local = await _getLocal();
+    _setCache(local);
+    return _cloneList(local);
   }
 
   Future<List<Map<String, dynamic>>> _getLocal() async {
@@ -24,7 +37,8 @@ class WishlistService {
     if (raw == null || raw.isEmpty) return [];
     try {
       final list = jsonDecode(raw) as List<dynamic>?;
-      return list?.map((e) => Map<String, dynamic>.from(e as Map)).toList() ?? [];
+      return list?.map((e) => Map<String, dynamic>.from(e as Map)).toList() ??
+          [];
     } catch (_) {
       return [];
     }
@@ -67,6 +81,7 @@ class WishlistService {
     } else {
       await _saveLocal(list);
     }
+    _setCache(list);
   }
 
   Future<void> removeProduct(String id) async {
@@ -77,6 +92,7 @@ class WishlistService {
     } else {
       await _saveLocal(list);
     }
+    _setCache(list);
   }
 
   Future<void> toggleProduct(Map<String, dynamic> product) async {
@@ -86,5 +102,14 @@ class WishlistService {
     } else {
       await addProduct(product);
     }
+  }
+
+  void _setCache(List<Map<String, dynamic>> list) {
+    _memoryCache = _cloneList(list);
+    _cacheAt = DateTime.now();
+  }
+
+  List<Map<String, dynamic>> _cloneList(List<Map<String, dynamic>> list) {
+    return list.map((e) => Map<String, dynamic>.from(e)).toList();
   }
 }

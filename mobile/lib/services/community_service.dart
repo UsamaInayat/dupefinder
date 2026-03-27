@@ -42,9 +42,11 @@ class CommunityPost {
       authorUserId: m['authorUserId'] as String?,
       authorPfp: m['authorPfp'] as String?,
       imageBase64: m['imageBase64'] as String?,
-      createdAt: DateTime.tryParse(m['createdAt'] as String? ?? '') ?? DateTime.now(),
+      createdAt:
+          DateTime.tryParse(m['createdAt'] as String? ?? '') ?? DateTime.now(),
       replies: (m['replies'] as List<dynamic>?)
-              ?.map((e) => CommunityReply.fromJson(Map<String, dynamic>.from(e as Map)))
+              ?.map((e) =>
+                  CommunityReply.fromJson(Map<String, dynamic>.from(e as Map)))
               .toList() ??
           [],
     );
@@ -57,6 +59,7 @@ class CommunityReply {
   final String author;
   final String? authorPfp;
   final String? authorUserId;
+  final String? parentReplyId;
   final DateTime createdAt;
 
   CommunityReply({
@@ -65,6 +68,7 @@ class CommunityReply {
     this.author = 'Anonymous',
     this.authorPfp,
     this.authorUserId,
+    this.parentReplyId,
     required this.createdAt,
   });
 
@@ -74,6 +78,7 @@ class CommunityReply {
         'author': author,
         'authorPfp': authorPfp,
         'authorUserId': authorUserId,
+        'parentReplyId': parentReplyId,
         'createdAt': createdAt.toIso8601String(),
       };
 
@@ -84,7 +89,45 @@ class CommunityReply {
       author: m['author'] as String? ?? 'Anonymous',
       authorPfp: m['authorPfp'] as String?,
       authorUserId: m['authorUserId'] as String?,
-      createdAt: DateTime.tryParse(m['createdAt'] as String? ?? '') ?? DateTime.now(),
+      parentReplyId: m['parentReplyId'] as String?,
+      createdAt:
+          DateTime.tryParse(m['createdAt'] as String? ?? '') ?? DateTime.now(),
+    );
+  }
+}
+
+class CommunityNotification {
+  final String id;
+  final String postId;
+  final String replyId;
+  final String message;
+  final bool isRead;
+  final DateTime createdAt;
+  final String actorName;
+  final String replyPreview;
+
+  CommunityNotification({
+    required this.id,
+    required this.postId,
+    required this.replyId,
+    required this.message,
+    required this.isRead,
+    required this.createdAt,
+    required this.actorName,
+    required this.replyPreview,
+  });
+
+  static CommunityNotification fromJson(Map<String, dynamic> m) {
+    return CommunityNotification(
+      id: (m['id'] ?? '').toString(),
+      postId: (m['postId'] ?? '').toString(),
+      replyId: (m['replyId'] ?? '').toString(),
+      message: (m['message'] ?? 'Someone replied to your post').toString(),
+      isRead: m['isRead'] == true,
+      createdAt: DateTime.tryParse((m['createdAt'] ?? '').toString()) ??
+          DateTime.now(),
+      actorName: (m['actorName'] ?? 'Someone').toString(),
+      replyPreview: (m['replyPreview'] ?? '').toString(),
     );
   }
 }
@@ -104,15 +147,19 @@ class CommunityService {
       await _migrateLegacyIfNeeded();
       final list = await _api.getCommunityPosts();
       final prefs = await SharedPreferences.getInstance();
-      final currentUsername = (prefs.getString(_usernameKey) ?? '').trim().toLowerCase();
+      final currentUsername =
+          (prefs.getString(_usernameKey) ?? '').trim().toLowerCase();
       final currentDisplayName = (prefs.getString(_usernameKey) ?? '').trim();
-      final currentEmailPrefix = ((prefs.getString(_emailKey) ?? '').trim().split('@').first).toLowerCase();
+      final currentEmailPrefix =
+          ((prefs.getString(_emailKey) ?? '').trim().split('@').first)
+              .toLowerCase();
       final currentPfp = prefs.getString(_profileImageKey);
       return list.map((e) {
         final map = Map<String, dynamic>.from(e);
         final author = (map['author'] as String? ?? '').trim().toLowerCase();
-        final isCurrentUserPost = (currentUsername.isNotEmpty && author == currentUsername) ||
-            (currentEmailPrefix.isNotEmpty && author == currentEmailPrefix);
+        final isCurrentUserPost =
+            (currentUsername.isNotEmpty && author == currentUsername) ||
+                (currentEmailPrefix.isNotEmpty && author == currentEmailPrefix);
         if (isCurrentUserPost && currentDisplayName.isNotEmpty) {
           map['author'] = currentDisplayName;
         }
@@ -177,7 +224,8 @@ class CommunityService {
     );
   }
 
-  Future<void> addReply(String postId, String body) async {
+  Future<void> addReply(String postId, String body,
+      {String? parentReplyId}) async {
     await _api.syncUserProfileFromBackend();
     final prefs = await SharedPreferences.getInstance();
     final username = (prefs.getString(_usernameKey) ?? '').trim();
@@ -191,6 +239,7 @@ class CommunityService {
       body: body,
       author: author,
       authorPfp: pfp,
+      parentReplyId: parentReplyId,
     );
   }
 
@@ -210,10 +259,51 @@ class CommunityService {
     await _api.reportCommunityPost(postId: postId, reason: reason);
   }
 
+  Future<void> reportReply({
+    required String postId,
+    required String replyId,
+    required String reason,
+  }) async {
+    await _api.reportCommunityReply(
+      postId: postId,
+      replyId: replyId,
+      reason: reason,
+    );
+  }
+
+  Future<void> blockUser(String targetUserId) async {
+    await _api.blockCommunityUser(targetUserId);
+  }
+
   Future<String?> currentUserId() async {
     final prefs = await SharedPreferences.getInstance();
     final id = prefs.getString(_userIdKey)?.trim();
     if (id == null || id.isEmpty) return null;
     return id;
+  }
+
+  Future<List<CommunityNotification>> getNotifications({
+    int limit = 20,
+    bool unreadOnly = false,
+  }) async {
+    final body = await _api.getCommunityNotifications(
+      limit: limit,
+      unreadOnly: unreadOnly,
+    );
+    final notifications = (body['notifications'] as List<dynamic>? ?? [])
+        .map((e) =>
+            CommunityNotification.fromJson(Map<String, dynamic>.from(e as Map)))
+        .toList();
+    return notifications;
+  }
+
+  Future<int> unreadNotificationsCount() async {
+    final body =
+        await _api.getCommunityNotifications(limit: 1, unreadOnly: false);
+    return (body['unreadCount'] as num?)?.toInt() ?? 0;
+  }
+
+  Future<int> markNotificationRead(String notificationId) async {
+    return _api.markCommunityNotificationRead(notificationId);
   }
 }

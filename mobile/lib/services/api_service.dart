@@ -93,7 +93,8 @@ class ApiService {
   }
 
   // Register new user
-  Future<Map<String, dynamic>> register(String email, String password, {String? fullName}) async {
+  Future<Map<String, dynamic>> register(String email, String password,
+      {String? fullName}) async {
     try {
       final response = await http.post(
         Uri.parse('$baseUrl/auth/signup'),
@@ -101,7 +102,8 @@ class ApiService {
         body: jsonEncode({
           'email': email,
           'password': password,
-          if (fullName != null && fullName.trim().isNotEmpty) 'full_name': fullName.trim(),
+          if (fullName != null && fullName.trim().isNotEmpty)
+            'full_name': fullName.trim(),
         }),
       );
 
@@ -124,7 +126,7 @@ class ApiService {
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({
           'email': email,
-          'otp_code': otp,  // Backend expects 'otp_code' not 'otp'
+          'otp_code': otp, // Backend expects 'otp_code' not 'otp'
         }),
       );
 
@@ -153,7 +155,7 @@ class ApiService {
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
-        
+
         // Store tokens
         if (data['access_token'] != null) {
           await setAccessToken(data['access_token']);
@@ -175,7 +177,7 @@ class ApiService {
           // Strong sync for older accounts so existing users also get their real backend name.
           await syncUserProfileFromBackend();
         }
-        
+
         return data;
       } else {
         final error = jsonDecode(response.body);
@@ -286,9 +288,7 @@ class ApiService {
     final name = imageFile.name;
     final mime = name.toLowerCase().endsWith('.png')
         ? 'image/png'
-        : (name.toLowerCase().endsWith('.webp')
-            ? 'image/webp'
-            : 'image/jpeg');
+        : (name.toLowerCase().endsWith('.webp') ? 'image/webp' : 'image/jpeg');
 
     final request = http.MultipartRequest('POST', uri);
     request.files.add(http.MultipartFile.fromBytes(
@@ -364,6 +364,7 @@ class ApiService {
     required String body,
     required String author,
     String? authorPfp,
+    String? parentReplyId,
   }) async {
     final response = await http.post(
       Uri.parse('$baseUrl/community/posts/$postId/replies'),
@@ -372,6 +373,7 @@ class ApiService {
         'body': body,
         'author': author,
         'author_pfp': authorPfp,
+        'parent_reply_id': parentReplyId,
       }),
     );
     if (response.statusCode != 200) {
@@ -380,6 +382,35 @@ class ApiService {
     return Map<String, dynamic>.from(
       (jsonDecode(response.body) as Map<String, dynamic>)['post'] as Map,
     );
+  }
+
+  Future<Map<String, dynamic>> getCommunityNotifications({
+    int limit = 20,
+    bool unreadOnly = false,
+  }) async {
+    final uri = Uri.parse('$baseUrl/community/notifications').replace(
+      queryParameters: {
+        'limit': '$limit',
+        'unread_only': unreadOnly ? 'true' : 'false',
+      },
+    );
+    final response = await http.get(uri, headers: await getHeaders());
+    if (response.statusCode != 200) {
+      throw Exception('Failed to load notifications');
+    }
+    return Map<String, dynamic>.from(jsonDecode(response.body) as Map);
+  }
+
+  Future<int> markCommunityNotificationRead(String notificationId) async {
+    final response = await http.post(
+      Uri.parse('$baseUrl/community/notifications/$notificationId/read'),
+      headers: await getHeaders(),
+    );
+    if (response.statusCode != 200) {
+      throw Exception('Failed to mark notification read');
+    }
+    final decoded = Map<String, dynamic>.from(jsonDecode(response.body) as Map);
+    return (decoded['unreadCount'] as num?)?.toInt() ?? 0;
   }
 
   Future<void> deleteCommunityReply({
@@ -416,6 +447,31 @@ class ApiService {
     );
     if (response.statusCode != 200) {
       throw Exception('Failed to report post');
+    }
+  }
+
+  Future<void> reportCommunityReply({
+    required String postId,
+    required String replyId,
+    required String reason,
+  }) async {
+    final response = await http.post(
+      Uri.parse('$baseUrl/community/posts/$postId/replies/$replyId/report'),
+      headers: await getHeaders(),
+      body: jsonEncode({'reason': reason}),
+    );
+    if (response.statusCode != 200) {
+      throw Exception('Failed to report reply');
+    }
+  }
+
+  Future<void> blockCommunityUser(String targetUserId) async {
+    final response = await http.post(
+      Uri.parse('$baseUrl/community/users/$targetUserId/block'),
+      headers: await getHeaders(),
+    );
+    if (response.statusCode != 200) {
+      throw Exception('Failed to block user');
     }
   }
 
