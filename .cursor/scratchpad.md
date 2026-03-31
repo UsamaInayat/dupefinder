@@ -2976,3 +2976,102 @@ Expected speedup: ~20s/batch → ~1-2s/batch → 23k images done in ~10 min inst
 - Validation:
   - `dart format` run on updated files.
   - Lint check on edited files: no lint errors.
+
+### Current Status / Progress Tracking — Executor Update (Mar 27, 2026, Batch 27)
+
+- Applied requested consistency + stability updates (web + app):
+  1. **Web Admin Overview cards now clickable** (`Overview.jsx`) to jump to relevant modules.
+  2. **User deletion now performs deep cleanup** in backend admin routes (`admin.py`, `admin_new.py`):
+     - removes `user_app_data` (profile image, display name, wishlist/compare/history)
+     - removes refresh tokens
+     - removes authored community posts and authored replies
+     - removes related community reports, notifications, and block relations
+     - removes OTP records for deleted email
+  3. **Profile stale image fix after account changes**:
+     - mobile profile sync now removes local `user_profile_image` when backend profile image is empty.
+     - logout now clears `user_name`, `user_id`, `user_profile_image` alongside tokens/email.
+  4. **Saved/Compare performance + reliability tuning**:
+     - tab open refresh restored with lightweight path (silent refresh; no blocking loader when list already present).
+     - short-lived in-memory cache retained in services for fast repeated tab switches.
+     - backend fetch failures now gracefully fallback to local data to avoid “nothing appears until restart”.
+  5. **Compare pull-to-refresh fixed**:
+     - compare page switched to a refresh-friendly scroll structure.
+  6. **Search product links click behavior fixed**:
+     - links now use platform-default launch mode and URL normalization for web/app compatibility.
+- Validation:
+  - Python compile passed for updated admin routes.
+  - Frontend build passed (`npm run build`).
+  - Dart format run for edited mobile files.
+  - Lint checks on edited files: no lint errors.
+
+### Current Status / Progress Tracking — Executor Update (Mar 31, 2026, Batch 28)
+
+- Community reply UX/performance hotfixes applied for mobile/web shared Flutter app:
+  1. **Reply now appears instantly without manual refresh**
+     - `community_screen.dart` reply flow updated to optimistic UI (temporary local reply is shown immediately).
+     - On API success, optimistic state is replaced with backend-confirmed post payload.
+     - On API failure, optimistic item is rolled back with error snackbar.
+  2. **Reply posting delay reduced**
+     - Removed intentional post-send wait delay in `_sendReply()` (the previous artificial cooldown caused visible lag).
+     - Stopped full post-list re-fetch on every reply send path; now uses returned updated post directly.
+  3. **Community service call latency reduced**
+     - Removed repeated `syncUserProfileFromBackend()` calls from hot paths in `CommunityService` (`getPosts`, `addPost`, `addReply`) to avoid extra network round trips before normal actions.
+     - `addReply()` now returns updated `CommunityPost` for immediate in-place render.
+- Files updated:
+  - `mobile/lib/screens/community_screen.dart`
+  - `mobile/lib/services/community_service.dart`
+- Validation:
+  - `flutter analyze` on edited files completed with no blocking errors (info-level existing style warnings only).
+
+### Executor's Feedback or Assistance Requests — Mar 31, 2026 (Batch 28)
+
+- Please manually verify this milestone before I mark it complete:
+  1. Open Community and post a reply: it should show immediately in thread (without page reload).
+  2. Confirm first reply-post action feels fast (no extra waiting spinner after send).
+  3. Re-open Community tab multiple times and check if initial load feels faster than before.
+- If this is verified, next executor step will be a broader app-wide latency pass (Home/Search/Saved/Compare/Me) with targeted caching + prefetch tuning per screen.
+
+### Lessons
+
+- Community interaction flows should avoid full-list refetch right after single-item mutations; returning and applying the updated entity keeps UI real-time and faster.
+
+### Current Status / Progress Tracking — Executor Update (Mar 31, 2026, Batch 29)
+
+- Implemented startup/perceived-performance optimization for mobile app first-load lag:
+  - Updated `mobile/lib/screens/main_shell.dart` to **lazy-load tabs** instead of initializing all tab screens at startup.
+  - Added `_loadedTabs` tracking so only the current tab is built initially; other pages initialize only when opened first time.
+  - Preserved fast tab switching after first open by keeping already-loaded tabs in `IndexedStack`.
+  - Updated Home AppBar search icon flow to use `_openTab(1)` so lazy-load state remains consistent.
+- Expected UX impact:
+  - App launch and first screen render become faster.
+  - Initial delay on first app open should reduce significantly because heavy tabs (Community/Compare/Saved/Me) no longer all fetch at once.
+- Validation:
+  - `flutter analyze lib/screens/main_shell.dart` run successfully (no blocking errors; only existing info-level style hints).
+
+### Current Status / Progress Tracking — Executor Update (Mar 31, 2026, Batch 30)
+
+- Implemented app-wide first-load responsiveness optimizations (mobile):
+  1. **Unified user-data API cache** in `mobile/lib/services/api_service.dart`
+     - Added short in-memory cache (TTL 20s) for `getUserData()`.
+     - Added incremental cache update/invalidation on `putWishlist`, `putCompare`, `putDupeHistory`, `putUserProfileData`, and logout token cleanup.
+     - Effect: Saved/Compare/History/Insights flows avoid repeated immediate backend calls on quick navigation.
+  2. **Community posts cache + stale fallback** in `mobile/lib/services/community_service.dart`
+     - Added in-memory posts cache (TTL 12s) with `forceRefresh` option.
+     - Mutation paths now invalidate/update cache (`addPost`, `addReply`, `deleteReply`, `deletePost`, `editPost`, `blockUser`).
+     - Failure path now returns cached posts instead of empty state where possible.
+  3. **Community screen loading behavior smoothing** in `mobile/lib/screens/community_screen.dart`
+     - `_load()` now shows full spinner only when no existing posts are present.
+     - Refreshes for mutation detail use `forceRefresh: true`, while normal open path benefits from cache for instant render.
+  4. **Parallelized independent data fetches** for faster page readiness:
+     - `mobile/lib/screens/insights_screen.dart` `_load()` changed from sequential awaits to `Future.wait(...)`.
+     - `mobile/lib/screens/me_screen.dart` `_load()` changed to parallel fetch of preferences/profile/history.
+- Validation:
+  - `flutter analyze` run across edited files; no blocking compile/analyzer errors (only existing info-level lint hints).
+
+### Executor's Feedback or Assistance Requests — Mar 31, 2026 (Batch 30)
+
+- Please verify with a fresh app restart:
+  1. First open app -> Home should appear quicker.
+  2. First transition across tabs should be smoother than before (especially Community/Me/Insights).
+  3. Community open + reply flow should feel near-instant without manual reload.
+- If any specific tab still feels slow, share exact tab + action and I will do targeted micro-optimization on that path next (API payload trimming, memoized parsing, and prefetch timing adjustments).

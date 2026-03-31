@@ -224,8 +224,38 @@ async def login(request: LoginRequest):
             detail="Invalid email or password"
         )
     
-    # Verify password
-    if not verify_password(request.password, user["password_hash"]):
+    # Verify password (defensive: avoid unexpected bcrypt crashes becoming 500s).
+    password_valid = False
+    try:
+        password_valid = verify_password(request.password, user["password_hash"])
+    except ValueError as e:
+        err = str(e)
+        hash_value = (user.get("password_hash") or "")
+        print(
+            f"[AUTH] Password verify ValueError for {request.email}: {err} | "
+            f"input_bytes={len(request.password.encode('utf-8'))} "
+            f"hash_prefix={hash_value[:7]} hash_len={len(hash_value)}"
+        )
+        if "longer than 72 bytes" in err:
+            try:
+                import bcrypt
+                password_valid = bcrypt.checkpw(
+                    request.password.encode("utf-8")[:72],
+                    hash_value.encode("utf-8"),
+                )
+            except Exception as fallback_exc:
+                print(f"[AUTH] bcrypt fallback failed for {request.email}: {fallback_exc}")
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail="Login verification failed. Please try again."
+                )
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Login verification failed. Please try again."
+            )
+
+    if not password_valid:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid email or password"

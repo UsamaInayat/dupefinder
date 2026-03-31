@@ -8,6 +8,7 @@ import '../../services/api_service.dart';
 import '../../services/wishlist_service.dart';
 import '../../services/compare_service.dart';
 import '../../services/dupe_history_service.dart';
+
 /// FYP: User Experience + Image Matching — upload/capture image, get similar products.
 class ImageSearchScreen extends StatefulWidget {
   final bool embedded;
@@ -35,12 +36,12 @@ class _ImageSearchScreenState extends State<ImageSearchScreen> {
 
   /// [minPrice, maxPrice] in PKR; null = no limit.
   static const List<(double?, double?)> _priceRanges = [
-    (null, null),       // Any
-    (null, 2000),       // Under 2,000
-    (2000, 5000),       // 2,000 – 5,000
-    (5000, 10000),      // 5,000 – 10,000
-    (10000, 20000),     // 10,000 – 20,000
-    (20000, null),      // 20,000+
+    (null, null), // Any
+    (null, 2000), // Under 2,000
+    (2000, 5000), // 2,000 – 5,000
+    (5000, 10000), // 5,000 – 10,000
+    (10000, 20000), // 10,000 – 20,000
+    (20000, null), // 20,000+
   ];
   static const List<String> _priceRangeLabels = [
     'Any',
@@ -122,7 +123,8 @@ class _ImageSearchScreenState extends State<ImageSearchScreen> {
           }
         }
         final prefs = await SharedPreferences.getInstance();
-        await prefs.setInt('insights_search_count', (prefs.getInt('insights_search_count') ?? 0) + 1);
+        await prefs.setInt('insights_search_count',
+            (prefs.getInt('insights_search_count') ?? 0) + 1);
         if (_selectedCategory.isNotEmpty) {
           final list = prefs.getStringList('insights_search_categories') ?? [];
           list.add(_selectedCategory);
@@ -153,10 +155,12 @@ class _ImageSearchScreenState extends State<ImageSearchScreen> {
 
   Future<void> _openProductUrl(String? url) async {
     if (url == null || url.isEmpty) return;
-    final normalized = url.startsWith('http://') || url.startsWith('https://') ? url : 'https://$url';
+    final normalized = url.startsWith('http://') || url.startsWith('https://')
+        ? url
+        : 'https://$url';
     final uri = Uri.tryParse(normalized);
     if (uri != null && await canLaunchUrl(uri)) {
-      await launchUrl(uri, mode: LaunchMode.externalApplication);
+      await launchUrl(uri, mode: LaunchMode.platformDefault);
     }
   }
 
@@ -189,7 +193,11 @@ class _ImageSearchScreenState extends State<ImageSearchScreen> {
   }
 
   String? _resolveProductUrl(Map<String, dynamic> product) {
-    final raw = ((product['product_url'] ?? product['product_link'] ?? product['url'] ?? '') as String?)?.trim();
+    final raw = ((product['product_url'] ??
+            product['product_link'] ??
+            product['url'] ??
+            '') as String?)
+        ?.trim();
     if (raw == null || raw.isEmpty) return null;
     if (raw.startsWith('http://') || raw.startsWith('https://')) return raw;
     return 'https://$raw';
@@ -224,128 +232,139 @@ class _ImageSearchScreenState extends State<ImageSearchScreen> {
 
   Widget _scrollBody() {
     return SingleChildScrollView(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // Pick image
+          Row(
             children: [
-              // Pick image
-              Row(
-                children: [
-                  Expanded(
-                    child: OutlinedButton.icon(
-                      onPressed: _loading ? null : () => _pickImage(false),
-                      icon: const Icon(Icons.photo_library),
-                      label: const Text('Gallery'),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: OutlinedButton.icon(
-                      onPressed: _loading ? null : () => _pickImage(true),
-                      icon: const Icon(Icons.camera_alt),
-                      label: const Text('Camera'),
-                    ),
-                  ),
-                ],
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: _loading ? null : () => _pickImage(false),
+                  icon: const Icon(Icons.photo_library),
+                  label: const Text('Gallery'),
+                ),
               ),
-              const SizedBox(height: 16),
-
-              // Preview
-              if (_pickedImage != null) ...[
-                FutureBuilder<Uint8List>(
-                  future: _pickedImage!.readAsBytes(),
-                  builder: (context, snap) {
-                    if (!snap.hasData) {
-                      return const SizedBox(
-                        height: 200,
-                        child: Center(child: CircularProgressIndicator()),
-                      );
-                    }
-                    return ClipRRect(
-                      borderRadius: BorderRadius.circular(12),
-                      child: Image.memory(
-                        snap.data!,
-                        width: double.infinity,
-                        height: 200,
-                        fit: BoxFit.cover,
-                      ),
-                    );
-                  },
+              const SizedBox(width: 12),
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: _loading ? null : () => _pickImage(true),
+                  icon: const Icon(Icons.camera_alt),
+                  label: const Text('Camera'),
                 ),
-                const SizedBox(height: 12),
-                // Category + Price range in one row
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Expanded(
-                      child: DropdownButtonFormField<String>(
-                        value: _selectedCategory.isEmpty ? null : _selectedCategory,
-                        menuMaxHeight: 420,
-                        decoration: const InputDecoration(
-                          labelText: 'Category',
-                          border: OutlineInputBorder(),
-                          contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                        ),
-                        isExpanded: true,
-                        items: _categories
-                            .map((c) => DropdownMenuItem(
-                                  value: c.isEmpty ? null : c,
-                                  child: Text(c.isEmpty ? 'All' : c, overflow: TextOverflow.ellipsis),
-                                ))
-                            .toList(),
-                        onChanged: (v) => setState(() => _selectedCategory = v ?? ''),
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: DropdownButtonFormField<int>(
-                        value: _selectedPriceRangeIndex,
-                        menuMaxHeight: 320,
-                        decoration: const InputDecoration(
-                          labelText: 'Price range',
-                          border: OutlineInputBorder(),
-                          contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                        ),
-                        isExpanded: true,
-                        items: List.generate(_priceRangeLabels.length, (i) => DropdownMenuItem(value: i, child: Text(_priceRangeLabels[i], overflow: TextOverflow.ellipsis))),
-                        onChanged: (v) => setState(() => _selectedPriceRangeIndex = v ?? 0),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                FilledButton.icon(
-                  onPressed: _loading ? null : _findSimilar,
-                  icon: _loading
-                      ? const SizedBox(
-                          width: 20,
-                          height: 20,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Icon(Icons.search),
-                  label: Text(_loading ? 'Searching...' : 'Find Similar'),
-                  style: FilledButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(vertical: 16),
-                  ),
-                ),
-                const SizedBox(height: 16),
-              ],
-
-              if (_error != null) ...[
-                Card(
-                  color: Theme.of(context).colorScheme.errorContainer,
-                  child: Padding(
-                    padding: const EdgeInsets.all(12),
-                    child: Text(_error!, style: const TextStyle(color: Colors.white)),
-                  ),
-                ),
-                const SizedBox(height: 16),
-              ],
-
-              if (_searchResult != null) _buildResults(),
+              ),
             ],
           ),
-        );
+          const SizedBox(height: 16),
+
+          // Preview
+          if (_pickedImage != null) ...[
+            FutureBuilder<Uint8List>(
+              future: _pickedImage!.readAsBytes(),
+              builder: (context, snap) {
+                if (!snap.hasData) {
+                  return const SizedBox(
+                    height: 200,
+                    child: Center(child: CircularProgressIndicator()),
+                  );
+                }
+                return ClipRRect(
+                  borderRadius: BorderRadius.circular(12),
+                  child: Image.memory(
+                    snap.data!,
+                    width: double.infinity,
+                    height: 200,
+                    fit: BoxFit.cover,
+                  ),
+                );
+              },
+            ),
+            const SizedBox(height: 12),
+            // Category + Price range in one row
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: DropdownButtonFormField<String>(
+                    value: _selectedCategory.isEmpty ? null : _selectedCategory,
+                    menuMaxHeight: 420,
+                    decoration: const InputDecoration(
+                      labelText: 'Category',
+                      border: OutlineInputBorder(),
+                      contentPadding:
+                          EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    ),
+                    isExpanded: true,
+                    items: _categories
+                        .map((c) => DropdownMenuItem(
+                              value: c.isEmpty ? null : c,
+                              child: Text(c.isEmpty ? 'All' : c,
+                                  overflow: TextOverflow.ellipsis),
+                            ))
+                        .toList(),
+                    onChanged: (v) =>
+                        setState(() => _selectedCategory = v ?? ''),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: DropdownButtonFormField<int>(
+                    value: _selectedPriceRangeIndex,
+                    menuMaxHeight: 320,
+                    decoration: const InputDecoration(
+                      labelText: 'Price range',
+                      border: OutlineInputBorder(),
+                      contentPadding:
+                          EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    ),
+                    isExpanded: true,
+                    items: List.generate(
+                        _priceRangeLabels.length,
+                        (i) => DropdownMenuItem(
+                            value: i,
+                            child: Text(_priceRangeLabels[i],
+                                overflow: TextOverflow.ellipsis))),
+                    onChanged: (v) =>
+                        setState(() => _selectedPriceRangeIndex = v ?? 0),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            FilledButton.icon(
+              onPressed: _loading ? null : _findSimilar,
+              icon: _loading
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.search),
+              label: Text(_loading ? 'Searching...' : 'Find Similar'),
+              style: FilledButton.styleFrom(
+                padding: const EdgeInsets.symmetric(vertical: 16),
+              ),
+            ),
+            const SizedBox(height: 16),
+          ],
+
+          if (_error != null) ...[
+            Card(
+              color: Theme.of(context).colorScheme.errorContainer,
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child:
+                    Text(_error!, style: const TextStyle(color: Colors.white)),
+              ),
+            ),
+            const SizedBox(height: 16),
+          ],
+
+          if (_searchResult != null) _buildResults(),
+        ],
+      ),
+    );
   }
 
   @override
@@ -400,7 +419,8 @@ class _ImageSearchScreenState extends State<ImageSearchScreen> {
             children: [
               Icon(Icons.search_off, size: 48, color: Colors.grey[600]),
               const SizedBox(height: 12),
-              const Text('No similar products found. Try another image or category.'),
+              const Text(
+                  'No similar products found. Try another image or category.'),
             ],
           ),
         ),
@@ -459,7 +479,9 @@ class _ImageSearchScreenState extends State<ImageSearchScreen> {
                 if (mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(
-                      content: Text(added ? 'Added to Compare' : 'Compare list full (max 4)'),
+                      content: Text(added
+                          ? 'Added to Compare'
+                          : 'Compare list full (max 4)'),
                       behavior: SnackBarBehavior.floating,
                     ),
                   );
@@ -522,9 +544,10 @@ class _ProductCard extends StatelessWidget {
                           fit: BoxFit.cover,
                           width: double.infinity,
                           height: double.infinity,
-                          placeholder: (_, __) => const Center(
-                              child: CircularProgressIndicator()),
-                          errorWidget: (_, __, ___) => const Icon(Icons.image_not_supported, size: 48),
+                          placeholder: (_, __) =>
+                              const Center(child: CircularProgressIndicator()),
+                          errorWidget: (_, __, ___) =>
+                              const Icon(Icons.image_not_supported, size: 48),
                         )
                       : const Center(
                           child: Icon(Icons.image_not_supported, size: 48),
@@ -541,10 +564,12 @@ class _ProductCard extends StatelessWidget {
                               color: Colors.white.withValues(alpha: 0.9),
                               shape: const CircleBorder(),
                               child: IconButton(
-                                icon: Icon(Icons.compare_arrows_rounded, color: Colors.grey[700], size: 20),
+                                icon: Icon(Icons.compare_arrows_rounded,
+                                    color: Colors.grey[700], size: 20),
                                 onPressed: onAddToCompare,
                                 padding: const EdgeInsets.all(6),
-                                constraints: const BoxConstraints(minWidth: 34, minHeight: 34),
+                                constraints: const BoxConstraints(
+                                    minWidth: 34, minHeight: 34),
                               ),
                             ),
                           if (onSaveToggle != null) ...[
@@ -554,13 +579,17 @@ class _ProductCard extends StatelessWidget {
                               shape: const CircleBorder(),
                               child: IconButton(
                                 icon: Icon(
-                                  isSaved ? Icons.favorite_rounded : Icons.favorite_border_rounded,
-                                  color: isSaved ? Colors.red : Colors.grey[700],
+                                  isSaved
+                                      ? Icons.favorite_rounded
+                                      : Icons.favorite_border_rounded,
+                                  color:
+                                      isSaved ? Colors.red : Colors.grey[700],
                                   size: 22,
                                 ),
                                 onPressed: onSaveToggle,
                                 padding: const EdgeInsets.all(6),
-                                constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+                                constraints: const BoxConstraints(
+                                    minWidth: 36, minHeight: 36),
                               ),
                             ),
                           ],
@@ -604,7 +633,8 @@ class _ProductCard extends StatelessWidget {
                     ),
                   const SizedBox(height: 4),
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                     decoration: BoxDecoration(
                       color: Colors.black,
                       borderRadius: BorderRadius.circular(4),
@@ -625,15 +655,20 @@ class _ProductCard extends StatelessWidget {
                         ...List.generate(
                           5,
                           (i) => Icon(
-                            i < reviewStars ? Icons.star_rounded : Icons.star_border_rounded,
+                            i < reviewStars
+                                ? Icons.star_rounded
+                                : Icons.star_border_rounded,
                             size: 14,
-                            color: i < reviewStars ? Colors.amber[700] : Colors.grey[500],
+                            color: i < reviewStars
+                                ? Colors.amber[700]
+                                : Colors.grey[500],
                           ),
                         ),
                         const SizedBox(width: 4),
                         Text(
                           '($reviewStars)',
-                          style: TextStyle(fontSize: 11, color: Colors.grey[600]),
+                          style:
+                              TextStyle(fontSize: 11, color: Colors.grey[600]),
                         ),
                       ],
                     ),

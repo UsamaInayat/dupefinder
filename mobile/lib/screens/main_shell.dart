@@ -24,13 +24,13 @@ class MainShell extends StatefulWidget {
 class _MainShellState extends State<MainShell> {
   static const _lastTabKey = 'main_shell_last_tab';
   int _index = 0;
+  final Set<int> _loadedTabs = {0};
   final _dupeHistoryService = DupeHistoryService();
   final _communityService = CommunityService();
   String? _navProfileImage;
   int _unreadCommunityNotifications = 0;
   String? _focusCommunityPostId;
   String? _focusCommunityReplyId;
-  int _communityFocusEpoch = 0;
 
   @override
   void initState() {
@@ -49,6 +49,7 @@ class _MainShellState extends State<MainShell> {
     if (!mounted) return;
     setState(() {
       _index = (saved >= 0 && saved <= 5) ? saved : 0;
+      _loadedTabs.add(_index);
       _navProfileImage = (pfp != null && pfp.isNotEmpty) ? pfp : null;
     });
   }
@@ -114,6 +115,7 @@ class _MainShellState extends State<MainShell> {
   void _openTab(int targetIndex) {
     setState(() {
       _index = targetIndex;
+      _loadedTabs.add(targetIndex);
     });
     _saveCurrentTab();
     _refreshNavProfile();
@@ -134,11 +136,12 @@ class _MainShellState extends State<MainShell> {
     setState(() {
       _focusCommunityPostId = postId;
       _focusCommunityReplyId = replyId;
-      _communityFocusEpoch++;
       _index = 4;
+      _loadedTabs.add(4);
     });
     await _saveCurrentTab();
-    await _refreshCommunityNotificationCount();
+    // Fire and forget to keep navigation snappy.
+    _refreshCommunityNotificationCount();
   }
 
   void _openInsightsPage() {
@@ -191,6 +194,11 @@ class _MainShellState extends State<MainShell> {
       );
     }
 
+    Widget lazyTab(int tabIndex, Widget child) {
+      if (_loadedTabs.contains(tabIndex)) return child;
+      return const SizedBox.shrink();
+    }
+
     return Scaffold(
       appBar: AppBar(
         title: Text(titles[_index]),
@@ -198,7 +206,7 @@ class _MainShellState extends State<MainShell> {
           if (_index == 0)
             IconButton(
               icon: const Icon(Icons.search_rounded),
-              onPressed: () => setState(() => _index = 1),
+              onPressed: () => _openTab(1),
               tooltip: 'Find similar',
             ),
         ],
@@ -206,24 +214,32 @@ class _MainShellState extends State<MainShell> {
       body: IndexedStack(
         index: _index,
         children: [
-          HomeTab(
-            onOpenSearch: () => _openTab(1),
-            onOpenCompare: () => _openTab(3),
-            onOpenWishlist: () => _openTab(2),
-            onOpenInsights: _openInsightsPage,
+          lazyTab(
+            0,
+            HomeTab(
+              onOpenSearch: () => _openTab(1),
+              onOpenCompare: () => _openTab(3),
+              onOpenWishlist: () => _openTab(2),
+              onOpenInsights: _openInsightsPage,
+            ),
           ),
-          const ImageSearchScreen(embedded: true),
-          const WishlistScreen(),
-          const CompareScreen(),
-          CommunityScreen(
-            key: ValueKey('community_$_communityFocusEpoch'),
-            embedded: true,
-            focusPostId: _focusCommunityPostId,
-            focusReplyId: _focusCommunityReplyId,
+          lazyTab(1, const ImageSearchScreen(embedded: true)),
+          lazyTab(2, const WishlistScreen()),
+          lazyTab(3, const CompareScreen()),
+          lazyTab(
+            4,
+            CommunityScreen(
+              embedded: true,
+              focusPostId: _focusCommunityPostId,
+              focusReplyId: _focusCommunityReplyId,
+            ),
           ),
-          MeScreen(
-            onOpenCommunityFromNotification: _openCommunityFromNotification,
-            onNotificationStateChanged: _refreshCommunityNotificationCount,
+          lazyTab(
+            5,
+            MeScreen(
+              onOpenCommunityFromNotification: _openCommunityFromNotification,
+              onNotificationStateChanged: _refreshCommunityNotificationCount,
+            ),
           ),
         ],
       ),

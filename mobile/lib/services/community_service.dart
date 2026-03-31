@@ -140,10 +140,29 @@ class CommunityService {
   static const _emailKey = 'user_email';
   static const _profileImageKey = 'user_profile_image';
   static const _userIdKey = 'user_id';
+  static const _postsCacheKey = 'community_posts_cache_v1';
+  static const _postsCacheAtKey = 'community_posts_cache_at_v1';
+  static const Duration _postsCacheTtl = Duration(seconds: 12);
+  List<CommunityPost>? _postsCache;
+  DateTime? _postsCacheAt;
 
-  Future<List<CommunityPost>> getPosts() async {
+  Future<List<CommunityPost>> getPosts({bool forceRefresh = false}) async {
+    if (!forceRefresh && _postsCache == null) {
+      final disk = await _readPostsCacheFromDisk();
+      if (disk.isNotEmpty) {
+        _postsCache = disk;
+        _postsCacheAt = DateTime.now();
+      }
+    }
+    if (!forceRefresh &&
+        _postsCache != null &&
+        _postsCacheAt != null &&
+        DateTime.now().difference(_postsCacheAt!) < _postsCacheTtl) {
+      return _postsCache!
+          .map((e) => CommunityPost.fromJson(e.toJson()))
+          .toList();
+    }
     try {
-      await _api.syncUserProfileFromBackend();
       await _migrateLegacyIfNeeded();
       final list = await _api.getCommunityPosts();
       final prefs = await SharedPreferences.getInstance();
@@ -154,7 +173,7 @@ class CommunityService {
           ((prefs.getString(_emailKey) ?? '').trim().split('@').first)
               .toLowerCase();
       final currentPfp = prefs.getString(_profileImageKey);
-      return list.map((e) {
+      final parsed = list.map((e) {
         final map = Map<String, dynamic>.from(e);
         final author = (map['author'] as String? ?? '').trim().toLowerCase();
         final isCurrentUserPost =
@@ -172,9 +191,30 @@ class CommunityService {
         }
         return CommunityPost.fromJson(map);
       }).toList();
+      _postsCache = parsed;
+      _postsCacheAt = DateTime.now();
+      await _savePostsCacheToDisk(parsed);
+      return parsed.map((e) => CommunityPost.fromJson(e.toJson())).toList();
     } catch (_) {
-      return [];
+      return _postsCache
+              ?.map((e) => CommunityPost.fromJson(e.toJson()))
+              .toList() ??
+          [];
     }
+  }
+
+  Future<List<CommunityPost>> getCachedPostsFast() async {
+    if (_postsCache != null && _postsCache!.isNotEmpty) {
+      return _postsCache!
+          .map((e) => CommunityPost.fromJson(e.toJson()))
+          .toList();
+    }
+    final disk = await _readPostsCacheFromDisk();
+    if (disk.isNotEmpty) {
+      _postsCache = disk;
+      _postsCacheAt = DateTime.now();
+    }
+    return disk.map((e) => CommunityPost.fromJson(e.toJson())).toList();
   }
 
   Future<void> _migrateLegacyIfNeeded() async {
@@ -208,7 +248,6 @@ class CommunityService {
   }
 
   Future<void> addPost(String description, {String? imageBase64}) async {
-    await _api.syncUserProfileFromBackend();
     final prefs = await SharedPreferences.getInstance();
     final username = (prefs.getString(_usernameKey) ?? '').trim();
     final email = (prefs.getString(_emailKey) ?? '').trim();
@@ -222,11 +261,11 @@ class CommunityService {
       authorPfp: pfp,
       imageBase64: imageBase64,
     );
+    _postsCacheAt = null;
   }
 
-  Future<void> addReply(String postId, String body,
+  Future<CommunityPost> addReply(String postId, String body,
       {String? parentReplyId}) async {
-    await _api.syncUserProfileFromBackend();
     final prefs = await SharedPreferences.getInstance();
     final username = (prefs.getString(_usernameKey) ?? '').trim();
     final email = (prefs.getString(_emailKey) ?? '').trim();
@@ -234,25 +273,38 @@ class CommunityService {
         ? username
         : (email.isNotEmpty ? email.split('@').first : 'User');
     final pfp = prefs.getString(_profileImageKey);
-    await _api.addCommunityReply(
+    final post = await _api.addCommunityReply(
       postId: postId,
       body: body,
       author: author,
       authorPfp: pfp,
       parentReplyId: parentReplyId,
     );
+    final parsed = CommunityPost.fromJson(post);
+    if (_postsCache != null) {
+      final idx = _postsCache!.indexWhere((p) => p.id == parsed.id);
+      if (idx >= 0) {
+        _postsCache![idx] = parsed;
+      }
+    }
+    _postsCacheAt = DateTime.now();
+    await _savePostsCacheToDisk(_postsCache ?? [parsed]);
+    return parsed;
   }
 
   Future<void> deleteReply(String postId, String replyId) async {
     await _api.deleteCommunityReply(postId: postId, replyId: replyId);
+    _postsCacheAt = null;
   }
 
   Future<void> deletePost(String postId) async {
     await _api.deleteCommunityPost(postId);
+    _postsCacheAt = null;
   }
 
   Future<void> editPost(String postId, String description) async {
     await _api.editCommunityPost(postId: postId, description: description);
+    _postsCacheAt = null;
   }
 
   Future<void> reportPost(String postId, String reason) async {
@@ -273,6 +325,7 @@ class CommunityService {
 
   Future<void> blockUser(String targetUserId) async {
     await _api.blockCommunityUser(targetUserId);
+    _postsCacheAt = null;
   }
 
   Future<String?> currentUserId() async {
@@ -305,5 +358,33 @@ class CommunityService {
 
   Future<int> markNotificationRead(String notificationId) async {
     return _api.markCommunityNotificationRead(notificationId);
+  }
+
+  Future<void> _savePostsCacheToDisk(List<CommunityPost> posts) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final encoded = jsonEncode(posts.map((e) => e.toJson()).toList());
+      await prefs.setString(_postsCacheKey, encoded);
+      await prefs.setString(_postsCacheAtKey, DateTime.now().toIso8601String());
+    } catch (_) {}
+  }
+
+  Future<List<CommunityPost>> _readPostsCacheFromDisk() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString(_postsCacheKey);
+      if (raw == null || raw.isEmpty) return [];
+      final atRaw = prefs.getString(_postsCacheAtKey);
+      final at = DateTime.tryParse(atRaw ?? '');
+      if (at != null && DateTime.now().difference(at) > const Duration(hours: 6)) {
+        return [];
+      }
+      final decoded = jsonDecode(raw) as List<dynamic>;
+      return decoded
+          .map((e) => CommunityPost.fromJson(Map<String, dynamic>.from(e as Map)))
+          .toList();
+    } catch (_) {
+      return [];
+    }
   }
 }

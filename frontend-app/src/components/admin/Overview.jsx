@@ -100,7 +100,7 @@ function Overview({ onNavigate }) {
   return (
     <div className="overview-module">
       <div className="stats-grid">
-        <div className="stat-card">
+        <div className="stat-card" onClick={() => onNavigate && onNavigate('users')} style={{ cursor: 'pointer' }}>
           <div className="stat-icon">●</div>
           <div className="stat-info">
             <h3>{stats?.users || 0}</h3>
@@ -108,7 +108,7 @@ function Overview({ onNavigate }) {
           </div>
         </div>
 
-        <div className="stat-card">
+        <div className="stat-card" onClick={() => onNavigate && onNavigate('products')} style={{ cursor: 'pointer' }}>
           <div className="stat-icon">▪</div>
           <div className="stat-info">
             <h3>{stats?.products || 0}</h3>
@@ -116,7 +116,7 @@ function Overview({ onNavigate }) {
           </div>
         </div>
 
-        <div className="stat-card">
+        <div className="stat-card" onClick={() => onNavigate && onNavigate('overview')} style={{ cursor: 'pointer' }}>
           <div className="stat-icon">▸</div>
           <div className="stat-info">
             <h3>{stats?.mostClicked?.clicks || 0}</h3>
@@ -127,42 +127,42 @@ function Overview({ onNavigate }) {
           </div>
         </div>
 
-        <div className="stat-card">
+        <div className="stat-card" onClick={() => onNavigate && onNavigate('moderation')} style={{ cursor: 'pointer' }}>
           <div className="stat-icon">○</div>
           <div className="stat-info">
             <h3>{stats?.communityPosts || 0}</h3>
             <p>Community Posts</p>
           </div>
         </div>
-        <div className="stat-card">
+        <div className="stat-card" onClick={() => onNavigate && onNavigate('overview')} style={{ cursor: 'pointer' }}>
           <div className="stat-icon">◆</div>
           <div className="stat-info">
             <h3>{stats?.wishlistItems || 0}</h3>
             <p>Wishlist Items</p>
           </div>
         </div>
-        <div className="stat-card">
+        <div className="stat-card" onClick={() => onNavigate && onNavigate('overview')} style={{ cursor: 'pointer' }}>
           <div className="stat-icon">◈</div>
           <div className="stat-info">
             <h3>{stats?.compareItems || 0}</h3>
             <p>Compare Items</p>
           </div>
         </div>
-        <div className="stat-card">
+        <div className="stat-card" onClick={() => onNavigate && onNavigate('overview')} style={{ cursor: 'pointer' }}>
           <div className="stat-icon">◎</div>
           <div className="stat-info">
             <h3>{stats?.dupeHistoryClicks || 0}</h3>
             <p>Dupe History Clicks</p>
           </div>
         </div>
-        <div className="stat-card">
+        <div className="stat-card" onClick={() => onNavigate && onNavigate('overview')} style={{ cursor: 'pointer' }}>
           <div className="stat-icon">★</div>
           <div className="stat-info">
             <h3>{stats?.reviews || 0}</h3>
             <p>Total Reviews</p>
           </div>
         </div>
-        <div className="stat-card">
+        <div className="stat-card" onClick={() => onNavigate && onNavigate('moderation')} style={{ cursor: 'pointer' }}>
           <div className="stat-icon">⚑</div>
           <div className="stat-info">
             <h3>{stats?.pendingReports || 0}</h3>

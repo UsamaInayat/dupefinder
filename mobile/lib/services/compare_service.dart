@@ -19,13 +19,19 @@ class CompareService {
       return _cloneList(_memoryCache!);
     }
     if (await _api.isLoggedIn()) {
-      await _migrateLocalIfNeeded();
-      final data = await _api.getUserData();
-      final list = data['compare'] as List<dynamic>? ?? [];
-      final parsed =
-          list.map((e) => Map<String, dynamic>.from(e as Map)).toList();
-      _setCache(parsed);
-      return _cloneList(parsed);
+      try {
+        await _migrateLocalIfNeeded();
+        final data = await _api.getUserData();
+        final list = data['compare'] as List<dynamic>? ?? [];
+        final parsed =
+            list.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+        _setCache(parsed);
+        return _cloneList(parsed);
+      } catch (_) {
+        final local = await _getLocal();
+        _setCache(local);
+        return _cloneList(local);
+      }
     }
     final local = await _getLocal();
     _setCache(local);

@@ -16,6 +16,9 @@ class ApiService {
 
   // Cached after resolveBaseUrl() runs once at app startup.
   static String? _resolvedUrl;
+  static Map<String, dynamic>? _userDataCache;
+  static DateTime? _userDataCacheAt;
+  static const Duration _userDataCacheTtl = Duration(seconds: 20);
 
   /// Call once in main() before runApp().
   /// Probes each candidate IP with a 3-second timeout and caches the first
@@ -81,6 +84,11 @@ class ApiService {
     await prefs.remove('access_token');
     await prefs.remove('refresh_token');
     await prefs.remove('user_email');
+    await prefs.remove('user_name');
+    await prefs.remove('user_id');
+    await prefs.remove('user_profile_image');
+    _userDataCache = null;
+    _userDataCacheAt = null;
   }
 
   // Get headers with auth token
@@ -243,6 +251,8 @@ class ApiService {
       }
       if (profileImage.isNotEmpty) {
         await prefs.setString('user_profile_image', profileImage);
+      } else {
+        await prefs.remove('user_profile_image');
       }
     } catch (_) {
       // best effort sync only
@@ -490,6 +500,11 @@ class ApiService {
   }
 
   Future<Map<String, dynamic>> getUserData() async {
+    if (_userDataCache != null &&
+        _userDataCacheAt != null &&
+        DateTime.now().difference(_userDataCacheAt!) < _userDataCacheTtl) {
+      return Map<String, dynamic>.from(_userDataCache!);
+    }
     final response = await http.get(
       Uri.parse('$baseUrl/user-data'),
       headers: await getHeaders(),
@@ -497,7 +512,10 @@ class ApiService {
     if (response.statusCode != 200) {
       throw Exception('Failed to load user data');
     }
-    return Map<String, dynamic>.from(jsonDecode(response.body) as Map);
+    final decoded = Map<String, dynamic>.from(jsonDecode(response.body) as Map);
+    _userDataCache = decoded;
+    _userDataCacheAt = DateTime.now();
+    return Map<String, dynamic>.from(decoded);
   }
 
   Future<void> putWishlist(List<Map<String, dynamic>> items) async {
@@ -508,6 +526,13 @@ class ApiService {
     );
     if (response.statusCode != 200) {
       throw Exception('Failed to save wishlist');
+    }
+    if (_userDataCache != null) {
+      _userDataCache = {
+        ..._userDataCache!,
+        'wishlist': items,
+      };
+      _userDataCacheAt = DateTime.now();
     }
   }
 
@@ -520,6 +545,13 @@ class ApiService {
     if (response.statusCode != 200) {
       throw Exception('Failed to save compare list');
     }
+    if (_userDataCache != null) {
+      _userDataCache = {
+        ..._userDataCache!,
+        'compare': items,
+      };
+      _userDataCacheAt = DateTime.now();
+    }
   }
 
   Future<void> putDupeHistory(List<Map<String, dynamic>> items) async {
@@ -530,6 +562,13 @@ class ApiService {
     );
     if (response.statusCode != 200) {
       throw Exception('Failed to save dupe history');
+    }
+    if (_userDataCache != null) {
+      _userDataCache = {
+        ..._userDataCache!,
+        'dupe_history': items,
+      };
+      _userDataCacheAt = DateTime.now();
     }
   }
 
@@ -559,5 +598,6 @@ class ApiService {
     if (response.statusCode != 200) {
       throw Exception('Failed to save profile');
     }
+    _userDataCacheAt = null;
   }
 }

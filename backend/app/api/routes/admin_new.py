@@ -423,6 +423,29 @@ async def _download_product_image(image_url: str, product_url: str) -> Optional[
 
 router = APIRouter(tags=["Admin Dashboard"])
 
+def _cleanup_user_related_data(db, user_id: str, email: Optional[str] = None):
+    db.refresh_tokens.delete_many({"user_id": user_id})
+    db.user_app_data.delete_many({"user_id": user_id})
+    db.community_posts.delete_many({"author_user_id": user_id})
+    db.community_posts.update_many({}, {"$pull": {"replies": {"author_user_id": user_id}}})
+    db.community_reports.delete_many(
+        {
+            "$or": [
+                {"reporter_user_id": user_id},
+                {"post_author_user_id": user_id},
+                {"reply_author_user_id": user_id},
+            ]
+        }
+    )
+    db.community_notifications.delete_many(
+        {"$or": [{"recipient_user_id": user_id}, {"actor_user_id": user_id}]}
+    )
+    db.community_user_blocks.delete_many(
+        {"$or": [{"blocker_user_id": user_id}, {"blocked_user_id": user_id}]}
+    )
+    if email:
+        db.otps.delete_many({"email": email})
+
 
 # ============================================
 # Admin Authentication
@@ -698,14 +721,20 @@ async def delete_user(
     Module 1: User Management - Delete user accounts
     """
     users = get_users_collection()
+    db = get_db()
     
     if not ObjectId.is_valid(user_id):
         raise HTTPException(status_code=400, detail="Invalid user ID")
     
+    existing = users.find_one({"_id": ObjectId(user_id)})
+    if not existing:
+        raise HTTPException(status_code=404, detail="User not found")
+
     result = users.delete_one({"_id": ObjectId(user_id)})
     
     if result.deleted_count == 0:
         raise HTTPException(status_code=404, detail="User not found")
+    _cleanup_user_related_data(db, user_id, existing.get("email"))
     
     return {
         "success": True,

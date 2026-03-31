@@ -38,12 +38,48 @@ class _CommunityScreenState extends State<CommunityScreen> {
   @override
   void initState() {
     super.initState();
-    _load();
+    _loadCachedThenRefresh();
   }
 
-  Future<void> _load() async {
-    setState(() => _loading = true);
-    final list = await _service.getPosts();
+  Future<void> _loadCachedThenRefresh() async {
+    final cached = await _service.getCachedPostsFast();
+    if (cached.isNotEmpty && mounted) {
+      final me = await _service.currentUserId();
+      final prefs = await SharedPreferences.getInstance();
+      final myName = (prefs.getString('user_name') ?? '').trim();
+      final email = (prefs.getString('user_email') ?? '').trim();
+      final emailPrefix =
+          email.contains('@') ? email.split('@').first.trim() : '';
+      setState(() {
+        _posts = cached;
+        _myUserId = me;
+        _myName = myName.toLowerCase();
+        _myEmailPrefix = emailPrefix.toLowerCase();
+        _loading = false;
+      });
+    }
+    await _load(forceRefresh: true);
+  }
+
+  @override
+  void didUpdateWidget(covariant CommunityScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final postChanged = oldWidget.focusPostId != widget.focusPostId;
+    final replyChanged = oldWidget.focusReplyId != widget.focusReplyId;
+    if (postChanged || replyChanged) {
+      _openedFocusedPost = false;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        _openFocusedPostIfNeeded();
+      });
+    }
+  }
+
+  Future<void> _load({bool forceRefresh = false}) async {
+    if (_posts.isEmpty) {
+      setState(() => _loading = true);
+    }
+    final list = await _service.getPosts(forceRefresh: forceRefresh);
     final me = await _service.currentUserId();
     final prefs = await SharedPreferences.getInstance();
     final myName = (prefs.getString('user_name') ?? '').trim();
@@ -63,6 +99,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
 
   Future<void> _openFocusedPostIfNeeded() async {
     if (_openedFocusedPost) return;
+    if (_loading) return;
     final postId = (widget.focusPostId ?? '').trim();
     if (postId.isEmpty) return;
     CommunityPost? target;
@@ -557,6 +594,7 @@ class _PostDetailSheetState extends State<_PostDetailSheet> {
   late CommunityPost _post;
   final _replyController = TextEditingController();
   bool _sendingReply = false;
+  String? _pendingReplyTempId;
   String? _highlightReplyId;
   String? _replyingToName;
   String? _replyingToReplyId;
@@ -583,7 +621,7 @@ class _PostDetailSheetState extends State<_PostDetailSheet> {
   }
 
   Future<void> _refreshPost() async {
-    final list = await widget.service.getPosts();
+    final list = await widget.service.getPosts(forceRefresh: true);
     CommunityPost? next;
     try {
       next = list.firstWhere((p) => p.id == _post.id);
@@ -596,19 +634,45 @@ class _PostDetailSheetState extends State<_PostDetailSheet> {
     if (_sendingReply) return;
     final body = _replyController.text.trim();
     if (body.isEmpty) return;
+    final pendingBody = body;
+    final pendingParentReplyId = _replyingToReplyId;
+    final tempId = 'temp_${DateTime.now().microsecondsSinceEpoch}';
     setState(() => _sendingReply = true);
+    final optimistic = CommunityReply(
+      id: tempId,
+      body: pendingBody,
+      author: widget.myNameLower.isNotEmpty ? widget.myNameLower : 'You',
+      authorUserId: widget.myUserId,
+      parentReplyId: pendingParentReplyId,
+      createdAt: DateTime.now(),
+    );
+    setState(() {
+      _pendingReplyTempId = tempId;
+      _post = CommunityPost(
+        id: _post.id,
+        description: _post.description,
+        author: _post.author,
+        authorUserId: _post.authorUserId,
+        authorPfp: _post.authorPfp,
+        imageBase64: _post.imageBase64,
+        createdAt: _post.createdAt,
+        replies: [..._post.replies, optimistic],
+      );
+    });
     try {
-      await widget.service.addReply(
+      final updated = await widget.service.addReply(
         _post.id,
-        body,
-        parentReplyId: _replyingToReplyId,
+        pendingBody,
+        parentReplyId: pendingParentReplyId,
       );
       _replyController.clear();
       setState(() {
         _replyingToName = null;
         _replyingToReplyId = null;
+        _pendingReplyTempId = null;
+        _post = updated;
       });
-      await _refreshPost();
+      widget.onPostChanged(updated);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -616,8 +680,30 @@ class _PostDetailSheetState extends State<_PostDetailSheet> {
               behavior: SnackBarBehavior.floating),
         );
       }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _post = CommunityPost(
+            id: _post.id,
+            description: _post.description,
+            author: _post.author,
+            authorUserId: _post.authorUserId,
+            authorPfp: _post.authorPfp,
+            imageBase64: _post.imageBase64,
+            createdAt: _post.createdAt,
+            replies:
+                _post.replies.where((r) => r.id != _pendingReplyTempId).toList(),
+          );
+          _pendingReplyTempId = null;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Reply failed: $e'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
     } finally {
-      await Future.delayed(const Duration(milliseconds: 450));
       if (mounted) setState(() => _sendingReply = false);
     }
   }
@@ -1172,7 +1258,9 @@ class _PostDetailSheetState extends State<_PostDetailSheet> {
                 16,
                 8,
                 16,
-                8 + MediaQuery.of(context).padding.bottom,
+                8 +
+                    MediaQuery.of(context).padding.bottom +
+                    MediaQuery.of(context).viewInsets.bottom,
               ),
               child: Row(
                 children: [

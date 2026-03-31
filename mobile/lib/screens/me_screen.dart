@@ -49,13 +49,31 @@ class _MeScreenState extends State<MeScreen> {
   @override
   void initState() {
     super.initState();
+    _loadCachedThenRefresh();
+  }
+
+  Future<void> _loadCachedThenRefresh() async {
+    final p = await SharedPreferences.getInstance();
+    if (!mounted) return;
+    setState(() {
+      _email = p.getString('user_email');
+      _guest = p.getBool('guest_mode') == true;
+      _username = (p.getString('user_name') ?? '').trim();
+      _joinedAt = p.getString('user_joined_at');
+      _profileImageBase64 = p.getString('user_profile_image');
+    });
     _load();
   }
 
   Future<void> _load() async {
-    final p = await SharedPreferences.getInstance();
-    final profile = await _profileService.getProfile();
-    final history = await _historyService.getHistory();
+    final results = await Future.wait([
+      SharedPreferences.getInstance(),
+      _profileService.getProfile(),
+      _historyService.getHistory(),
+    ]);
+    final p = results[0] as SharedPreferences;
+    final profile = results[1] as Map<String, dynamic>;
+    final history = results[2] as List<dynamic>;
     List<CommunityNotification> notifications = [];
     final isGuest = p.getBool('guest_mode') == true;
     if (!isGuest) {
@@ -236,14 +254,26 @@ class _MeScreenState extends State<MeScreen> {
   }
 
   Future<void> _openNotification(CommunityNotification n) async {
+    // Optimistic UI update so notification disappears immediately.
+    if (mounted) {
+      setState(() => _notifications.removeWhere((x) => x.id == n.id));
+    }
+    widget.onNotificationStateChanged?.call();
+
+    final open = widget.onOpenCommunityFromNotification;
+    if (open != null) {
+      await open(n.postId, n.replyId, n.id);
+    }
+
+    // Mark as read in background; if it fails, refresh server state.
     try {
       await _communityService.markNotificationRead(n.id);
-    } catch (_) {}
-    await _load();
-    if (!mounted) return;
-    final open = widget.onOpenCommunityFromNotification;
-    if (open == null) return;
-    await open(n.postId, n.replyId, n.id);
+      widget.onNotificationStateChanged?.call();
+    } catch (_) {
+      if (mounted) {
+        await _load();
+      }
+    }
   }
 
   @override

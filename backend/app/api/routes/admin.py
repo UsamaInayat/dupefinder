@@ -25,6 +25,30 @@ from app.core.database import get_db
 router = APIRouter()
 
 
+def _cleanup_user_related_data(db, user_id: str, email: Optional[str] = None):
+    db.refresh_tokens.delete_many({"user_id": user_id})
+    db.user_app_data.delete_many({"user_id": user_id})
+    db.community_posts.delete_many({"author_user_id": user_id})
+    db.community_posts.update_many({}, {"$pull": {"replies": {"author_user_id": user_id}}})
+    db.community_reports.delete_many(
+        {
+            "$or": [
+                {"reporter_user_id": user_id},
+                {"post_author_user_id": user_id},
+                {"reply_author_user_id": user_id},
+            ]
+        }
+    )
+    db.community_notifications.delete_many(
+        {"$or": [{"recipient_user_id": user_id}, {"actor_user_id": user_id}]}
+    )
+    db.community_user_blocks.delete_many(
+        {"$or": [{"blocker_user_id": user_id}, {"blocked_user_id": user_id}]}
+    )
+    if email:
+        db.otps.delete_many({"email": email})
+
+
 # Admin authentication check
 def get_current_admin(current_user: dict = Depends(get_current_user)) -> dict:
     """Verify current user is an admin"""
@@ -203,6 +227,13 @@ async def delete_user(
             detail="Invalid user ID"
         )
     
+    user = users_collection.find_one({"_id": ObjectId(user_id)})
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found"
+        )
+
     result = users_collection.delete_one({"_id": ObjectId(user_id)})
     
     if result.deleted_count == 0:
@@ -210,6 +241,8 @@ async def delete_user(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="User not found"
         )
+
+    _cleanup_user_related_data(db, user_id, user.get("email"))
     
     return {
         "success": True,

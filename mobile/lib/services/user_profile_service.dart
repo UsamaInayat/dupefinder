@@ -36,7 +36,6 @@ class UserProfileService {
   }
 
   Future<Map<String, dynamic>> getProfile() async {
-    await syncFromBackend();
     final prefs = await SharedPreferences.getInstance();
     final joined = prefs.getString(_joinedAtKey);
     return {

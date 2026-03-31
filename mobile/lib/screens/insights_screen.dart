@@ -28,9 +28,14 @@ class _InsightsScreenState extends State<InsightsScreen> {
   }
 
   Future<void> _load() async {
-    final wishlist = await _wishlistService.getSavedProducts();
-    final history = await _historyService.getHistory();
-    final prefs = await SharedPreferences.getInstance();
+    final results = await Future.wait([
+      _wishlistService.getSavedProducts(),
+      _historyService.getHistory(),
+      SharedPreferences.getInstance(),
+    ]);
+    final wishlist = results[0] as List<Map<String, dynamic>>;
+    final history = results[1] as List<DupeHistoryEntry>;
+    final prefs = results[2] as SharedPreferences;
     final categories = prefs.getStringList('insights_search_categories') ?? [];
     if (mounted) setState(() {
       _wishlist = wishlist;
