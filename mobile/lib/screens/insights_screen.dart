@@ -37,12 +37,14 @@ class _InsightsScreenState extends State<InsightsScreen> {
     final history = results[1] as List<DupeHistoryEntry>;
     final prefs = results[2] as SharedPreferences;
     final categories = prefs.getStringList('insights_search_categories') ?? [];
-    if (mounted) setState(() {
+    if (mounted) {
+      setState(() {
       _wishlist = wishlist;
       _history = history;
       _searchCategories = categories;
       _loading = false;
     });
+    }
   }
 
   /// Total price of saved items (estimate of what you're comparing to luxury).
@@ -201,7 +203,7 @@ class _InsightsScreenState extends State<InsightsScreen> {
                     const SizedBox(height: 6),
                     Text(
                       body,
-                      style: TextStyle(
+                      style: const TextStyle(
                         color: AppColors.greySubtitle,
                         height: 1.35,
                         fontSize: 13,

@@ -156,7 +156,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     style: TextStyle(fontSize: 26, fontWeight: FontWeight.bold, color: AppColors.purpleDark),
                   ),
                   const SizedBox(height: 8),
-                  Text(
+                  const Text(
                     'Join DupeFinder to save favorites and track savings.',
                     style: TextStyle(fontSize: 15, color: AppColors.greySubtitle),
                   ),

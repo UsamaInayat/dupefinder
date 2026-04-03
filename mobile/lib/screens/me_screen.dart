@@ -335,16 +335,16 @@ class _MeScreenState extends State<MeScreen> {
         if (!_guest && _email != null)
           Text(_email!,
               textAlign: TextAlign.center,
-              style: TextStyle(color: AppColors.greySubtitle)),
+              style: const TextStyle(color: AppColors.greySubtitle)),
         if (!_guest && _joinedAt != null && _joinedAt!.isNotEmpty)
           Text(
             'Joined app: ${_joinedAt!.substring(0, 10)}',
             textAlign: TextAlign.center,
-            style: TextStyle(color: AppColors.greySubtitle, fontSize: 12),
+            style: const TextStyle(color: AppColors.greySubtitle, fontSize: 12),
           ),
         if (_guest)
-          Padding(
-            padding: const EdgeInsets.only(top: 8),
+          const Padding(
+            padding: EdgeInsets.only(top: 8),
             child: Text(
               'Sign in to sync wishlist & history across devices.',
               textAlign: TextAlign.center,

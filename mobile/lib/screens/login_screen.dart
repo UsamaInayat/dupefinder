@@ -88,7 +88,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   ),
                 ),
                 const SizedBox(height: 8),
-                Text(
+                const Text(
                   'Sign in to save wishlists and see personalized insights.',
                   style: TextStyle(fontSize: 15, color: AppColors.greySubtitle, height: 1.35),
                 ),

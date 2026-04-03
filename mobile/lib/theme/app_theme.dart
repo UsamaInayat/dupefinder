@@ -43,7 +43,7 @@ class AppTheme {
       useMaterial3: true,
       fontFamily: 'Roboto',
       scaffoldBackgroundColor: AppColors.scaffoldBg,
-      colorScheme: ColorScheme.light(
+      colorScheme: const ColorScheme.light(
         primary: AppColors.bluePrimary,
         onPrimary: Colors.white,
         secondary: AppColors.purpleDark,

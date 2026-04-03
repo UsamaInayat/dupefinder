@@ -54,7 +54,7 @@ class _HomeTabState extends State<HomeTab> {
               padding: const EdgeInsets.all(20),
               child: Column(
                 children: [
-                  Icon(Icons.waving_hand_rounded, size: 48, color: AppColors.bluePrimary),
+                  const Icon(Icons.waving_hand_rounded, size: 48, color: AppColors.bluePrimary),
                   const SizedBox(height: 12),
                   Text(
                     _guest ? 'Hi, Guest' : 'Welcome back',
@@ -73,7 +73,7 @@ class _HomeTabState extends State<HomeTab> {
                             : ((_userEmail != null && _userEmail!.contains('@'))
                                 ? _userEmail!.split('@').first
                                 : 'User')),
-                    style: TextStyle(color: AppColors.greySubtitle, fontSize: 14),
+                    style: const TextStyle(color: AppColors.greySubtitle, fontSize: 14),
                     textAlign: TextAlign.center,
                   ),
                 ],
@@ -125,14 +125,14 @@ class _HomeTabState extends State<HomeTab> {
               borderRadius: BorderRadius.circular(AppDecor.cardRadius),
               border: Border.all(color: AppColors.borderLightBlue.withValues(alpha: 0.5)),
             ),
-            child: Column(
+            child: const Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Row(
                   children: [
                     Icon(Icons.lightbulb_outline, color: AppColors.bluePrimary, size: 22),
-                    const SizedBox(width: 8),
-                    const Text(
+                    SizedBox(width: 8),
+                    Text(
                       'Tip',
                       style: TextStyle(
                         fontWeight: FontWeight.bold,
@@ -141,7 +141,7 @@ class _HomeTabState extends State<HomeTab> {
                     ),
                   ],
                 ),
-                const SizedBox(height: 8),
+                SizedBox(height: 8),
                 Text(
                   'Use a clear photo of the outfit or item. '
                   'Filter by category for faster, more accurate matches.',
@@ -174,7 +174,7 @@ class _HomeTabState extends State<HomeTab> {
               const SizedBox(height: 10),
               Text(title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: AppColors.purpleDark)),
               const SizedBox(height: 4),
-              Text(subtitle, style: TextStyle(fontSize: 12, color: AppColors.greySubtitle)),
+              Text(subtitle, style: const TextStyle(fontSize: 12, color: AppColors.greySubtitle)),
             ],
           ),
         ),

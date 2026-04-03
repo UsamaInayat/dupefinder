@@ -38,11 +38,12 @@ class _WishlistScreenState extends State<WishlistScreen> {
       setState(() => _loading = true);
     }
     final list = await _wishlistService.getSavedProducts();
-    if (mounted)
+    if (mounted) {
       setState(() {
         _items = list;
         _loading = false;
       });
+    }
   }
 
   Future<void> _openUrl(String? url) async {
@@ -98,7 +99,7 @@ class _WishlistScreenState extends State<WishlistScreen> {
                     color: AppColors.purpleDark),
               ),
               const SizedBox(height: 12),
-              Text(
+              const Text(
                 'Save products from search results by tapping the heart on any result.',
                 textAlign: TextAlign.center,
                 style: TextStyle(color: AppColors.greySubtitle, height: 1.4),

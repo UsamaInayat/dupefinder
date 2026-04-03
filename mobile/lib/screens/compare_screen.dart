@@ -36,11 +36,12 @@ class _CompareScreenState extends State<CompareScreen> {
       setState(() => _loading = true);
     }
     final list = await _compareService.getList();
-    if (mounted)
+    if (mounted) {
       setState(() {
         _items = list;
         _loading = false;
       });
+    }
   }
 
   Future<void> _openUrl(String? url) async {
@@ -83,7 +84,7 @@ class _CompareScreenState extends State<CompareScreen> {
                     color: AppColors.purpleDark),
               ),
               const SizedBox(height: 12),
-              Text(
+              const Text(
                 'Tap the compare icon on any search result to add it here. Pick 2–4 items to compare price, brand, and match score.',
                 textAlign: TextAlign.center,
                 style: TextStyle(color: AppColors.greySubtitle, height: 1.4),
@@ -277,12 +278,12 @@ class _CompareScreenState extends State<CompareScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
+          const Row(
             children: [
               Icon(Icons.analytics_outlined,
                   size: 20, color: AppColors.bluePrimary),
-              const SizedBox(width: 8),
-              const Text(
+              SizedBox(width: 8),
+              Text(
                 'Comparison summary',
                 style: TextStyle(
                     fontSize: 16,

@@ -86,7 +86,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
     final email = (prefs.getString('user_email') ?? '').trim();
     final emailPrefix =
         email.contains('@') ? email.split('@').first.trim() : '';
-    if (mounted)
+    if (mounted) {
       setState(() {
         _posts = list;
         _myUserId = me;
@@ -94,6 +94,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
         _myEmailPrefix = emailPrefix.toLowerCase();
         _loading = false;
       });
+    }
     _openFocusedPostIfNeeded();
   }
 
@@ -233,9 +234,9 @@ class _CommunityScreenState extends State<CommunityScreen> {
                         behavior: SnackBarBehavior.floating));
                   }
                 },
-                child: const Text('Post'),
                 style: FilledButton.styleFrom(
                     backgroundColor: AppColors.bluePrimary),
+                child: const Text('Post'),
               ),
             ],
           ),
@@ -303,17 +304,17 @@ class _CommunityScreenState extends State<CommunityScreen> {
                     borderRadius: BorderRadius.circular(16),
                     border: Border.all(color: AppColors.borderLightBlue),
                   ),
-                  child: Column(
+                  child: const Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text(
+                      Text(
                         'Community feed',
                         style: TextStyle(
                             fontSize: 18,
                             fontWeight: FontWeight.bold,
                             color: AppColors.purpleDark),
                       ),
-                      const SizedBox(height: 8),
+                      SizedBox(height: 8),
                       Text(
                         'Share dupes like a social feed. Add image + description and get replies.',
                         style: TextStyle(
@@ -324,7 +325,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
                 ),
                 Expanded(
                   child: _posts.isEmpty
-                      ? Center(
+                      ? const Center(
                           child: Text(
                             'No posts yet. Tap + to ask for a dupe.',
                             style: TextStyle(color: AppColors.greySubtitle),
@@ -452,7 +453,9 @@ class _CommunityScreenState extends State<CommunityScreen> {
                                                     ),
                                                   );
                                                   if (updated == null ||
-                                                      updated.isEmpty) return;
+                                                      updated.isEmpty) {
+                                                    return;
+                                                  }
                                                   await _service.editPost(
                                                       post.id, updated);
                                                   await _load();
@@ -471,7 +474,9 @@ class _CommunityScreenState extends State<CommunityScreen> {
                                                   final reason =
                                                       await _askReportReason();
                                                   if (reason == null ||
-                                                      reason.isEmpty) return;
+                                                      reason.isEmpty) {
+                                                    return;
+                                                  }
                                                   await _service.reportPost(
                                                       post.id, reason);
                                                   if (!mounted) return;
@@ -539,7 +544,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
                                         const SizedBox(height: 10),
                                         _LinkText(
                                           post.description,
-                                          style: TextStyle(
+                                          style: const TextStyle(
                                             color: AppColors.greySubtitle,
                                             height: 1.4,
                                           ),
@@ -715,10 +720,13 @@ class _PostDetailSheetState extends State<_PostDetailSheet> {
       return true;
     }
     final author = r.author.trim().toLowerCase();
-    if (widget.myNameLower.isNotEmpty && author == widget.myNameLower)
+    if (widget.myNameLower.isNotEmpty && author == widget.myNameLower) {
       return true;
+    }
     if (widget.myEmailPrefixLower.isNotEmpty &&
-        author == widget.myEmailPrefixLower) return true;
+        author == widget.myEmailPrefixLower) {
+      return true;
+    }
     return false;
   }
 
@@ -962,7 +970,7 @@ class _PostDetailSheetState extends State<_PostDetailSheet> {
                   _LinkText(
                     _post.description,
                     style:
-                        TextStyle(color: AppColors.greySubtitle, height: 1.4),
+                        const TextStyle(color: AppColors.greySubtitle, height: 1.4),
                   ),
                   const SizedBox(height: 8),
                   Text(DateFormat.yMMMd().add_Hm().format(_post.createdAt),
@@ -1086,8 +1094,9 @@ class _PostDetailSheetState extends State<_PostDetailSheet> {
                                     if (v == 'report_reply') {
                                       if (r.id.isEmpty) return;
                                       final reason = await _askReason();
-                                      if (reason == null || reason.isEmpty)
+                                      if (reason == null || reason.isEmpty) {
                                         return;
+                                      }
                                       await widget.service.reportReply(
                                         postId: _post.id,
                                         replyId: r.id,
@@ -1169,7 +1178,7 @@ class _PostDetailSheetState extends State<_PostDetailSheet> {
                             child: Container(
                               decoration: BoxDecoration(
                                 border: depth > 0
-                                    ? Border(
+                                    ? const Border(
                                         left: BorderSide(
                                           color: AppColors.borderLightBlue,
                                           width: 1.2,
