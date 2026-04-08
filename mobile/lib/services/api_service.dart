@@ -9,9 +9,11 @@ class ApiService {
   // Candidate IPs tried in order at startup — first reachable one wins.
   // 192.168.1.108  = same WiFi router as phone
   // 192.168.137.1  = PC mobile hotspot
+  // 172.20.10.6    = PC on shared WiFi / phone personal hotspot (iPhone-style range)
   static const List<String> _candidateIPs = [
     '192.168.1.108',
     '192.168.137.1',
+    '172.20.10.6',
   ];
 
   // Cached after resolveBaseUrl() runs once at app startup.
@@ -45,6 +47,12 @@ class ApiService {
     // No candidate responded — fall back to first entry so the app still starts.
     _resolvedUrl = 'http://${_candidateIPs.first}:8000/api';
     print('[ApiService] No backend reachable — defaulting to $_resolvedUrl');
+    print('[ApiService] Fix checklist:');
+    print('  1) PC: run backend with LAN binding:  backend/start_lan.ps1  (or: uvicorn app.main:app --host 0.0.0.0 --port 8000)');
+    print('  2) Windows: allow inbound TCP port 8000 in Firewall');
+    print('  3) Same network: phone WiFi = PC WiFi (or phone hotspot + PC connected to it)');
+    print('  4) Add your PC IPv4 from ipconfig to _candidateIPs in api_service.dart if not listed');
+    print('  5) Android: usesCleartextTraffic must be true in AndroidManifest (http:// dev URLs)');
   }
 
   static String get baseUrl {
