@@ -7,13 +7,14 @@ import 'package:http_parser/http_parser.dart';
 
 class ApiService {
   // Candidate IPs tried in order at startup — first reachable one wins.
-  // 192.168.1.108  = same WiFi router as phone
-  // 192.168.137.1  = PC mobile hotspot
-  // 172.20.10.6    = PC on shared WiFi / phone personal hotspot (iPhone-style range)
+  // Order matters: put the IP that matches *today's* ipconfig first (changes per network).
+  // 172.20.10.x    = PC when phone is iPhone Personal Hotspot (common)
+  // 192.168.137.1  = PC hosting Windows Mobile Hotspot
+  // 192.168.1.108  = example home-router LAN (update if your ipconfig shows another .x)
   static const List<String> _candidateIPs = [
-    '192.168.1.108',
-    '192.168.137.1',
     '172.20.10.6',
+    '192.168.137.1',
+    '192.168.1.108',
   ];
 
   // Cached after resolveBaseUrl() runs once at app startup.
@@ -35,11 +36,11 @@ class ApiService {
       try {
         final uri = Uri.parse('http://$ip:8000/health');
         final resp = await http.get(uri).timeout(const Duration(seconds: 3));
-        if (resp.statusCode < 500) {
-          _resolvedUrl = 'http://$ip:8000/api';
-          print('[ApiService] Resolved backend -> $_resolvedUrl');
-          return;
-        }
+        // Any HTTP response means the host:port is reachable (even 503 from /health).
+        _resolvedUrl = 'http://$ip:8000/api';
+        print(
+            '[ApiService] Resolved backend -> $_resolvedUrl (health HTTP ${resp.statusCode})');
+        return;
       } catch (_) {
         print('[ApiService] $ip unreachable, trying next...');
       }
