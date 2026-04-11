@@ -1,4 +1,4 @@
-Brand,Website,ScraperType
+Brand,Website,ScraperType,DisplayCategory
 ECS,https://shopecs.com/collections/accessories,shopify_json
 Khaadi,https://pk.khaadi.com/from-ramadan-to-eid/ready-to-wear/,generic
 Sapphire Pret,https://pk.sapphireonline.pk/collections/rtw-smart-casual|https://pk.sapphireonline.pk/collections/rtw-formal|https://pk.sapphireonline.pk/collections/rtw-shirts|https://pk.sapphireonline.pk/collections/rtw-short-kurti|https://pk.sapphireonline.pk/collections/dupattas-shawls|https://pk.sapphireonline.pk/collections/ready-to-wear-outfits,generic
@@ -20,17 +20,39 @@ So Kamal,https://www.sokamal.com/collections/new-arrival-summer-26|https://www.s
 Zellbury Premium,https://zellbury.com/collections/cross-body-bags,shopify_json
 Khaadi Luxe,https://pk.khaadi.com/fabrics/?srule=most-popular&start=0&sz=64,generic
 Ethnic Luxe,https://pk.ethnc.com/collections/luxe-2025,shopify_json
-Beechtree Luxe,https://beechtree.pk/collections/women,generic
+Beechtree Luxe,https://beechtree.pk/collections/luxury-pret,shopify_json
 Charizma Luxe,https://houseofcharizma.com/collections/charizma-vasal-vol-02-2026,shopify_json
-Rang Rasiya Luxe,https://rangrasiya.com.pk/collections/women,generic
-Sapphire Luxe,https://pk.sapphireonline.pk/collections/women,generic
-Maria B Pret,https://www.mariab.pk/collections/pret,generic
-Warda Luxe,https://warda.com.pk/collections/women,generic
-Cross Stitch Premium,https://www.crossstitch.pk/collections/premium-lawn,generic
-Limelight Formal,https://www.limelight.pk/collections/women-formal,generic
+Rang Rasiya Luxe,https://rangrasiya.com.pk/collections/women,shopify_json
+Sapphire Luxe,https://pk.sapphireonline.pk/collections/women,shopify_json
+Maria B Pret,https://www.mariab.pk/collections/pret,shopify_json
+Warda Luxe,https://warda.com.pk/collections/women,shopify_json
+Cross Stitch Premium,https://www.crossstitch.pk/collections/luxury-pret,shopify_json
+Limelight Formal,https://www.limelight.pk/collections/formal-wear,shopify_json
 Khaadi Casual,https://pk.khaadi.com/collections/casual,generic
 Sana Safinaz,https://sanasafinaz.com/collections/unstitched-fabric|https://sanasafinaz.com/collections/ready-to-wear|https://sanasafinaz.com/collections/bottoms|https://sanasafinaz.com/collections/luxury-pret|https://sanasafinaz.com/collections/ss-wesst,shopify_json
 Gul Ahmed,https://www.gulahmedshop.com/collections/unstitched-fabric|https://www.gulahmedshop.com/collections/lawn-2026,shopify_json
-Asim Jofa,https://asimjofa.com/collections/pret|https://asimjofa.com/collections/jewelry|https://asimjofa.com/collections/unstitched,shopify_json
+Asim Jofa,https://asimjofa.com/collections/pret|https://asimjofa.com/collections/jewelry|https://asimjofa.com/collections/unstitched,shopify_json,
+Farasha Online,https://www.farashaonline.pk/collections/summer-essentials|https://www.farashaonline.pk/collections/unstitched|https://www.farashaonline.pk/collections/lu-zella-premium-formals-25?_pos=2&_psq=premium+&_ss=e&_v=1.0,shopify_json,
+LAAM,https://laam.pk/search?search=3%20piece|https://laam.pk/search?search=2%20piece,generic,
+Mataish Couture,https://mataish.com/collections/daily-wear,shopify_json,
+Nazmina,https://nazmina.com/collections/frocks-maxi,shopify_json,
+Sowears,https://sowears.net/search?q=Long+floral+dresses&type=product,shopify_json,
+Tarz-e-Rang,https://tarzerang.com/product-category/formals/,generic,
+Amna Ali Nawaz,https://amnaalinawaz.com/collections/3-pc-lawn|https://amnaalinawaz.com/collections/2-pc-co-ords,shopify_json,
+Ayesha B,https://ayeshab.com/search?type=product&q=3pcs+,generic,
+Azure Official,https://www.azureofficial.pk/collections/chic-essentials,shopify_json,
+Ramsha,https://ramsha.pk/collections/andaaz-collection,shopify_json,
+Mannat Clothing,https://mannatclothing.com/collections/new-arrivals,shopify_json,Women Lawn
+Shigar Fashion,https://shigarfashion.com/collections/short-shirts|https://shigarfashion.com/collections/long-shirts,shopify_json,
+Peach Republic,https://peachrepublic.pk/collections/co-ord-set|https://peachrepublic.pk/collections/kaftans,shopify_json,
+Omal by Komal,https://omalbykomal.com/collections/eid-edit26,shopify_json,
+Preet Pret,https://preetpret.pk/collections/new-arrivals|https://preetpret.pk/search?q=summer+wear+3pc&options%5Bprefix%5D=last|https://preetpret.pk/search?q=summer+wear+2pc&options%5Bprefix%5D=last,shopify_json,Women Lawn|Women Lawn|Women Kurta
+Fineur,https://fineur.pk/collections/crossbody-bags|https://fineur.pk/collections/canvas-bags|https://fineur.pk/collections/shoulder-bags|https://fineur.pk/collections/tote-bags,shopify_json,
+Swanky by Mahnoor,https://www.swankybymahnoor.com/collections/earrings|https://www.swankybymahnoor.com/collections/stud-set|https://www.swankybymahnoor.com/collections/necklace|https://www.swankybymahnoor.com/collections/rings|https://www.swankybymahnoor.com/collections/anklet|https://www.swankybymahnoor.com/search?q=accessories&_pos=2&_psq=acc&_ss=e&_v=1.0,shopify_json,Women Jewelry|Women Jewelry|Women Jewelry|Women Jewelry|Women Jewelry|Women Accessories
+Astore Bags,https://astore.pk/search?q=bags&options%5Bprefix%5D=last,shopify_json,
+RTW Creation,https://rtwcreation.com/collections/all,shopify_json,Women Bags
+TJ Bags,https://tjbags.pk/collections/shoulder-bags|https://tjbags.pk/collections/crossbody-bags|https://tjbags.pk/collections/hand-bags|https://tjbags.pk/collections/tote-bags|https://tjbags.pk/collections/mini-bags,shopify_json,
+Bag X,https://www.bagx.pk/collections/bags,shopify_json,
+Bagerz,https://www.bagerz.com/collections/handbags,shopify_json,
 Elan,https://elan.pk/collections/new-arrivals|https://elan.pk/collections/unstitched,shopify_json
 Zara Shah Jahan,https://zarashahjahan.com/collections/pret|https://zarashahjahan.com/collections/satori-2026|https://zarashahjahan.com/collections/wedding-unstitched-2025,shopify_json

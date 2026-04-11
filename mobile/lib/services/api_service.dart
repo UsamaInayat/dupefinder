@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:math';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
@@ -97,6 +98,25 @@ class ApiService {
     return {
       'Content-Type': 'application/json',
       if (token != null) 'Authorization': 'Bearer $token',
+    };
+  }
+
+  static const _communityLikeDeviceIdKey = 'community_like_device_id';
+
+  /// Stable id for community likes when not logged in (sent as X-Community-Like-Id).
+  Future<Map<String, String>> getCommunityHeaders() async {
+    final base = await getHeaders();
+    final prefs = await SharedPreferences.getInstance();
+    var id = prefs.getString(_communityLikeDeviceIdKey);
+    if (id == null || id.length < 8) {
+      const chars = '0123456789abcdef';
+      final r = Random.secure();
+      id = List.generate(24, (_) => chars[r.nextInt(chars.length)]).join();
+      await prefs.setString(_communityLikeDeviceIdKey, id);
+    }
+    return {
+      ...base,
+      'X-Community-Like-Id': id,
     };
   }
 
@@ -333,7 +353,7 @@ class ApiService {
   Future<List<Map<String, dynamic>>> getCommunityPosts() async {
     final response = await http.get(
       Uri.parse('$baseUrl/community/posts'),
-      headers: await getHeaders(),
+      headers: await getCommunityHeaders(),
     );
     if (response.statusCode != 200) {
       throw Exception('Failed to load community posts');
@@ -353,7 +373,7 @@ class ApiService {
   }) async {
     final response = await http.post(
       Uri.parse('$baseUrl/community/posts'),
-      headers: await getHeaders(),
+      headers: await getCommunityHeaders(),
       body: jsonEncode({
         'description': description,
         'author': author,
@@ -378,7 +398,7 @@ class ApiService {
   }) async {
     final response = await http.post(
       Uri.parse('$baseUrl/community/posts/$postId/replies'),
-      headers: await getHeaders(),
+      headers: await getCommunityHeaders(),
       body: jsonEncode({
         'body': body,
         'author': author,
@@ -404,7 +424,7 @@ class ApiService {
         'unread_only': unreadOnly ? 'true' : 'false',
       },
     );
-    final response = await http.get(uri, headers: await getHeaders());
+    final response = await http.get(uri, headers: await getCommunityHeaders());
     if (response.statusCode != 200) {
       throw Exception('Failed to load notifications');
     }
@@ -414,7 +434,7 @@ class ApiService {
   Future<int> markCommunityNotificationRead(String notificationId) async {
     final response = await http.post(
       Uri.parse('$baseUrl/community/notifications/$notificationId/read'),
-      headers: await getHeaders(),
+      headers: await getCommunityHeaders(),
     );
     if (response.statusCode != 200) {
       throw Exception('Failed to mark notification read');
@@ -429,7 +449,7 @@ class ApiService {
   }) async {
     final response = await http.delete(
       Uri.parse('$baseUrl/community/posts/$postId/replies/$replyId'),
-      headers: await getHeaders(),
+      headers: await getCommunityHeaders(),
     );
     if (response.statusCode != 200) {
       throw Exception('Failed to delete reply');
@@ -439,7 +459,7 @@ class ApiService {
   Future<void> deleteCommunityPost(String postId) async {
     final response = await http.delete(
       Uri.parse('$baseUrl/community/posts/$postId'),
-      headers: await getHeaders(),
+      headers: await getCommunityHeaders(),
     );
     if (response.statusCode != 200) {
       throw Exception('Failed to delete post');
@@ -452,7 +472,7 @@ class ApiService {
   }) async {
     final response = await http.post(
       Uri.parse('$baseUrl/community/posts/$postId/report'),
-      headers: await getHeaders(),
+      headers: await getCommunityHeaders(),
       body: jsonEncode({'reason': reason}),
     );
     if (response.statusCode != 200) {
@@ -467,7 +487,7 @@ class ApiService {
   }) async {
     final response = await http.post(
       Uri.parse('$baseUrl/community/posts/$postId/replies/$replyId/report'),
-      headers: await getHeaders(),
+      headers: await getCommunityHeaders(),
       body: jsonEncode({'reason': reason}),
     );
     if (response.statusCode != 200) {
@@ -478,7 +498,7 @@ class ApiService {
   Future<void> blockCommunityUser(String targetUserId) async {
     final response = await http.post(
       Uri.parse('$baseUrl/community/users/$targetUserId/block'),
-      headers: await getHeaders(),
+      headers: await getCommunityHeaders(),
     );
     if (response.statusCode != 200) {
       throw Exception('Failed to block user');
@@ -491,12 +511,25 @@ class ApiService {
   }) async {
     final response = await http.put(
       Uri.parse('$baseUrl/community/posts/$postId'),
-      headers: await getHeaders(),
+      headers: await getCommunityHeaders(),
       body: jsonEncode({'description': description}),
     );
     if (response.statusCode != 200) {
       throw Exception('Failed to edit post');
     }
+  }
+
+  Future<Map<String, dynamic>> toggleCommunityPostLike(String postId) async {
+    final response = await http.post(
+      Uri.parse('$baseUrl/community/posts/$postId/like'),
+      headers: await getCommunityHeaders(),
+    );
+    if (response.statusCode != 200) {
+      throw Exception('Failed to toggle like');
+    }
+    return Map<String, dynamic>.from(
+      (jsonDecode(response.body) as Map<String, dynamic>)['post'] as Map,
+    );
   }
 
   Future<Map<String, dynamic>> getUserData() async {

@@ -32,7 +32,7 @@ import re
 import logging
 import hashlib
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import urlparse, parse_qs, unquote
 
 logger = logging.getLogger(__name__)
 
@@ -41,23 +41,38 @@ WOMEN_KURTA_ENDPOINTS = frozenset({
     "2-piece-essential-summer-pret-kt", "charizma-vasal-vol-02-2026", "eid-collection",
     "essential-summer-pret", "florence-summer-edit-26", "luxe-2025", "luxury-pret",
     "new-arrival-summer-26", "new-arrivals", "pret", "ready-to-wear", "satori-2026", "women",
+    "chic-essentials", "long-shirts", "short-shirts",
+    "search-2-piece", "search-summer-wear-2pc",
 })
 WOMEN_LAWN_ENDPOINTS = frozenset({
     "eid-lawn-2026", "lawn-in-stock",
     # Ramadan / lawn khaddar stiched cords style endpoint (slug may vary)
     "ramadan-festive-sale-lawn-khaddar-stiched-cords", "ramadan-festive-sale-lawn-khaddar-stitched-cords",
+    "summer-essentials", "andaaz-collection", "eid-edit26", "3-pc-lawn",
+    "search-3-piece", "search-summer-wear-3pc",
+    # Limelight Formal collection handle (user-requested: show under Women Lawn)
+    "formal-wear",
 })
 WOMEN_LUXE_ENDPOINTS = frozenset({
     "bridal-in-stock", "festive-in-stock", "wedding-unstitched-2025",
+    "lu-zella-premium-formals-25", "daily-wear", "formals", "search-3pcs",
 })
 WOMEN_SHORT_KURTI_ENDPOINTS = frozenset({
     "ss-wesst", "ss-west", "short-kurti",
+    "2-pc-co-ords", "co-ord-set",
 })
-WOMEN_ACCESSORIES_ENDPOINTS = frozenset({"accessories"})
-WOMEN_ANARKALI_FROCK_ENDPOINTS = frozenset({"anarkali-frock"})
+WOMEN_ACCESSORIES_ENDPOINTS = frozenset({"accessories", "search-accessories"})
+WOMEN_ANARKALI_FROCK_ENDPOINTS = frozenset({
+    "anarkali-frock", "frocks-maxi", "kaftans", "search-long-floral-dresses",
+})
 WOMEN_BOTTOMS_ENDPOINTS = frozenset({"bottoms"})
-WOMEN_BAGS_ENDPOINTS = frozenset({"cross-body-bags"})
-WOMEN_JEWELRY_ENDPOINTS = frozenset({"jewelry"})
+WOMEN_BAGS_ENDPOINTS = frozenset({
+    "cross-body-bags", "crossbody-bags", "canvas-bags", "shoulder-bags", "tote-bags",
+    "hand-bags", "mini-bags", "bags", "handbags", "search-bags",
+})
+WOMEN_JEWELRY_ENDPOINTS = frozenset({
+    "jewelry", "earrings", "stud-set", "necklace", "rings", "anklet",
+})
 WOMEN_TOPS_ENDPOINTS = frozenset({"tops"})
 WOMEN_UNSTITCHED_ENDPOINTS = frozenset({"unstitched", "unstitched-fabric"})
 WOMEN_WESTERN_ENDPOINTS = frozenset({"western"})
@@ -151,6 +166,43 @@ def _normalize_slug(s: str) -> str:
     return (s or "").strip().lower().replace(" ", "-").replace("_", "-")
 
 
+def _listing_endpoint_slug(url: str) -> str:
+    """
+    Derive endpoint_category slug from a listing URL.
+    Uses last path segment for collections; search?q= / search= -> search-<normalized>;
+    WooCommerce /product-category/x/ -> x.
+    """
+    if not url or not isinstance(url, str):
+        return ""
+    try:
+        parsed = urlparse(url.strip())
+        path = (parsed.path or "").strip("/")
+        segments = [s for s in path.split("/") if s]
+        qs = parse_qs(parsed.query)
+        last = segments[-1] if segments else ""
+        if last.lower() == "search":
+            for key in ("q", "search"):
+                vals = qs.get(key) or []
+                if vals and str(vals[0]).strip():
+                    raw = unquote(str(vals[0]).strip())
+                    normalized = re.sub(r"[^a-z0-9]+", "-", raw.lower())[:96].strip("-")
+                    return f"search-{normalized}" if normalized else "search"
+            return "search"
+        lowered = [s.lower() for s in segments]
+        if "product-category" in lowered:
+            idx = lowered.index("product-category")
+            if idx + 1 < len(segments):
+                return segments[idx + 1].lower()
+        if segments:
+            slug = segments[-1].lower()
+            if slug.endswith(".html"):
+                slug = slug[:-5]
+            return slug
+    except Exception:
+        pass
+    return ""
+
+
 def _display_category_from_endpoint(endpoint_slug: str, gender: Optional[str]) -> str:
     """Map endpoint_category (+ gender) to generalized display category. Returns slug if no mapping."""
     if not endpoint_slug:
@@ -188,8 +240,10 @@ def _display_category_from_endpoint(endpoint_slug: str, gender: Optional[str]) -
             return "Women Western"
         if slug in WOMEN_WINTER_PANTS_ENDPOINTS:
             return "Women Winter Pants"
-    # Men's mapping: when gender is m or slug is a known men's endpoint
-    use_men_mapping = (gender or "").strip().lower() == "m" or slug in _MEN_ALL_ENDPOINTS
+    # Men's mapping: never treat women's scrapes as men's when slug overlaps (e.g. collections/all).
+    use_men_mapping = (gender or "").strip().lower() == "m" or (
+        slug in _MEN_ALL_ENDPOINTS and (gender or "").strip().lower() != "w"
+    )
     if use_men_mapping:
         if slug in MEN_STANDARD_SUIT_ENDPOINTS:
             return "Men Standard Suit"
@@ -508,6 +562,11 @@ async def admin_login(credentials: AdminLogin):
         admin["_id"] = str(admin["_id"])
         if "hashed_password" in admin:
             del admin["hashed_password"]
+        # Legacy or hand-edited docs may omit fields required by AdminResponse
+        if not admin.get("full_name"):
+            admin["full_name"] = "Admin"
+        if admin.get("created_at") is None:
+            admin["created_at"] = datetime.utcnow()
         
         return AdminToken(
             access_token=access_token,
@@ -1174,6 +1233,15 @@ async def get_all_categories(
             {"endpoint_category": {"$regex": f"^{re.escape(s)}$", "$options": "i"}},
             {"$set": {"display_category": "Women Short Kurti"}}
         )
+    for s in WOMEN_LAWN_ENDPOINTS:
+        products.update_many(
+            {"gender": "w", "endpoint_category": {"$regex": f"^{re.escape(s)}$", "$options": "i"}},
+            {"$set": {"display_category": "Women Lawn"}}
+        )
+    products.update_many(
+        {"gender": "w", "$and": [{"endpoint_category": {"$regex": "ramadan", "$options": "i"}}, {"endpoint_category": {"$regex": "lawn", "$options": "i"}}]},
+        {"$set": {"display_category": "Women Lawn"}}
+    )
     for s in WOMEN_ACCESSORIES_ENDPOINTS:
         products.update_many(
             {"endpoint_category": {"$regex": f"^{re.escape(s)}$", "$options": "i"}},
@@ -1800,6 +1868,135 @@ async def get_training_metrics(
 scraping_jobs = {}
 
 
+def _project_root_for_local_csvs() -> str:
+    """Directory containing local_brands_links*.csv (same walk as get_available_brands)."""
+    _start = os.path.abspath(os.path.dirname(__file__))
+    project_root = _start
+    for _ in range(12):
+        if os.path.isfile(os.path.join(project_root, "local_brands_links.csv")) or os.path.isfile(
+            os.path.join(project_root, "local_brands_links_women.csv")
+        ):
+            return project_root
+        _parent = os.path.dirname(project_root)
+        if _parent == project_root:
+            break
+        project_root = _parent
+    return os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../.."))
+
+
+def _norm_listing_url(u: str) -> str:
+    u = (u or "").strip().split("|")[0].strip().rstrip("/")
+    if u.startswith("http://"):
+        u = "https://" + u[7:]
+    return u
+
+
+def _enrich_brands_for_scraping(brand_list: List[dict]) -> List[dict]:
+    """
+    Re-attach brand_urls, scraper_type, display_categories, gender from CSV.
+    Prevents 0-product scrapes when the frontend JSON omits pipe-separated URLs or scraper_type.
+    """
+    root = _project_root_for_local_csvs()
+    exact: dict = {}
+    by_name: dict = {}
+
+    def _register(name: str, urls: List[str], scraper_type: str, gender: str, category: str, display_cats: List[str]):
+        if not name or not urls:
+            return
+        st = (scraper_type or "").strip().lower()
+        if st == "nan" or st not in ("shopify_json", "woocommerce"):
+            st = "generic"
+        payload = {
+            "brand_urls": urls,
+            "scraper_type": st,
+            "gender": gender,
+            "category": category,
+            "display_categories": display_cats,
+        }
+        u0 = _norm_listing_url(urls[0])
+        exact[(name.lower(), u0)] = payload
+        by_name.setdefault(name.lower(), []).append((u0, payload))
+
+    for fname, gender, category in (
+        ("local_brands_links_women.csv", "w", "Women → Stitched"),
+        ("local_brands_links.csv", "m", "Men → Eastern"),
+    ):
+        path = os.path.join(root, fname)
+        if not os.path.isfile(path):
+            continue
+        try:
+            df = pd.read_csv(path)
+        except Exception as e:
+            logger.warning(f"Enrich: could not read {path}: {e}")
+            continue
+        if "Brand" not in df.columns or "Website" not in df.columns:
+            continue
+        for _, row in df.iterrows():
+            brand_name = str(row.get("Brand", "")).strip()
+            raw = row.get("Website", "")
+            if pd.isna(raw) or not str(raw).strip():
+                continue
+            urls = [u.strip() for u in str(raw).split("|") if u.strip().startswith("http")]
+            if not urls:
+                continue
+            scraper_type = ""
+            if "ScraperType" in df.columns:
+                v = row.get("ScraperType", "")
+                scraper_type = str(v).strip() if pd.notna(v) else ""
+            dc_raw = ""
+            if "DisplayCategory" in df.columns:
+                v = row.get("DisplayCategory", "")
+                dc_raw = str(v).strip() if pd.notna(v) else ""
+            display_cats = [x.strip() for x in dc_raw.split("|")] if dc_raw and dc_raw.lower() != "nan" else []
+            while len(display_cats) < len(urls):
+                display_cats.append("")
+            display_cats = display_cats[: len(urls)]
+            _register(brand_name, urls, scraper_type, gender, category, display_cats)
+
+    out: List[dict] = []
+    for b in brand_list:
+        bi = dict(b)
+        nm = str(bi.get("brand_name") or "").strip()
+        ur = _norm_listing_url(bi.get("brand_url") or "")
+        hit = exact.get((nm.lower(), ur)) if nm else None
+        if not hit and nm:
+            cands = by_name.get(nm.lower()) or []
+            for u0c, payload in cands:
+                if ur and (ur == u0c or ur.startswith(u0c + "/") or u0c.startswith(ur)):
+                    hit = payload
+                    break
+            if not hit and len(cands) == 1:
+                hit = cands[0][1]
+        if hit:
+            bi["brand_urls"] = hit["brand_urls"]
+            bi["brand_url"] = hit["brand_urls"][0]
+            bi["scraper_type"] = hit["scraper_type"]
+            bi["gender"] = hit["gender"]
+            bi["category"] = hit["category"]
+            if hit.get("display_categories"):
+                bi["display_categories"] = hit["display_categories"]
+            logger.info(
+                f"Scrape CSV enrich: {nm!r} -> {len(bi['brand_urls'])} URL(s), scraper={bi['scraper_type']}, gender={bi['gender']}"
+            )
+        else:
+            if nm:
+                logger.warning(
+                    f"Scrape CSV enrich: no row for {nm!r} url={ur[:80]!r} — using request fields only"
+                )
+        if not bi.get("brand_urls") and bi.get("brand_url"):
+            bi["brand_urls"] = [str(bi["brand_url"]).strip()]
+        if not bi.get("gender"):
+            cat = str(bi.get("category") or "").lower()
+            if "women" in cat or "woman" in cat:
+                bi["gender"] = "w"
+            elif "men" in cat or "man" in cat:
+                bi["gender"] = "m"
+        if not bi.get("scraper_type"):
+            bi["scraper_type"] = "generic"
+        out.append(bi)
+    return out
+
+
 @router.get("/scraping/brands")
 async def get_available_brands(
     brand_type: str = Query("local", pattern="^(luxury|pakistani|local)$"),
@@ -1896,6 +2093,15 @@ async def get_available_brands(
                                     scraper_type = str(row.get("ScraperType", "")).strip().lower() if "ScraperType" in df_women_csv.columns else ""
                                     if scraper_type == "nan" or scraper_type not in ("shopify_json", "woocommerce"):
                                         scraper_type = "generic"
+                                    # Optional pipe-aligned DisplayCategory per URL (same count as Website | URLs)
+                                    dc_raw = ""
+                                    if "DisplayCategory" in df_women_csv.columns:
+                                        v = row.get("DisplayCategory", "")
+                                        dc_raw = str(v).strip() if pd.notna(v) else ""
+                                    display_cats = [x.strip() for x in dc_raw.split("|")] if dc_raw and dc_raw.lower() != "nan" else []
+                                    while len(display_cats) < len(brand_urls):
+                                        display_cats.append("")
+                                    display_cats = display_cats[: len(brand_urls)]
                                     brand_data = {
                                         "brand_name": brand_name,
                                         "brand_url": brand_url_str,
@@ -1905,6 +2111,7 @@ async def get_available_brands(
                                         "last_scraped_at": None,
                                         "gender": "w",
                                         "scraper_type": scraper_type,
+                                        "display_categories": display_cats,
                                     }
                                     brands.append(brand_data)
                                     brand_names_list.append(brand_name)
@@ -2229,6 +2436,9 @@ async def run_scraping_job(job_id: str, brand_list: List[dict]):
             {"job_id": job_id},
             {"$set": {"status": "running"}}
         )
+
+        brand_list = _enrich_brands_for_scraping(brand_list)
+        scraping_jobs[job_id]["brands"] = brand_list
         
         scraper = ProductScraper()
         
@@ -2255,10 +2465,10 @@ async def run_scraping_job(job_id: str, brand_list: List[dict]):
             try:
                 scraping_jobs[job_id]["logs"].append(f"Starting scrape for {brand_name} ({len(urls_to_scrape)} link(s), Category: {category}, Gender: {gender})...")
                 scraper_type = (brand_info.get("scraper_type") or "").strip().lower() or "generic"
-                from urllib.parse import urlparse
                 all_products = []
                 seen_product_urls = set()
-                for brand_url in urls_to_scrape:
+                display_cats = brand_info.get("display_categories") or []
+                for url_idx, brand_url in enumerate(urls_to_scrape):
                     parsed = urlparse(brand_url or "")
                     path = (parsed.path or "").strip("/")
                     url_lower = (brand_url or "").lower()
@@ -2266,6 +2476,8 @@ async def run_scraping_job(job_id: str, brand_list: List[dict]):
                         len(path.split("/")) >= 1 and path != ""
                         or ".html" in url_lower
                         or "/collections/" in url_lower
+                        or "/product-category/" in url_lower
+                        or "/search" in url_lower
                         or any(x in url_lower for x in ["/shirts", "/products", "/men", "/women", "/shop/", "/category/"])
                     )
                     scraping_jobs[job_id]["logs"].append(f"Scraping: {brand_url}")
@@ -2281,11 +2493,15 @@ async def run_scraping_job(job_id: str, brand_list: List[dict]):
                                 scraper.scrape_brand_website(brand_url, brand_name, category, gender),
                                 timeout=timeout_seconds
                             )
-                        # Set endpoint_category from URL path; set display_category (generalized) for dropdown
-                        slug = (path.split("/")[-1] or "").strip() if path else ""
+                        slug = _listing_endpoint_slug(brand_url) or ((path.split("/")[-1] or "").strip() if path else "")
+                        dc_override = ""
+                        if url_idx < len(display_cats) and (display_cats[url_idx] or "").strip():
+                            dc_override = display_cats[url_idx].strip()
                         for p in page_products:
                             p["endpoint_category"] = slug
-                            p["display_category"] = _display_category_from_endpoint(slug, gender)
+                            p["display_category"] = (
+                                dc_override if dc_override else _display_category_from_endpoint(slug, gender)
+                            )
                     except asyncio.TimeoutError:
                         scraping_jobs[job_id]["logs"].append(f"Timeout for {brand_url}")
                         page_products = []

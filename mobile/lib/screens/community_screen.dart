@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/gestures.dart';
-import 'package:intl/intl.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -34,11 +36,21 @@ class _CommunityScreenState extends State<CommunityScreen> {
   String _myName = '';
   String _myEmailPrefix = '';
   bool _openedFocusedPost = false;
+  Timer? _feedTimeTicker;
 
   @override
   void initState() {
     super.initState();
+    _feedTimeTicker = Timer.periodic(const Duration(seconds: 30), (_) {
+      if (mounted) setState(() {});
+    });
     _loadCachedThenRefresh();
+  }
+
+  @override
+  void dispose() {
+    _feedTimeTicker?.cancel();
+    super.dispose();
   }
 
   Future<void> _loadCachedThenRefresh() async {
@@ -86,7 +98,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
     final email = (prefs.getString('user_email') ?? '').trim();
     final emailPrefix =
         email.contains('@') ? email.split('@').first.trim() : '';
-    if (mounted)
+    if (mounted) {
       setState(() {
         _posts = list;
         _myUserId = me;
@@ -94,6 +106,26 @@ class _CommunityScreenState extends State<CommunityScreen> {
         _myEmailPrefix = emailPrefix.toLowerCase();
         _loading = false;
       });
+      if (list.isEmpty &&
+          _service.lastPostsFetchError != null &&
+          forceRefresh) {
+        final msg = _service.lastPostsFetchError!;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!context.mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                'Feed could not refresh ($msg). '
+                'On web, ensure the backend runs at http://localhost:8000.',
+                style: const TextStyle(fontSize: 13),
+              ),
+              behavior: SnackBarBehavior.floating,
+              duration: const Duration(seconds: 5),
+            ),
+          );
+        });
+      }
+    }
     _openFocusedPostIfNeeded();
   }
 
@@ -121,6 +153,324 @@ class _CommunityScreenState extends State<CommunityScreen> {
     if (_myName.isNotEmpty && author == _myName) return true;
     if (_myEmailPrefix.isNotEmpty && author == _myEmailPrefix) return true;
     return false;
+  }
+
+  String _compactCount(int n) {
+    if (n >= 1000000) return '${(n / 1000000).toStringAsFixed(1)}M';
+    if (n >= 1000) return '${(n / 1000).toStringAsFixed(1)}k';
+    return '$n';
+  }
+
+  Future<void> _toggleLikeForPost(CommunityPost post) async {
+    try {
+      final updated = await _service.togglePostLike(post.id);
+      if (!mounted) return;
+      setState(() {
+        final i = _posts.indexWhere((p) => p.id == post.id);
+        if (i >= 0) _posts[i] = updated;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Could not update like: $e'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
+  }
+
+  Future<void> _sharePost(CommunityPost post) async {
+    final text =
+        '${post.author}: ${post.description}\n— DupeFinder Community';
+    await Clipboard.setData(ClipboardData(text: text));
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Post copied — paste anywhere to share'),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+  }
+
+  Widget _buildFeedPostCard(CommunityPost post) {
+    final hasImage =
+        post.imageBase64 != null && post.imageBase64!.isNotEmpty;
+    final liked = post.likedByMe;
+    final captionStyle = GoogleFonts.inter(
+      fontSize: 14,
+      color: DupePalette.textPrimary,
+      height: 1.35,
+      fontWeight: FontWeight.w400,
+    );
+    final authorStyle = GoogleFonts.inter(
+      fontSize: 14,
+      fontWeight: FontWeight.w700,
+      color: DupePalette.textPrimary,
+      height: 1.35,
+    );
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 18),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(22),
+        boxShadow: [
+          BoxShadow(
+            color: DupePalette.teal.withValues(alpha: 0.12),
+            blurRadius: 18,
+            offset: const Offset(0, 6),
+          ),
+          BoxShadow(
+            color: DupePalette.pink.withValues(alpha: 0.06),
+            blurRadius: 12,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(14, 14, 6, 0),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                CircleAvatar(
+                  radius: 18,
+                  backgroundColor: DupePalette.pink.withValues(alpha: 0.2),
+                  backgroundImage: (post.authorPfp != null &&
+                          post.authorPfp!.isNotEmpty)
+                      ? MemoryImage(base64Decode(post.authorPfp!))
+                      : null,
+                  child: (post.authorPfp == null || post.authorPfp!.isEmpty)
+                      ? Icon(Icons.person_outline_rounded,
+                          size: 18, color: DupePalette.pinkDeep)
+                      : null,
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        post.author,
+                        style: GoogleFonts.inter(
+                          fontWeight: FontWeight.w700,
+                          fontSize: 15,
+                          color: DupePalette.textPrimary,
+                        ),
+                      ),
+                      Text(
+                        _timeAgo(post.createdAt),
+                        style: GoogleFonts.inter(
+                          fontSize: 12,
+                          color: DupePalette.greySubtitle,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                PopupMenuButton<String>(
+                  icon: Icon(Icons.more_vert_rounded,
+                      color: DupePalette.textPrimary, size: 22),
+                  padding: EdgeInsets.zero,
+                  onSelected: (v) async {
+                    try {
+                      if (v == 'delete') {
+                        await _service.deletePost(post.id);
+                        await _load();
+                        if (!mounted) return;
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('Post deleted'),
+                            behavior: SnackBarBehavior.floating,
+                          ),
+                        );
+                      }
+                      if (v == 'edit') {
+                        final c =
+                            TextEditingController(text: post.description);
+                        final updated = await showDialog<String>(
+                          context: context,
+                          builder: (ctx) => AlertDialog(
+                            title: const Text('Edit post'),
+                            content: TextField(
+                              controller: c,
+                              maxLines: 4,
+                              decoration: const InputDecoration(
+                                  hintText: 'Update message'),
+                            ),
+                            actions: [
+                              TextButton(
+                                  onPressed: () => Navigator.pop(ctx),
+                                  child: const Text('Cancel')),
+                              FilledButton(
+                                onPressed: () =>
+                                    Navigator.pop(ctx, c.text.trim()),
+                                child: const Text('Save'),
+                              ),
+                            ],
+                          ),
+                        );
+                        if (updated == null || updated.isEmpty) return;
+                        await _service.editPost(post.id, updated);
+                        await _load();
+                        if (!mounted) return;
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('Post updated'),
+                            behavior: SnackBarBehavior.floating,
+                          ),
+                        );
+                      }
+                      if (v == 'report') {
+                        final reason = await _askReportReason();
+                        if (reason == null || reason.isEmpty) return;
+                        await _service.reportPost(post.id, reason);
+                        if (!mounted) return;
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('Report submitted to admin'),
+                            behavior: SnackBarBehavior.floating,
+                          ),
+                        );
+                      }
+                    } catch (e) {
+                      if (!mounted) return;
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text('Action failed: $e'),
+                          behavior: SnackBarBehavior.floating,
+                        ),
+                      );
+                    }
+                  },
+                  itemBuilder: (_) => [
+                    if (_isMyPost(post))
+                      const PopupMenuItem(
+                          value: 'edit', child: Text('Edit my post')),
+                    if (_isMyPost(post))
+                      const PopupMenuItem(
+                          value: 'delete', child: Text('Delete my post')),
+                    if (!_isMyPost(post))
+                      const PopupMenuItem(
+                          value: 'report', child: Text('Report post')),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          if (hasImage) ...[
+            const SizedBox(height: 12),
+            GestureDetector(
+              onTap: () => _showPostDetail(post),
+              child: AspectRatio(
+                aspectRatio: 1,
+                child: Image.memory(
+                  base64Decode(post.imageBase64!),
+                  fit: BoxFit.cover,
+                  gaplessPlayback: true,
+                ),
+              ),
+            ),
+          ],
+          Padding(
+            padding: const EdgeInsets.fromLTRB(10, 12, 10, 4),
+            child: Row(
+              children: [
+                InkWell(
+                  onTap: () => _toggleLikeForPost(post),
+                  borderRadius: BorderRadius.circular(8),
+                  child: Padding(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+                    child: Row(
+                      children: [
+                        Icon(
+                          liked
+                              ? Icons.favorite_rounded
+                              : Icons.favorite_border_rounded,
+                          color: DupePalette.pinkDeep,
+                          size: 26,
+                        ),
+                        const SizedBox(width: 6),
+                        Text(
+                          _compactCount(post.likeCount),
+                          style: GoogleFonts.inter(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w500,
+                            color: DupePalette.textPrimary,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                InkWell(
+                  onTap: () => _showPostDetail(post),
+                  borderRadius: BorderRadius.circular(8),
+                  child: Padding(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+                    child: Row(
+                      children: [
+                        Icon(Icons.chat_bubble_outline_rounded,
+                            color: DupePalette.textPrimary, size: 24),
+                        const SizedBox(width: 6),
+                        Text(
+                          _compactCount(post.replies.length),
+                          style: GoogleFonts.inter(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w500,
+                            color: DupePalette.textPrimary,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                const Spacer(),
+                IconButton(
+                  onPressed: () => _sharePost(post),
+                  icon: Icon(Icons.share_outlined,
+                      color: DupePalette.textPrimary, size: 24),
+                  padding: EdgeInsets.zero,
+                  constraints:
+                      const BoxConstraints(minWidth: 40, minHeight: 40),
+                ),
+              ],
+            ),
+          ),
+          GestureDetector(
+            onTap: () => _showPostDetail(post),
+            behavior: HitTestBehavior.opaque,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(14, 0, 14, 16),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(post.author, style: authorStyle),
+                  Text(' ', style: authorStyle),
+                  Expanded(
+                    child: post.description.isEmpty
+                        ? Text(
+                            'No description.',
+                            style: captionStyle.copyWith(
+                              color: DupePalette.greySubtitle,
+                            ),
+                          )
+                        : _LinkText(post.description, style: captionStyle),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<String?> _askReportReason() async {
@@ -249,6 +599,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
     await showModalBottomSheet(
       context: context,
       isScrollControlled: true,
+      useRootNavigator: true,
       useSafeArea: true,
       backgroundColor: Colors.transparent,
       builder: (ctx) => _PostDetailSheet(
@@ -273,293 +624,120 @@ class _CommunityScreenState extends State<CommunityScreen> {
         },
       ),
     );
+    if (mounted) await _load(forceRefresh: true);
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: DupePalette.scaffoldLight,
       appBar: widget.embedded
           ? null
           : AppBar(
               title: const Text('Community'),
-              backgroundColor: AppColors.cardSurface,
-              foregroundColor: AppColors.purpleDark,
+              backgroundColor: Colors.white,
+              foregroundColor: DupePalette.textPrimary,
+              surfaceTintColor: Colors.transparent,
             ),
       body: _loading
-          ? const Center(child: CircularProgressIndicator())
-          : Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Container(
-                  margin: const EdgeInsets.all(16),
-                  padding: const EdgeInsets.all(18),
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      colors: [
-                        AppColors.bluePrimary.withValues(alpha: 0.12),
-                        Colors.white
-                      ],
-                    ),
-                    borderRadius: BorderRadius.circular(16),
-                    border: Border.all(color: AppColors.borderLightBlue),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text(
-                        'Community feed',
-                        style: TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold,
-                            color: AppColors.purpleDark),
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        'Share dupes like a social feed. Add image + description and get replies.',
-                        style: TextStyle(
-                            color: AppColors.greySubtitle, height: 1.4),
-                      ),
-                    ],
-                  ),
+          ? const Center(child: CircularProgressIndicator(color: DupePalette.pink))
+          : Container(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [
+                    const Color(0xFFEEF9F6),
+                    DupePalette.blueSoft.withValues(alpha: 0.12),
+                    DupePalette.teal.withValues(alpha: 0.08),
+                  ],
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
                 ),
-                Expanded(
-                  child: _posts.isEmpty
-                      ? Center(
-                          child: Text(
-                            'No posts yet. Tap + to ask for a dupe.',
-                            style: TextStyle(color: AppColors.greySubtitle),
-                          ),
-                        )
-                      : ListView.builder(
-                          padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-                          itemCount: _posts.length,
-                          itemBuilder: (_, i) {
-                            final post = _posts[i];
-                            return Card(
-                              margin: const EdgeInsets.only(bottom: 12),
-                              shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(16)),
-                              child: InkWell(
-                                onTap: () async => _showPostDetail(post),
-                                borderRadius: BorderRadius.circular(16),
-                                child: Padding(
-                                  padding: const EdgeInsets.all(12),
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      Row(
-                                        children: [
-                                          CircleAvatar(
-                                            radius: 16,
-                                            backgroundImage: (post.authorPfp !=
-                                                        null &&
-                                                    post.authorPfp!.isNotEmpty)
-                                                ? MemoryImage(base64Decode(
-                                                    post.authorPfp!))
-                                                : null,
-                                            child: (post.authorPfp == null ||
-                                                    post.authorPfp!.isEmpty)
-                                                ? const Icon(
-                                                    Icons
-                                                        .person_outline_rounded,
-                                                    size: 16)
-                                                : null,
-                                          ),
-                                          const SizedBox(width: 8),
-                                          Expanded(
-                                            child: Column(
-                                              crossAxisAlignment:
-                                                  CrossAxisAlignment.start,
-                                              children: [
-                                                Text(
-                                                  post.author,
-                                                  style: const TextStyle(
-                                                    fontWeight: FontWeight.w600,
-                                                    color: AppColors.purpleDark,
-                                                  ),
-                                                ),
-                                                Text(
-                                                  _timeAgo(post.createdAt),
-                                                  style: TextStyle(
-                                                      fontSize: 12,
-                                                      color: Colors.grey[600]),
-                                                ),
-                                              ],
-                                            ),
-                                          ),
-                                          Text(
-                                            '${post.replies.length} replies',
-                                            style: TextStyle(
-                                                fontSize: 12,
-                                                color: Colors.grey[700]),
-                                          ),
-                                          PopupMenuButton<String>(
-                                            onSelected: (v) async {
-                                              try {
-                                                if (v == 'delete') {
-                                                  await _service
-                                                      .deletePost(post.id);
-                                                  await _load();
-                                                  if (!mounted) return;
-                                                  ScaffoldMessenger.of(context)
-                                                      .showSnackBar(
-                                                    const SnackBar(
-                                                      content:
-                                                          Text('Post deleted'),
-                                                      behavior: SnackBarBehavior
-                                                          .floating,
-                                                    ),
-                                                  );
-                                                }
-                                                if (v == 'edit') {
-                                                  final c =
-                                                      TextEditingController(
-                                                          text:
-                                                              post.description);
-                                                  final updated =
-                                                      await showDialog<String>(
-                                                    context: context,
-                                                    builder: (ctx) =>
-                                                        AlertDialog(
-                                                      title: const Text(
-                                                          'Edit post'),
-                                                      content: TextField(
-                                                        controller: c,
-                                                        maxLines: 4,
-                                                        decoration:
-                                                            const InputDecoration(
-                                                                hintText:
-                                                                    'Update message'),
-                                                      ),
-                                                      actions: [
-                                                        TextButton(
-                                                            onPressed: () =>
-                                                                Navigator.pop(
-                                                                    ctx),
-                                                            child: const Text(
-                                                                'Cancel')),
-                                                        FilledButton(
-                                                          onPressed: () =>
-                                                              Navigator.pop(
-                                                                  ctx,
-                                                                  c.text
-                                                                      .trim()),
-                                                          child: const Text(
-                                                              'Save'),
-                                                        ),
-                                                      ],
-                                                    ),
-                                                  );
-                                                  if (updated == null ||
-                                                      updated.isEmpty) return;
-                                                  await _service.editPost(
-                                                      post.id, updated);
-                                                  await _load();
-                                                  if (!mounted) return;
-                                                  ScaffoldMessenger.of(context)
-                                                      .showSnackBar(
-                                                    const SnackBar(
-                                                      content:
-                                                          Text('Post updated'),
-                                                      behavior: SnackBarBehavior
-                                                          .floating,
-                                                    ),
-                                                  );
-                                                }
-                                                if (v == 'report') {
-                                                  final reason =
-                                                      await _askReportReason();
-                                                  if (reason == null ||
-                                                      reason.isEmpty) return;
-                                                  await _service.reportPost(
-                                                      post.id, reason);
-                                                  if (!mounted) return;
-                                                  ScaffoldMessenger.of(context)
-                                                      .showSnackBar(
-                                                    const SnackBar(
-                                                      content: Text(
-                                                          'Report submitted to admin'),
-                                                      behavior: SnackBarBehavior
-                                                          .floating,
-                                                    ),
-                                                  );
-                                                }
-                                              } catch (e) {
-                                                if (!mounted) return;
-                                                ScaffoldMessenger.of(context)
-                                                    .showSnackBar(
-                                                  SnackBar(
-                                                    content: Text(
-                                                        'Action failed: $e'),
-                                                    behavior: SnackBarBehavior
-                                                        .floating,
-                                                  ),
-                                                );
-                                              }
-                                            },
-                                            itemBuilder: (_) => [
-                                              if (_isMyPost(post))
-                                                const PopupMenuItem(
-                                                    value: 'edit',
-                                                    child:
-                                                        Text('Edit my post')),
-                                              if (_isMyPost(post))
-                                                const PopupMenuItem(
-                                                    value: 'delete',
-                                                    child:
-                                                        Text('Delete my post')),
-                                              if (!_isMyPost(post))
-                                                const PopupMenuItem(
-                                                    value: 'report',
-                                                    child: Text('Report post')),
-                                            ],
-                                          ),
-                                        ],
-                                      ),
-                                      if (post.imageBase64 != null &&
-                                          post.imageBase64!.isNotEmpty) ...[
-                                        const SizedBox(height: 10),
-                                        ClipRRect(
-                                          borderRadius:
-                                              BorderRadius.circular(12),
-                                          child: ConstrainedBox(
-                                            constraints: const BoxConstraints(
-                                                maxHeight: 260),
-                                            child: Center(
-                                              child: Image.memory(
-                                                base64Decode(post.imageBase64!),
-                                                fit: BoxFit.contain,
-                                              ),
-                                            ),
-                                          ),
-                                        ),
-                                      ],
-                                      if (post.description.isNotEmpty) ...[
-                                        const SizedBox(height: 10),
-                                        _LinkText(
-                                          post.description,
-                                          style: TextStyle(
-                                            color: AppColors.greySubtitle,
-                                            height: 1.4,
-                                          ),
-                                        ),
-                                      ],
-                                    ],
-                                  ),
-                                ),
-                              ),
-                            );
-                          },
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  if (widget.embedded) ...[
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(20, 12, 20, 4),
+                      child: Text(
+                        'Community',
+                        style: GoogleFonts.playfairDisplay(
+                          fontSize: 26,
+                          fontWeight: FontWeight.w700,
+                          color: DupePalette.textPrimary,
+                          height: 1.1,
                         ),
-                ),
-              ],
+                      ),
+                    ),
+                  ],
+                  Expanded(
+                    child: _posts.isEmpty
+                        ? Center(
+                            child: Text(
+                              'No posts yet. Tap New post to ask for a dupe.',
+                              textAlign: TextAlign.center,
+                              style: GoogleFonts.inter(
+                                color: DupePalette.greySubtitle,
+                                fontSize: 15,
+                              ),
+                            ),
+                          )
+                        : ListView.builder(
+                            padding: EdgeInsets.fromLTRB(
+                              16,
+                              widget.embedded ? 4 : 12,
+                              16,
+                              100,
+                            ),
+                            itemCount: _posts.length,
+                            itemBuilder: (_, i) =>
+                                _buildFeedPostCard(_posts[i]),
+                          ),
+                  ),
+                ],
+              ),
             ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => _showAddPost(context),
-        icon: const Icon(Icons.add_rounded),
-        label: const Text('New post'),
-        backgroundColor: AppColors.bluePrimary,
+      floatingActionButton: Container(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            colors: [DupePalette.pink, DupePalette.blue],
+            begin: Alignment.centerLeft,
+            end: Alignment.centerRight,
+          ),
+          borderRadius: BorderRadius.circular(28),
+          boxShadow: [
+            BoxShadow(
+              color: DupePalette.pink.withValues(alpha: 0.38),
+              blurRadius: 14,
+              offset: const Offset(0, 5),
+            ),
+          ],
+        ),
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            onTap: () => _showAddPost(context),
+            borderRadius: BorderRadius.circular(28),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(Icons.add_rounded, color: Colors.white, size: 22),
+                  const SizedBox(width: 8),
+                  Text(
+                    'New post',
+                    style: GoogleFonts.inter(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w700,
+                      fontSize: 15,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -600,12 +778,16 @@ class _PostDetailSheetState extends State<_PostDetailSheet> {
   String? _replyingToReplyId;
   final Set<String> _expandedThreadParents = <String>{};
   static const int _maxVisibleDepth = 2;
+  Timer? _detailTimeTicker;
 
   @override
   void initState() {
     super.initState();
     _post = widget.initialPost;
     _highlightReplyId = widget.initialHighlightReplyId;
+    _detailTimeTicker = Timer.periodic(const Duration(seconds: 30), (_) {
+      if (mounted) setState(() {});
+    });
     if (_highlightReplyId != null && _highlightReplyId!.isNotEmpty) {
       Future.delayed(const Duration(seconds: 4), () {
         if (!mounted) return;
@@ -616,6 +798,7 @@ class _PostDetailSheetState extends State<_PostDetailSheet> {
 
   @override
   void dispose() {
+    _detailTimeTicker?.cancel();
     _replyController.dispose();
     super.dispose();
   }
@@ -657,6 +840,8 @@ class _PostDetailSheetState extends State<_PostDetailSheet> {
         imageBase64: _post.imageBase64,
         createdAt: _post.createdAt,
         replies: [..._post.replies, optimistic],
+        likeCount: _post.likeCount,
+        likedByMe: _post.likedByMe,
       );
     });
     try {
@@ -693,6 +878,8 @@ class _PostDetailSheetState extends State<_PostDetailSheet> {
             createdAt: _post.createdAt,
             replies:
                 _post.replies.where((r) => r.id != _pendingReplyTempId).toList(),
+            likeCount: _post.likeCount,
+            likedByMe: _post.likedByMe,
           );
           _pendingReplyTempId = null;
         });
@@ -803,9 +990,24 @@ class _PostDetailSheetState extends State<_PostDetailSheet> {
       maxChildSize: 0.95,
       expand: false,
       builder: (_, scrollController) => Container(
-        decoration: const BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            colors: [
+              DupePalette.cardSurface,
+              DupePalette.pink.withValues(alpha: 0.06),
+              DupePalette.teal.withValues(alpha: 0.05),
+            ],
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+          ),
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+          boxShadow: [
+            BoxShadow(
+              color: DupePalette.pink.withValues(alpha: 0.12),
+              blurRadius: 18,
+              offset: const Offset(0, -4),
+            ),
+          ],
         ),
         child: Column(
           children: [
@@ -815,27 +1017,45 @@ class _PostDetailSheetState extends State<_PostDetailSheet> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       CircleAvatar(
                         radius: 15,
+                        backgroundColor: DupePalette.pink.withValues(alpha: 0.18),
                         backgroundImage: (_post.authorPfp != null &&
                                 _post.authorPfp!.isNotEmpty)
                             ? MemoryImage(base64Decode(_post.authorPfp!))
                             : null,
                         child: (_post.authorPfp == null ||
                                 _post.authorPfp!.isEmpty)
-                            ? const Icon(Icons.person_outline_rounded, size: 15)
+                            ? Icon(Icons.person_outline_rounded,
+                                size: 15, color: DupePalette.pinkDeep)
                             : null,
                       ),
                       const SizedBox(width: 8),
-                      Text(
-                        _post.author,
-                        style: const TextStyle(
-                            fontWeight: FontWeight.w600,
-                            color: AppColors.purpleDark),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              _post.author,
+                              style: const TextStyle(
+                                  fontWeight: FontWeight.w600,
+                                  color: AppColors.purpleDark),
+                            ),
+                            Text(
+                              _timeAgo(_post.createdAt),
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: DupePalette.greySubtitle,
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
-                      const Spacer(),
                       PopupMenuButton<String>(
+                        icon: Icon(Icons.more_vert_rounded,
+                            color: DupePalette.textPrimary),
                         onSelected: (v) async {
                           try {
                             if (v == 'delete') {
@@ -961,16 +1181,18 @@ class _PostDetailSheetState extends State<_PostDetailSheet> {
                   const SizedBox(height: 8),
                   _LinkText(
                     _post.description,
-                    style:
-                        TextStyle(color: AppColors.greySubtitle, height: 1.4),
+                    style: TextStyle(
+                        fontSize: 14,
+                        color: DupePalette.textPrimary,
+                        height: 1.4),
                   ),
-                  const SizedBox(height: 8),
-                  Text(DateFormat.yMMMd().add_Hm().format(_post.createdAt),
-                      style: TextStyle(fontSize: 12, color: Colors.grey[600])),
                 ],
               ),
             ),
-            const Divider(height: 1),
+            Divider(
+                height: 1,
+                thickness: 1,
+                color: DupePalette.pink.withValues(alpha: 0.22)),
             Expanded(
               child: Builder(builder: (context) {
                 final threaded = _threadedReplies();
@@ -1004,9 +1226,16 @@ class _PostDetailSheetState extends State<_PostDetailSheet> {
                       padding: const EdgeInsets.all(6),
                       decoration: BoxDecoration(
                         color: isHighlighted
-                            ? AppColors.bluePrimary.withValues(alpha: 0.16)
+                            ? DupePalette.pink.withValues(alpha: 0.14)
                             : Colors.transparent,
                         borderRadius: BorderRadius.circular(8),
+                        border: isHighlighted
+                            ? Border.all(
+                                color:
+                                    DupePalette.teal.withValues(alpha: 0.45),
+                                width: 1,
+                              )
+                            : null,
                       ),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1016,14 +1245,16 @@ class _PostDetailSheetState extends State<_PostDetailSheet> {
                             children: [
                               CircleAvatar(
                                 radius: 12,
+                                backgroundColor:
+                                    DupePalette.teal.withValues(alpha: 0.15),
                                 backgroundImage: (r.authorPfp != null &&
                                         r.authorPfp!.isNotEmpty)
                                     ? MemoryImage(base64Decode(r.authorPfp!))
                                     : null,
                                 child: (r.authorPfp == null ||
                                         r.authorPfp!.isEmpty)
-                                    ? const Icon(Icons.person_outline_rounded,
-                                        size: 13)
+                                    ? Icon(Icons.person_outline_rounded,
+                                        size: 13, color: DupePalette.tealWall)
                                     : null,
                               ),
                               const SizedBox(width: 8),
@@ -1040,15 +1271,17 @@ class _PostDetailSheetState extends State<_PostDetailSheet> {
                                       ),
                                     ),
                                     Text(
-                                      DateFormat.yMMMd().format(r.createdAt),
+                                      _timeAgo(r.createdAt),
                                       style: TextStyle(
                                           fontSize: 11,
-                                          color: Colors.grey[600]),
+                                          color: DupePalette.greySubtitle),
                                     ),
                                   ],
                                 ),
                               ),
                               PopupMenuButton<String>(
+                                icon: Icon(Icons.more_vert_rounded,
+                                    size: 20, color: DupePalette.textPrimary),
                                 onSelected: (v) async {
                                   try {
                                     if (v == 'reply_back') {
@@ -1171,7 +1404,8 @@ class _PostDetailSheetState extends State<_PostDetailSheet> {
                                 border: depth > 0
                                     ? Border(
                                         left: BorderSide(
-                                          color: AppColors.borderLightBlue,
+                                          color: DupePalette.teal
+                                              .withValues(alpha: 0.55),
                                           width: 1.2,
                                         ),
                                       )
@@ -1189,17 +1423,28 @@ class _PostDetailSheetState extends State<_PostDetailSheet> {
                                       padding: const EdgeInsets.symmetric(
                                           horizontal: 8, vertical: 3),
                                       decoration: BoxDecoration(
-                                        color: AppColors.bluePrimary
-                                            .withValues(alpha: 0.12),
+                                        gradient: LinearGradient(
+                                          colors: [
+                                            DupePalette.pink
+                                                .withValues(alpha: 0.14),
+                                            DupePalette.teal
+                                                .withValues(alpha: 0.1),
+                                          ],
+                                        ),
                                         borderRadius:
                                             BorderRadius.circular(999),
+                                        border: Border.all(
+                                          color: DupePalette.pink
+                                              .withValues(alpha: 0.35),
+                                          width: 1,
+                                        ),
                                       ),
                                       child: Text(
                                         'Replying to @${parentReply.author}',
-                                        style: const TextStyle(
+                                        style: TextStyle(
                                           fontSize: 11,
                                           fontWeight: FontWeight.w600,
-                                          color: AppColors.purpleDark,
+                                          color: DupePalette.pinkDeep,
                                         ),
                                       ),
                                     ),
@@ -1207,7 +1452,8 @@ class _PostDetailSheetState extends State<_PostDetailSheet> {
                                     r.body,
                                     style: const TextStyle(
                                         fontSize: 14,
-                                        color: AppColors.purpleDark),
+                                        color: AppColors.purpleDark,
+                                        height: 1.35),
                                   ),
                                 ],
                               ),
@@ -1218,6 +1464,9 @@ class _PostDetailSheetState extends State<_PostDetailSheet> {
                               padding: EdgeInsets.only(
                                   left: 26 + indent + 6, top: 4),
                               child: TextButton(
+                                style: TextButton.styleFrom(
+                                  foregroundColor: DupePalette.pinkDeep,
+                                ),
                                 onPressed: () {
                                   if (!mounted || r.id.isEmpty) return;
                                   setState(
@@ -1236,6 +1485,9 @@ class _PostDetailSheetState extends State<_PostDetailSheet> {
                             Padding(
                               padding: EdgeInsets.only(left: 26 + indent + 6),
                               child: TextButton(
+                                style: TextButton.styleFrom(
+                                  foregroundColor: DupePalette.tealWall,
+                                ),
                                 onPressed: () {
                                   if (!mounted) return;
                                   setState(() =>
@@ -1258,8 +1510,8 @@ class _PostDetailSheetState extends State<_PostDetailSheet> {
                 16,
                 8,
                 16,
-                8 +
-                    MediaQuery.of(context).padding.bottom +
+                12 +
+                    MediaQuery.of(context).viewPadding.bottom +
                     MediaQuery.of(context).viewInsets.bottom,
               ),
               child: Row(
@@ -1273,25 +1525,37 @@ class _PostDetailSheetState extends State<_PostDetailSheet> {
                         fontSize: 15,
                         fontWeight: FontWeight.w500,
                       ),
-                      cursorColor: AppColors.bluePrimary,
+                      cursorColor: DupePalette.pinkDeep,
                       decoration: InputDecoration(
                         filled: true,
-                        fillColor: Colors.white,
+                        fillColor: DupePalette.cardSurface.withValues(
+                            alpha: 0.92),
                         hintText: _replyingToName != null &&
                                 _replyingToName!.isNotEmpty
                             ? 'Replying to $_replyingToName...'
                             : 'Reply with a store link or suggestion...',
                         hintStyle: TextStyle(
-                          color: Colors.grey[600],
+                          color: DupePalette.greyGuest,
                           fontSize: 14,
                         ),
-                        border: const OutlineInputBorder(),
-                        enabledBorder: OutlineInputBorder(
-                          borderSide: BorderSide(color: Colors.grey[350]!),
-                        ),
-                        focusedBorder: const OutlineInputBorder(
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(14),
                           borderSide: BorderSide(
-                              color: AppColors.bluePrimary, width: 1.5),
+                            color:
+                                DupePalette.pink.withValues(alpha: 0.35),
+                          ),
+                        ),
+                        enabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(14),
+                          borderSide: BorderSide(
+                            color:
+                                DupePalette.teal.withValues(alpha: 0.4),
+                          ),
+                        ),
+                        focusedBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(14),
+                          borderSide: BorderSide(
+                              color: DupePalette.pinkDeep, width: 2),
                         ),
                         contentPadding: const EdgeInsets.symmetric(
                             horizontal: 12, vertical: 10),
@@ -1301,20 +1565,48 @@ class _PostDetailSheetState extends State<_PostDetailSheet> {
                     ),
                   ),
                   const SizedBox(width: 8),
-                  IconButton.filled(
-                    onPressed: _sendingReply ? null : _sendReply,
-                    icon: _sendingReply
-                        ? const SizedBox(
-                            width: 18,
-                            height: 18,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              color: Colors.white,
-                            ),
-                          )
-                        : const Icon(Icons.send_rounded),
-                    style: IconButton.styleFrom(
-                        backgroundColor: AppColors.bluePrimary),
+                  Material(
+                    color: Colors.transparent,
+                    child: InkWell(
+                      onTap: _sendingReply ? null : _sendReply,
+                      customBorder: const CircleBorder(),
+                      child: Ink(
+                        height: 48,
+                        width: 48,
+                        decoration: BoxDecoration(
+                          gradient: _sendingReply
+                              ? null
+                              : DupePalette.ctaGradient,
+                          color: _sendingReply
+                              ? DupePalette.greyGuest
+                              : null,
+                          shape: BoxShape.circle,
+                          boxShadow: _sendingReply
+                              ? null
+                              : [
+                                  BoxShadow(
+                                    color: DupePalette.pink
+                                        .withValues(alpha: 0.35),
+                                    blurRadius: 10,
+                                    offset: const Offset(0, 3),
+                                  ),
+                                ],
+                        ),
+                        child: Center(
+                          child: _sendingReply
+                              ? const SizedBox(
+                                  width: 20,
+                                  height: 20,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    color: Colors.white,
+                                  ),
+                                )
+                              : const Icon(Icons.send_rounded,
+                                  color: Colors.white, size: 22),
+                        ),
+                      ),
+                    ),
                   ),
                 ],
               ),
@@ -1336,6 +1628,7 @@ class _LinkText extends StatelessWidget {
     r'((https?:\/\/|www\.)[^\s]+)',
     caseSensitive: false,
   );
+  static final RegExp _hashtagRegex = RegExp(r'(#[^\s#]+)');
 
   Future<void> _open(String raw) async {
     final normalized = raw.startsWith('http://') || raw.startsWith('https://')
@@ -1346,20 +1639,45 @@ class _LinkText extends StatelessWidget {
     await launchUrl(uri, mode: LaunchMode.platformDefault);
   }
 
+  void _addPlainWithHashtags(
+    String segment,
+    TextStyle base,
+    TextStyle hashtagStyle,
+    List<InlineSpan> spans,
+  ) {
+    if (segment.isEmpty) return;
+    var hStart = 0;
+    for (final m in _hashtagRegex.allMatches(segment)) {
+      if (m.start > hStart) {
+        spans.add(TextSpan(text: segment.substring(hStart, m.start), style: base));
+      }
+      spans.add(TextSpan(text: m.group(0)!, style: hashtagStyle));
+      hStart = m.end;
+    }
+    if (hStart < segment.length) {
+      spans.add(TextSpan(text: segment.substring(hStart), style: base));
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final base =
-        style ?? const TextStyle(fontSize: 14, color: AppColors.greySubtitle);
+        style ?? TextStyle(fontSize: 14, color: DupePalette.textPrimary, height: 1.4);
     final linkStyle = base.copyWith(
-      color: AppColors.bluePrimary,
+      color: DupePalette.teal,
       decoration: TextDecoration.underline,
       fontWeight: FontWeight.w600,
     );
+    final hashtagStyle = base.copyWith(
+      color: DupePalette.pinkDeep,
+      fontWeight: FontWeight.w700,
+      decoration: TextDecoration.none,
+    );
     final spans = <InlineSpan>[];
-    int start = 0;
+    var start = 0;
     for (final m in _urlRegex.allMatches(text)) {
       if (m.start > start) {
-        spans.add(TextSpan(text: text.substring(start, m.start), style: base));
+        _addPlainWithHashtags(text.substring(start, m.start), base, hashtagStyle, spans);
       }
       final link = m.group(0)!;
       spans.add(
@@ -1372,7 +1690,7 @@ class _LinkText extends StatelessWidget {
       start = m.end;
     }
     if (start < text.length) {
-      spans.add(TextSpan(text: text.substring(start), style: base));
+      _addPlainWithHashtags(text.substring(start), base, hashtagStyle, spans);
     }
 
     return SelectableText.rich(
@@ -1382,10 +1700,10 @@ class _LinkText extends StatelessWidget {
   }
 }
 
-String _timeAgo(DateTime dt) {
-  final diff = DateTime.now().difference(dt);
-  if (diff.inMinutes < 1) return 'Just now';
-  if (diff.inHours < 1) return '${diff.inMinutes}m ago';
-  if (diff.inDays < 1) return '${diff.inHours}h ago';
+String _timeAgo(DateTime dtUtc) {
+  final diff = DateTime.now().toUtc().difference(dtUtc);
+  if (diff.inSeconds < 45) return 'Just now';
+  if (diff.inMinutes < 60) return '${diff.inMinutes}m ago';
+  if (diff.inHours < 24) return '${diff.inHours}h ago';
   return '${diff.inDays}d ago';
 }

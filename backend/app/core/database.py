@@ -130,6 +130,10 @@ class DatabaseManager:
         if self._connected:
             logger.info("Already connected to MongoDB")
             return
+
+        # Stale client from a previous failed attempt
+        if self.client is not None:
+            self._reset_client()
         
         uri = uri or settings.MONGO_URI
         db_name = db_name or settings.MONGO_DB_NAME
@@ -138,8 +142,8 @@ class DatabaseManager:
             # Create client with timeout
             self.client = MongoClient(
                 uri,
-                serverSelectionTimeoutMS=5000,
-                connectTimeoutMS=10000,
+                serverSelectionTimeoutMS=10000,
+                connectTimeoutMS=15000,
                 socketTimeoutMS=10000
             )
             
@@ -156,14 +160,29 @@ class DatabaseManager:
         except (ConnectionFailure, ServerSelectionTimeoutError) as e:
             logger.error(f"Failed to connect to MongoDB: {e}")
             self._connected = False
+            self._reset_client()
+            raise
+        except Exception as e:
+            logger.error(f"Failed to connect to MongoDB: {e}")
+            self._connected = False
+            self._reset_client()
             raise
     
+    def _reset_client(self):
+        """Close client after failed connect or before retry."""
+        if self.client:
+            try:
+                self.client.close()
+            except Exception:
+                pass
+        self.client = None
+        self.db = None
+
     def disconnect(self):
         """Disconnect from MongoDB"""
-        if self.client:
-            self.client.close()
-            self._connected = False
-            logger.info("Disconnected from MongoDB")
+        self._reset_client()
+        self._connected = False
+        logger.info("Disconnected from MongoDB")
     
     def is_connected(self) -> bool:
         """Check if connected to database"""
@@ -296,7 +315,16 @@ def get_db() -> Database:
         MongoDB database instance
     """
     if not db_manager.is_connected():
-        raise RuntimeError("Database not connected")
+        # Startup may have skipped DB (e.g. transient Atlas/DNS failure) while the API
+        # still serves routes. Retry once so the first admin/login request can recover.
+        try:
+            logger.info("get_db: not connected; attempting db_manager.connect()...")
+            db_manager.connect()
+        except Exception as e:
+            logger.error(f"get_db: connect failed: {e}")
+            raise RuntimeError(f"Database not connected: {e}") from e
+    if db_manager.db is None:
+        raise RuntimeError("Database not connected (db handle is None)")
     return db_manager.db
 
 

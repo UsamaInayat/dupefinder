@@ -1,5 +1,6 @@
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -8,6 +9,7 @@ import '../../services/api_service.dart';
 import '../../services/wishlist_service.dart';
 import '../../services/compare_service.dart';
 import '../../services/dupe_history_service.dart';
+import '../../theme/app_theme.dart';
 
 /// FYP: User Experience + Image Matching — upload/capture image, get similar products.
 class ImageSearchScreen extends StatefulWidget {
@@ -232,29 +234,94 @@ class _ImageSearchScreenState extends State<ImageSearchScreen> {
 
   Widget _scrollBody() {
     return SingleChildScrollView(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // Pick image
-          Row(
-            children: [
-              Expanded(
-                child: OutlinedButton.icon(
-                  onPressed: _loading ? null : () => _pickImage(false),
-                  icon: const Icon(Icons.photo_library),
-                  label: const Text('Gallery'),
-                ),
+          if (widget.embedded) ...[
+            Text(
+              'Find Similar',
+              style: GoogleFonts.playfairDisplay(
+                fontSize: 26,
+                fontWeight: FontWeight.bold,
+                color: DupePalette.textPrimary,
               ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: OutlinedButton.icon(
-                  onPressed: _loading ? null : () => _pickImage(true),
-                  icon: const Icon(Icons.camera_alt),
-                  label: const Text('Camera'),
-                ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              'Upload or take a photo to discover dupes',
+              style: GoogleFonts.inter(
+                fontSize: 14,
+                color: DupePalette.greySubtitle,
+                height: 1.35,
               ),
-            ],
+            ),
+            const SizedBox(height: 18),
+          ],
+          Container(
+            padding: const EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(22),
+              gradient: LinearGradient(
+                colors: [
+                  const Color(0xFF2D3A5A),
+                  DupePalette.pinkDeep.withValues(alpha: 0.85),
+                ],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+            ),
+            child: Column(
+              children: [
+                Icon(Icons.add_photo_alternate_outlined, color: Colors.white.withValues(alpha: 0.95), size: 36),
+                const SizedBox(height: 10),
+                Text(
+                  'Upload your item',
+                  style: GoogleFonts.inter(
+                    color: Colors.white,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 17,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  'Take a photo or choose from gallery',
+                  textAlign: TextAlign.center,
+                  style: GoogleFonts.inter(
+                    color: Colors.white.withValues(alpha: 0.85),
+                    fontSize: 13,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: _loading ? null : () => _pickImage(true),
+                        icon: const Icon(Icons.camera_alt, color: Colors.white, size: 20),
+                        label: Text('Camera', style: GoogleFonts.inter(color: Colors.white, fontWeight: FontWeight.w600)),
+                        style: OutlinedButton.styleFrom(
+                          side: BorderSide(color: Colors.white.withValues(alpha: 0.85)),
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: _loading ? null : () => _pickImage(false),
+                        icon: const Icon(Icons.photo_library, color: Colors.white, size: 20),
+                        label: Text('Gallery', style: GoogleFonts.inter(color: Colors.white, fontWeight: FontWeight.w600)),
+                        style: OutlinedButton.styleFrom(
+                          side: BorderSide(color: Colors.white.withValues(alpha: 0.85)),
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
           ),
           const SizedBox(height: 16),
 
@@ -283,17 +350,44 @@ class _ImageSearchScreenState extends State<ImageSearchScreen> {
             const SizedBox(height: 12),
             // Category + Price range in one row
             Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  'Filters',
+                  style: GoogleFonts.inter(
+                    fontWeight: FontWeight.w700,
+                    fontSize: 15,
+                    color: DupePalette.textPrimary,
+                  ),
+                ),
+                Text(
+                  'Advanced',
+                  style: GoogleFonts.inter(
+                    fontWeight: FontWeight.w600,
+                    fontSize: 13,
+                    color: DupePalette.blue,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Expanded(
                   child: DropdownButtonFormField<String>(
                     value: _selectedCategory.isEmpty ? null : _selectedCategory,
                     menuMaxHeight: 420,
-                    decoration: const InputDecoration(
+                    decoration: InputDecoration(
                       labelText: 'Category',
-                      border: OutlineInputBorder(),
+                      filled: true,
+                      fillColor: Colors.white,
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(16),
+                        borderSide: BorderSide(color: DupePalette.pink.withValues(alpha: 0.25)),
+                      ),
                       contentPadding:
-                          EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                          const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                     ),
                     isExpanded: true,
                     items: _categories
@@ -312,11 +406,16 @@ class _ImageSearchScreenState extends State<ImageSearchScreen> {
                   child: DropdownButtonFormField<int>(
                     value: _selectedPriceRangeIndex,
                     menuMaxHeight: 320,
-                    decoration: const InputDecoration(
+                    decoration: InputDecoration(
                       labelText: 'Price range',
-                      border: OutlineInputBorder(),
+                      filled: true,
+                      fillColor: Colors.white,
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(16),
+                        borderSide: BorderSide(color: DupePalette.teal.withValues(alpha: 0.35)),
+                      ),
                       contentPadding:
-                          EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                          const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                     ),
                     isExpanded: true,
                     items: List.generate(
@@ -332,18 +431,31 @@ class _ImageSearchScreenState extends State<ImageSearchScreen> {
               ],
             ),
             const SizedBox(height: 12),
-            FilledButton.icon(
-              onPressed: _loading ? null : _findSimilar,
-              icon: _loading
-                  ? const SizedBox(
-                      width: 20,
-                      height: 20,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Icon(Icons.search),
-              label: Text(_loading ? 'Searching...' : 'Find Similar'),
-              style: FilledButton.styleFrom(
-                padding: const EdgeInsets.symmetric(vertical: 16),
+            DecoratedBox(
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(28),
+                gradient: DupePalette.ctaGradient,
+              ),
+              child: FilledButton.icon(
+                onPressed: _loading ? null : _findSimilar,
+                style: FilledButton.styleFrom(
+                  backgroundColor: Colors.transparent,
+                  shadowColor: Colors.transparent,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
+                ),
+                icon: _loading
+                    ? const SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                      )
+                    : const Icon(Icons.search, color: Colors.white),
+                label: Text(
+                  _loading ? 'Searching...' : 'Find Similar',
+                  style: GoogleFonts.inter(fontWeight: FontWeight.bold),
+                ),
               ),
             ),
             const SizedBox(height: 16),
@@ -634,17 +746,17 @@ class _ProductCard extends StatelessWidget {
                   const SizedBox(height: 4),
                   Container(
                     padding:
-                        const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                        const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                     decoration: BoxDecoration(
-                      color: Colors.black,
-                      borderRadius: BorderRadius.circular(4),
+                      gradient: DupePalette.ctaGradient,
+                      borderRadius: BorderRadius.circular(10),
                     ),
                     child: Text(
                       '$matchPercent% match',
                       style: const TextStyle(
                         color: Colors.white,
                         fontSize: 11,
-                        fontWeight: FontWeight.w500,
+                        fontWeight: FontWeight.w600,
                       ),
                     ),
                   ),

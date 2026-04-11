@@ -24,7 +24,8 @@ class MainShell extends StatefulWidget {
 class _MainShellState extends State<MainShell> {
   static const _lastTabKey = 'main_shell_last_tab';
   int _index = 0;
-  final Set<int> _loadedTabs = {0};
+  /// All tabs built up-front so switching feels instant (no lazy placeholder).
+  final Set<int> _loadedTabs = {0, 1, 2, 3, 4, 5};
   final _dupeHistoryService = DupeHistoryService();
   final _communityService = CommunityService();
   String? _navProfileImage;
@@ -200,17 +201,15 @@ class _MainShellState extends State<MainShell> {
     }
 
     return Scaffold(
-      appBar: AppBar(
-        title: Text(titles[_index]),
-        actions: [
-          if (_index == 0)
-            IconButton(
-              icon: const Icon(Icons.search_rounded),
-              onPressed: () => _openTab(1),
-              tooltip: 'Find similar',
+      appBar: _index == 0
+          ? null
+          : AppBar(
+              title: Text(titles[_index]),
+              backgroundColor: Colors.white,
+              foregroundColor: DupePalette.textPrimary,
+              elevation: 0,
+              surfaceTintColor: Colors.transparent,
             ),
-        ],
-      ),
       body: IndexedStack(
         index: _index,
         children: [
@@ -244,11 +243,16 @@ class _MainShellState extends State<MainShell> {
         ],
       ),
       bottomNavigationBar: NavigationBar(
+        backgroundColor: Colors.white,
+        surfaceTintColor: Colors.transparent,
+        shadowColor: Colors.black.withValues(alpha: 0.06),
+        elevation: 8,
         selectedIndex: _index,
         onDestinationSelected: (i) {
           _openTab(i);
         },
-        indicatorColor: AppColors.bluePrimary.withValues(alpha: 0.2),
+        indicatorColor: DupePalette.pink.withValues(alpha: 0.22),
+        labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
         destinations: [
           NavigationDestination(
               icon: Icon(Icons.home_outlined),

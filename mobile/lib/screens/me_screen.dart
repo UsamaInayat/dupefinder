@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'dart:convert';
 import 'dart:typed_data';
 import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:google_fonts/google_fonts.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:image_cropper/image_cropper.dart';
@@ -254,7 +255,6 @@ class _MeScreenState extends State<MeScreen> {
   }
 
   Future<void> _openNotification(CommunityNotification n) async {
-    // Optimistic UI update so notification disappears immediately.
     if (mounted) {
       setState(() => _notifications.removeWhere((x) => x.id == n.id));
     }
@@ -265,7 +265,6 @@ class _MeScreenState extends State<MeScreen> {
       await open(n.postId, n.replyId, n.id);
     }
 
-    // Mark as read in background; if it fails, refresh server state.
     try {
       await _communityService.markNotificationRead(n.id);
       widget.onNotificationStateChanged?.call();
@@ -276,150 +275,358 @@ class _MeScreenState extends State<MeScreen> {
     }
   }
 
+  String _displayName() {
+    if (_guest) return 'Guest';
+    if (_username.isNotEmpty) return _username;
+    if (_email != null && _email!.contains('@')) {
+      return _email!.split('@').first;
+    }
+    return 'User';
+  }
+
   @override
   Widget build(BuildContext context) {
-    return ListView(
-      padding: const EdgeInsets.all(20),
-      children: [
-        Center(
-          child: Container(
-            width: 92,
-            height: 92,
-            decoration: BoxDecoration(
-              color: AppColors.bluePrimary.withValues(alpha: 0.15),
-              borderRadius: BorderRadius.circular(46),
-              border: Border.all(color: AppColors.borderLightBlue),
-            ),
-            clipBehavior: Clip.antiAlias,
-            child:
-                (_profileImageBase64 != null && _profileImageBase64!.isNotEmpty)
-                    ? Image.memory(
-                        base64Decode(_profileImageBase64!),
-                        fit: BoxFit.cover,
-                        alignment: Alignment.topCenter,
-                      )
-                    : Icon(
-                        _guest ? Icons.person_outline : Icons.person_rounded,
-                        size: 44,
-                        color: AppColors.bluePrimary,
-                      ),
-          ),
+    return Container(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            DupePalette.pink.withValues(alpha: 0.08),
+            DupePalette.teal.withValues(alpha: 0.1),
+          ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
         ),
-        const SizedBox(height: 16),
-        if (!_guest)
-          TextButton.icon(
-            onPressed: _pickProfileImage,
-            icon: const Icon(Icons.photo_camera_outlined),
-            label: const Text('Change profile picture'),
-          ),
-        if (!_guest)
-          TextButton.icon(
-            onPressed: _editDisplayName,
-            icon: const Icon(Icons.edit_outlined),
-            label: const Text('Edit name'),
-          ),
-        Text(
-          _guest
-              ? 'Guest'
-              : (_username.isNotEmpty
-                  ? _username
-                  : ((_email != null && _email!.contains('@'))
-                      ? _email!.split('@').first
-                      : 'User')),
-          textAlign: TextAlign.center,
-          style: const TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.bold,
-              color: AppColors.purpleDark),
-        ),
-        if (!_guest && _email != null)
-          Text(_email!,
-              textAlign: TextAlign.center,
-              style: TextStyle(color: AppColors.greySubtitle)),
-        if (!_guest && _joinedAt != null && _joinedAt!.isNotEmpty)
-          Text(
-            'Joined app: ${_joinedAt!.substring(0, 10)}',
-            textAlign: TextAlign.center,
-            style: TextStyle(color: AppColors.greySubtitle, fontSize: 12),
-          ),
-        if (_guest)
-          Padding(
-            padding: const EdgeInsets.only(top: 8),
+      ),
+      child: ListView(
+        padding: const EdgeInsets.fromLTRB(20, 12, 20, 28),
+        children: [
+          ShaderMask(
+            blendMode: BlendMode.srcIn,
+            shaderCallback: (bounds) => LinearGradient(
+              colors: [DupePalette.pink, DupePalette.blue],
+            ).createShader(bounds),
             child: Text(
-              'Sign in to sync wishlist & history across devices.',
-              textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 13, color: AppColors.greySubtitle),
+              'Profile',
+              style: GoogleFonts.playfairDisplay(
+                fontSize: 28,
+                fontWeight: FontWeight.bold,
+                color: Colors.white,
+              ),
             ),
           ),
-        const SizedBox(height: 24),
-        _item(Icons.insights_outlined, 'Insights & trends', () {
-          Navigator.push(context,
-              MaterialPageRoute(builder: (_) => const InsightsScreen()));
-        }),
-        _item(Icons.history_rounded, 'Dupe history ($_dupeHistoryCount)', () {
-          Navigator.push(context,
-              MaterialPageRoute(builder: (_) => const DupeHistoryScreen()));
-        }),
-        if (!_guest && _notifications.isNotEmpty) ...[
-          const SizedBox(height: 8),
-          const Text(
-            'Recent notifications',
-            style: TextStyle(
-              fontSize: 14,
-              fontWeight: FontWeight.w700,
-              color: AppColors.purpleDark,
+          const SizedBox(height: 18),
+          Container(
+            padding: const EdgeInsets.all(18),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(24),
+              boxShadow: [
+                BoxShadow(
+                  color: DupePalette.pink.withValues(alpha: 0.1),
+                  blurRadius: 18,
+                  offset: const Offset(0, 8),
+                ),
+              ],
             ),
-          ),
-          const SizedBox(height: 8),
-          ..._notifications.take(3).map(
-                (n) => Card(
-                  margin: const EdgeInsets.only(bottom: 8),
-                  child: ListTile(
-                    title: Text(n.message),
-                    subtitle: Text(
-                      n.replyPreview.isEmpty
-                          ? 'Tap to open your post'
-                          : n.replyPreview,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
+            child: Column(
+              children: [
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Stack(
+                      clipBehavior: Clip.none,
+                      children: [
+                        CircleAvatar(
+                          radius: 40,
+                          backgroundColor: DupePalette.pink.withValues(alpha: 0.15),
+                          backgroundImage: (_profileImageBase64 != null &&
+                                  _profileImageBase64!.isNotEmpty)
+                              ? MemoryImage(base64Decode(_profileImageBase64!))
+                              : null,
+                          child: (_profileImageBase64 == null ||
+                                  _profileImageBase64!.isEmpty)
+                              ? Icon(
+                                  _guest ? Icons.person_outline : Icons.person_rounded,
+                                  size: 40,
+                                  color: DupePalette.pink,
+                                )
+                              : null,
+                        ),
+                        if (!_guest)
+                          Positioned(
+                            right: -2,
+                            bottom: -2,
+                            child: Material(
+                              color: DupePalette.blue,
+                              shape: const CircleBorder(),
+                              child: const Icon(Icons.check_rounded, color: Colors.white, size: 16),
+                            ),
+                          ),
+                      ],
                     ),
-                    trailing: const Icon(Icons.chevron_right_rounded),
-                    onTap: () => _openNotification(n),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            _displayName(),
+                            style: GoogleFonts.playfairDisplay(
+                              fontSize: 20,
+                              fontWeight: FontWeight.bold,
+                              color: DupePalette.textPrimary,
+                            ),
+                          ),
+                          if (!_guest && _email != null) ...[
+                            const SizedBox(height: 4),
+                            Text(
+                              _email!,
+                              style: GoogleFonts.inter(
+                                fontSize: 13,
+                                color: DupePalette.greySubtitle,
+                              ),
+                            ),
+                          ],
+                          if (!_guest && _joinedAt != null && _joinedAt!.isNotEmpty) ...[
+                            const SizedBox(height: 4),
+                            Text(
+                              'Joined app: ${_joinedAt!.substring(0, _joinedAt!.length >= 10 ? 10 : _joinedAt!.length)}',
+                              style: GoogleFonts.inter(fontSize: 11, color: DupePalette.greySubtitle),
+                            ),
+                          ],
+                          if (_guest)
+                            Padding(
+                              padding: const EdgeInsets.only(top: 6),
+                              child: Text(
+                                'Sign in to sync wishlist & history.',
+                                style: GoogleFonts.inter(
+                                  fontSize: 12,
+                                  color: DupePalette.greySubtitle,
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 18),
+                Row(
+                  children: [
+                    Expanded(
+                      child: _statTile(
+                        icon: Icons.favorite_outline_rounded,
+                        iconColor: DupePalette.pink,
+                        value: '$_dupeHistoryCount',
+                        label: 'Dupes',
+                      ),
+                    ),
+                    Expanded(
+                      child: _statTile(
+                        icon: Icons.insights_outlined,
+                        iconColor: DupePalette.teal,
+                        value: '$_dupeHistoryCount',
+                        label: 'Tracked',
+                      ),
+                    ),
+                    Expanded(
+                      child: _statTile(
+                        icon: Icons.savings_outlined,
+                        iconColor: DupePalette.blue,
+                        value: '—',
+                        label: 'Savings',
+                      ),
+                    ),
+                  ],
+                ),
+                if (!_guest) ...[
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      TextButton.icon(
+                        onPressed: _pickProfileImage,
+                        icon: Icon(Icons.photo_camera_outlined, size: 18, color: DupePalette.pink),
+                        label: Text('Photo', style: TextStyle(color: DupePalette.pink)),
+                      ),
+                      TextButton.icon(
+                        onPressed: _editDisplayName,
+                        icon: Icon(Icons.edit_outlined, size: 18, color: DupePalette.blue),
+                        label: Text('Name', style: TextStyle(color: DupePalette.blue)),
+                      ),
+                    ],
+                  ),
+                ],
+              ],
+            ),
+          ),
+          const SizedBox(height: 16),
+          Container(
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(24),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.04),
+                  blurRadius: 12,
+                  offset: const Offset(0, 4),
+                ),
+              ],
+            ),
+            child: Column(
+              children: [
+                _menuRow(
+                  icon: Icons.bookmark_outline_rounded,
+                  title: 'Saved Items',
+                  badge: _dupeHistoryCount > 0 ? '$_dupeHistoryCount' : null,
+                  onTap: () {
+                    Navigator.push(context, MaterialPageRoute(builder: (_) => const DupeHistoryScreen()));
+                  },
+                ),
+                _divider(),
+                _menuRow(
+                  icon: Icons.shopping_bag_outlined,
+                  title: 'Dupe history',
+                  subtitle: '$_dupeHistoryCount items',
+                  onTap: () {
+                    Navigator.push(context, MaterialPageRoute(builder: (_) => const DupeHistoryScreen()));
+                  },
+                ),
+                _divider(),
+                _menuRow(
+                  icon: Icons.notifications_outlined,
+                  title: 'Notifications',
+                  badge: _notifications.isNotEmpty ? '${_notifications.length}' : null,
+                  onTap: () {
+                    if (_notifications.isNotEmpty) {
+                      _openNotification(_notifications.first);
+                    }
+                  },
+                ),
+                _divider(),
+                _menuRow(
+                  icon: Icons.insights_outlined,
+                  title: 'Insights & trends',
+                  onTap: () {
+                    Navigator.push(context, MaterialPageRoute(builder: (_) => const InsightsScreen()));
+                  },
+                ),
+              ],
+            ),
+          ),
+          if (!_guest && _notifications.isNotEmpty) ...[
+            const SizedBox(height: 16),
+            Text(
+              'Recent notifications',
+              style: GoogleFonts.inter(
+                fontWeight: FontWeight.w700,
+                color: DupePalette.textPrimary,
+              ),
+            ),
+            const SizedBox(height: 8),
+            ..._notifications.take(3).map(
+                  (n) => Card(
+                    margin: const EdgeInsets.only(bottom: 8),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                    child: ListTile(
+                      title: Text(n.message),
+                      subtitle: Text(
+                        n.replyPreview.isEmpty ? 'Tap to open your post' : n.replyPreview,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      trailing: const Icon(Icons.chevron_right_rounded),
+                      onTap: () => _openNotification(n),
+                    ),
                   ),
                 ),
+          ],
+          if (_guest)
+            Padding(
+              padding: const EdgeInsets.only(top: 12),
+              child: Material(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(20),
+                child: _menuRow(
+                  icon: Icons.login_rounded,
+                  title: 'Log in / Sign up',
+                  onTap: () {
+                    Navigator.of(context).pushNamedAndRemoveUntil('/welcome', (r) => false);
+                  },
+                ),
               ),
+            ),
+          const SizedBox(height: 20),
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              onPressed: _logout,
+              icon: const Icon(Icons.logout_rounded, color: Colors.redAccent),
+              label: const Text('Log Out', style: TextStyle(color: Colors.redAccent, fontWeight: FontWeight.w600)),
+              style: OutlinedButton.styleFrom(
+                padding: const EdgeInsets.symmetric(vertical: 16),
+                backgroundColor: Colors.white,
+                side: BorderSide(color: Colors.redAccent.withValues(alpha: 0.4)),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+              ),
+            ),
+          ),
         ],
-        if (_guest)
-          _item(Icons.login_rounded, 'Log in / Sign up', () {
-            Navigator.of(context)
-                .pushNamedAndRemoveUntil('/welcome', (r) => false);
-          }),
-        const Divider(height: 32),
-        ListTile(
-          leading: const Icon(Icons.logout_rounded, color: Colors.redAccent),
-          title: const Text('Sign out',
-              style: TextStyle(
-                  color: Colors.redAccent, fontWeight: FontWeight.w600)),
-          onTap: _logout,
-        ),
-      ],
+      ),
     );
   }
 
-  Widget _item(IconData icon, String title, VoidCallback onTap) {
-    return Card(
-      margin: const EdgeInsets.only(bottom: 10),
-      shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(AppDecor.cardRadius)),
-      child: ListTile(
-        leading: Icon(icon, color: AppColors.bluePrimary),
-        title: Text(title,
-            style: const TextStyle(
-                color: AppColors.purpleDark, fontWeight: FontWeight.w500)),
-        trailing: const Icon(Icons.chevron_right_rounded,
-            color: AppColors.greySubtitle),
-        onTap: onTap,
+  Widget _divider() => Divider(height: 1, thickness: 1, color: Colors.grey.withValues(alpha: 0.12));
+
+  Widget _statTile({
+    required IconData icon,
+    required Color iconColor,
+    required String value,
+    required String label,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
+      margin: const EdgeInsets.symmetric(horizontal: 4),
+      decoration: BoxDecoration(
+        color: DupePalette.scaffoldLight,
+        borderRadius: BorderRadius.circular(16),
       ),
+      child: Column(
+        children: [
+          Icon(icon, color: iconColor, size: 22),
+          const SizedBox(height: 6),
+          Text(value, style: GoogleFonts.inter(fontWeight: FontWeight.bold, fontSize: 16)),
+          Text(label, style: GoogleFonts.inter(fontSize: 11, color: DupePalette.greySubtitle)),
+        ],
+      ),
+    );
+  }
+
+  Widget _menuRow({
+    required IconData icon,
+    required String title,
+    String? subtitle,
+    String? badge,
+    required VoidCallback onTap,
+  }) {
+    return ListTile(
+      leading: Container(
+        padding: const EdgeInsets.all(8),
+        decoration: BoxDecoration(
+          color: DupePalette.pink.withValues(alpha: 0.1),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Icon(icon, color: DupePalette.pinkDeep, size: 22),
+      ),
+      title: Text(title, style: GoogleFonts.inter(fontWeight: FontWeight.w600)),
+      subtitle: subtitle != null ? Text(subtitle, style: GoogleFonts.inter(fontSize: 12)) : null,
+      trailing: badge != null
+          ? CircleAvatar(
+              radius: 14,
+              backgroundColor: DupePalette.pink,
+              child: Text(badge, style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold)),
+            )
+          : const Icon(Icons.chevron_right_rounded, color: DupePalette.greySubtitle),
+      onTap: onTap,
     );
   }
 }

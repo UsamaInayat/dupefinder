@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../theme/app_theme.dart';
 
-/// Full-screen welcome image; Log In / Sign Up only on lower area (no card, no guest).
+/// Splash: full-bleed hero image (models preserved via left-weighted cover), themed CTAs.
 class WelcomeScreen extends StatelessWidget {
   const WelcomeScreen({super.key});
 
@@ -24,26 +24,45 @@ class WelcomeScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final bottomInset = MediaQuery.of(context).padding.bottom;
     return Scaffold(
+      backgroundColor: DupePalette.tealWall,
       body: Stack(
         fit: StackFit.expand,
         children: [
-          // Full background — image already has logo + art + white strip below
           Positioned.fill(
             child: Image.asset(
-              'assets/login_welcome.png',
+              'assets/splash_hero.png',
               fit: BoxFit.cover,
-              alignment: Alignment.topCenter,
+              alignment: Alignment.centerLeft,
               errorBuilder: (_, __, ___) => Container(
-                color: const Color(0xFFF8FAFC),
+                decoration: BoxDecoration(gradient: DupePalette.heroGradient),
                 child: Icon(
                   Icons.image_not_supported_rounded,
                   size: 80,
-                  color: AppColors.bluePrimary.withValues(alpha: 0.4),
+                  color: Colors.white.withValues(alpha: 0.5),
                 ),
               ),
             ),
           ),
-          // Buttons sit on lower white area — no box, no card, just the two pills
+          // Soft bottom fade so buttons stay readable on any crop
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: 0,
+            height: 200,
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [
+                    Colors.transparent,
+                    DupePalette.tealWall.withValues(alpha: 0.35),
+                    DupePalette.tealWall.withValues(alpha: 0.85),
+                  ],
+                ),
+              ),
+            ),
+          ),
           SafeArea(
             child: Align(
               alignment: Alignment.bottomCenter,
@@ -54,22 +73,29 @@ class WelcomeScreen extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     SizedBox(
-                      height: 52,
+                      height: 54,
                       child: DecoratedBox(
-                        decoration: AppTheme.loginGradientButton,
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(32),
+                          gradient: DupePalette.ctaGradient,
+                          boxShadow: [
+                            BoxShadow(
+                              color: DupePalette.pink.withValues(alpha: 0.35),
+                              blurRadius: 16,
+                              offset: const Offset(0, 8),
+                            ),
+                          ],
+                        ),
                         child: Material(
                           color: Colors.transparent,
                           child: InkWell(
-                            onTap: () => Navigator.of(context).pushNamed('/login'),
+                            onTap: () => Navigator.of(context).pushNamed('/register'),
                             borderRadius: BorderRadius.circular(32),
-                            child: const Center(
+                            child: Center(
                               child: Text(
-                                'Log In',
-                                style: TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.bold,
-                                ),
+                                'Register here',
+                                style: DupePalette.serifHeading(18,
+                                    color: Colors.white, w: FontWeight.w700),
                               ),
                             ),
                           ),
@@ -80,19 +106,19 @@ class WelcomeScreen extends StatelessWidget {
                     SizedBox(
                       height: 52,
                       child: OutlinedButton(
-                        onPressed: () => Navigator.of(context).pushNamed('/register'),
+                        onPressed: () => Navigator.of(context).pushNamed('/login'),
                         style: OutlinedButton.styleFrom(
-                          backgroundColor: Colors.white,
-                          side: const BorderSide(color: AppColors.bluePrimary, width: 2),
+                          backgroundColor: Colors.white.withValues(alpha: 0.9),
+                          side: BorderSide(color: Colors.white.withValues(alpha: 0.95), width: 2),
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(32),
                           ),
                           elevation: 0,
                         ),
-                        child: const Text(
-                          'Sign Up',
+                        child: Text(
+                          'Log In',
                           style: TextStyle(
-                            color: AppColors.bluePrimary,
+                            color: DupePalette.tealWall,
                             fontSize: 16,
                             fontWeight: FontWeight.bold,
                           ),

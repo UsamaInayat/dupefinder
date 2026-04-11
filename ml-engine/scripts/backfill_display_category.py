@@ -22,7 +22,7 @@ col    = client[cfg["mongodb"]["database"]][cfg["mongodb"]["collection"]]
 
 # ── Endpoint sets (copied from backend/app/api/routes/admin_new.py) ───────────
 WOMEN_KURTA_ENDPOINTS         = frozenset({"2-piece-essential-summer-pret-kt","charizma-vasal-vol-02-2026","eid-collection","essential-summer-pret","florence-summer-edit-26","luxe-2025","luxury-pret","new-arrival-summer-26","new-arrivals","pret","ready-to-wear","satori-2026","women"})
-WOMEN_LAWN_ENDPOINTS          = frozenset({"eid-lawn-2026","lawn-in-stock","ramadan-festive-sale-lawn-khaddar-stiched-cords","ramadan-festive-sale-lawn-khaddar-stitched-cords"})
+WOMEN_LAWN_ENDPOINTS          = frozenset({"eid-lawn-2026","lawn-in-stock","ramadan-festive-sale-lawn-khaddar-stiched-cords","ramadan-festive-sale-lawn-khaddar-stitched-cords","formal-wear"})
 WOMEN_LUXE_ENDPOINTS          = frozenset({"bridal-in-stock","festive-in-stock","wedding-unstitched-2025"})
 WOMEN_SHORT_KURTI_ENDPOINTS   = frozenset({"ss-wesst","ss-west","short-kurti"})
 WOMEN_ACCESSORIES_ENDPOINTS   = frozenset({"accessories"})

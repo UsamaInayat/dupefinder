@@ -4,8 +4,8 @@ Health check endpoint
 
 from datetime import datetime
 from fastapi import APIRouter
-from backend.app.models.schemas import HealthResponse
-from backend.app.core.database import db_manager
+from app.models.schemas import HealthResponse
+from app.core.database import db_manager
 
 router = APIRouter()
 

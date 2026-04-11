@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../theme/app_theme.dart';
 import '../services/compare_service.dart';
@@ -62,33 +63,45 @@ class _CompareScreenState extends State<CompareScreen> {
   @override
   Widget build(BuildContext context) {
     if (_loading) {
-      return const Center(child: CircularProgressIndicator());
+      return const Center(child: CircularProgressIndicator(color: DupePalette.pink));
     }
     if (_items.isEmpty) {
-      return Center(
-        child: Padding(
-          padding: const EdgeInsets.all(32),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(Icons.compare_arrows_rounded,
-                  size: 72,
-                  color: AppColors.bluePrimary.withValues(alpha: 0.5)),
-              const SizedBox(height: 20),
-              const Text(
-                'Compare',
-                style: TextStyle(
-                    fontSize: 22,
-                    fontWeight: FontWeight.bold,
-                    color: AppColors.purpleDark),
-              ),
-              const SizedBox(height: 12),
-              Text(
-                'Tap the compare icon on any search result to add it here. Pick 2–4 items to compare price, brand, and match score.',
-                textAlign: TextAlign.center,
-                style: TextStyle(color: AppColors.greySubtitle, height: 1.4),
-              ),
+      return Container(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            colors: [
+              DupePalette.teal.withValues(alpha: 0.12),
+              DupePalette.pink.withValues(alpha: 0.1),
             ],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
+        ),
+        child: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(32),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.compare_arrows_rounded,
+                    size: 72, color: DupePalette.pink.withValues(alpha: 0.65)),
+                const SizedBox(height: 20),
+                Text(
+                  'Compare',
+                  style: GoogleFonts.playfairDisplay(
+                    fontSize: 26,
+                    fontWeight: FontWeight.bold,
+                    color: DupePalette.pinkDeep,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  'Side-by-side luxury analysis — tap the compare icon on any search result. Add 2–4 items to compare price, brand, and match score.',
+                  textAlign: TextAlign.center,
+                  style: GoogleFonts.inter(color: DupePalette.greySubtitle, height: 1.45),
+                ),
+              ],
+            ),
           ),
         ),
       );
@@ -145,6 +158,12 @@ class _CompareScreenState extends State<CompareScreen> {
                   final matchPercent = (score * 100).round();
                   return Card(
                     clipBehavior: Clip.antiAlias,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(16),
+                      side: (index == 1 && _items.length >= 2)
+                          ? BorderSide(color: DupePalette.teal.withValues(alpha: 0.65), width: 1.5)
+                          : BorderSide.none,
+                    ),
                     child: InkWell(
                       onTap: () => _openUrl(productUrl),
                       child: Column(
@@ -212,16 +231,16 @@ class _CompareScreenState extends State<CompareScreen> {
                                 const SizedBox(height: 4),
                                 Container(
                                   padding: const EdgeInsets.symmetric(
-                                      horizontal: 6, vertical: 2),
+                                      horizontal: 8, vertical: 3),
                                   decoration: BoxDecoration(
-                                    color: AppColors.bluePrimary,
-                                    borderRadius: BorderRadius.circular(4),
+                                    gradient: DupePalette.ctaGradient,
+                                    borderRadius: BorderRadius.circular(8),
                                   ),
                                   child: Text('$matchPercent% match',
                                       style: const TextStyle(
                                           color: Colors.white,
                                           fontSize: 11,
-                                          fontWeight: FontWeight.w500)),
+                                          fontWeight: FontWeight.w600)),
                                 ),
                               ],
                             ),
@@ -264,51 +283,96 @@ class _CompareScreenState extends State<CompareScreen> {
         matches.isEmpty ? null : matches.reduce((a, b) => a < b ? a : b);
     final matchMax =
         matches.isEmpty ? null : matches.reduce((a, b) => a > b ? a : b);
+    final savePct = (priceMin != null &&
+            priceMax != null &&
+            priceMax > priceMin &&
+            priceMax > 0)
+        ? (((priceMax - priceMin) / priceMax) * 100).round()
+        : null;
 
     return Container(
       margin: const EdgeInsets.only(top: 20),
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: AppColors.bluePrimary.withValues(alpha: 0.06),
-        borderRadius: BorderRadius.circular(12),
-        border:
-            Border.all(color: AppColors.borderLightBlue.withValues(alpha: 0.8)),
+        gradient: DupePalette.ctaGradientWide,
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+            color: DupePalette.pink.withValues(alpha: 0.25),
+            blurRadius: 16,
+            offset: const Offset(0, 8),
+          ),
+        ],
       ),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Row(
-            children: [
-              Icon(Icons.analytics_outlined,
-                  size: 20, color: AppColors.bluePrimary),
-              const SizedBox(width: 8),
-              const Text(
-                'Comparison summary',
-                style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                    color: AppColors.purpleDark),
+          if (savePct != null && savePct > 0) ...[
+            Text(
+              'You save',
+              textAlign: TextAlign.center,
+              style: GoogleFonts.inter(
+                color: Colors.white.withValues(alpha: 0.9),
+                fontSize: 13,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              '$savePct%',
+              textAlign: TextAlign.center,
+              style: GoogleFonts.inter(
+                fontSize: 34,
+                fontWeight: FontWeight.w800,
+                color: Colors.white,
+                height: 1.0,
+                letterSpacing: -0.5,
+              ),
+            ),
+            if (priceDiff != null) ...[
+              const SizedBox(height: 12),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+                child: Text(
+                  'That’s about PKR ${priceDiff.toString()} less vs. the highest price.',
+                  textAlign: TextAlign.center,
+                  style: GoogleFonts.inter(
+                    color: Colors.white.withValues(alpha: 0.92),
+                    fontSize: 13,
+                    height: 1.4,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
               ),
             ],
+            const SizedBox(height: 18),
+          ],
+          Text(
+            'Comparison summary',
+            style: GoogleFonts.inter(
+              fontSize: 15,
+              fontWeight: FontWeight.bold,
+              color: Colors.white,
+            ),
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 10),
           if (priceMin != null && priceMax != null) ...[
-            _summaryRow('Price range',
+            _summaryRowLight('Price range',
                 'PKR ${priceMin.toStringAsFixed(0)} – PKR ${priceMax.toStringAsFixed(0)}'),
             if (priceDiff != null && priceDiff > 0)
-              _summaryRow('Price difference',
-                  'PKR ${priceDiff.toString()} between lowest and highest'),
-            const SizedBox(height: 8),
+              _summaryRowLight(
+                  'Price spread', 'PKR ${priceDiff.toString()} between lowest and highest'),
+            const SizedBox(height: 6),
           ],
           if (matchMin != null && matchMax != null) ...[
-            _summaryRow(
+            _summaryRowLight(
                 'Match score',
                 matchMin == matchMax
                     ? '$matchMin% (same)'
                     : '$matchMin% – $matchMax%'),
-            const SizedBox(height: 8),
+            const SizedBox(height: 6),
           ],
-          _summaryRow(
+          _summaryRowLight(
               'Brands',
               brands.isEmpty
                   ? '—'
@@ -320,24 +384,33 @@ class _CompareScreenState extends State<CompareScreen> {
     );
   }
 
-  Widget _summaryRow(String label, String value) {
+  Widget _summaryRowLight(String label, String value) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 4),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           SizedBox(
-            width: 120,
-            child: Text(label,
-                style: TextStyle(
-                    fontSize: 13,
-                    color: Colors.grey[700],
-                    fontWeight: FontWeight.w500)),
+            width: 110,
+            child: Text(
+              label,
+              style: GoogleFonts.inter(
+                fontSize: 12,
+                color: Colors.white.withValues(alpha: 0.85),
+                fontWeight: FontWeight.w500,
+              ),
+            ),
           ),
           Expanded(
-              child: Text(value,
-                  style: const TextStyle(
-                      fontSize: 13, color: AppColors.purpleDark))),
+            child: Text(
+              value,
+              style: GoogleFonts.inter(
+                fontSize: 12,
+                color: Colors.white,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
         ],
       ),
     );

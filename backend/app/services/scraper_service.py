@@ -11,7 +11,7 @@ from typing import List, Dict, Optional
 from datetime import datetime
 from bs4 import BeautifulSoup
 import re
-from urllib.parse import urljoin, urlparse
+from urllib.parse import urljoin, urlparse, parse_qs
 import logging
 import hashlib
 
@@ -30,7 +30,8 @@ class ProductScraper:
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
             "Accept-Language": "en-US,en;q=0.9",
-            "Accept-Encoding": "gzip, deflate, br",
+            # Avoid brotli (br): some CDNs return br; if brotli decode fails, HTML is garbage and scraping gets 0 products.
+            "Accept-Encoding": "gzip, deflate",
             "Sec-Ch-Ua": '"Google Chrome";v="131", "Chromium";v="131", "Not_A Brand";v="24"',
             "Sec-Ch-Ua-Mobile": "?0",
             "Sec-Ch-Ua-Platform": '"Windows"',
@@ -41,7 +42,7 @@ class ProductScraper:
             "Upgrade-Insecure-Requests": "1",
         }
         self.client = httpx.AsyncClient(
-            timeout=httpx.Timeout(15.0, connect=10.0),
+            timeout=httpx.Timeout(45.0, connect=20.0),
             follow_redirects=True,
             headers=headers,
             limits=httpx.Limits(max_keepalive_connections=5, max_connections=10)
@@ -232,6 +233,8 @@ class ProductScraper:
                 query['p'] = [str(next_page)]
             elif '/collections/' in base_path:
                 query['page'] = [str(next_page)]  # Shopify collections
+            elif '/search' in base_path.lower():
+                query['page'] = [str(next_page)]  # Shopify search results
             else:
                 query['p'] = [str(next_page)]
             new_query = urlencode({k: v[0] for k, v in query.items()}, doseq=False)
@@ -263,7 +266,11 @@ class ProductScraper:
                 # Use Accept-Encoding: identity so response is not compressed (avoid decode issues)
                 response = await self.client.get(
                     url,
-                    headers={"Referer": base + "/", "Accept-Encoding": "identity"},
+                    headers={
+                        "Referer": base + "/",
+                        "Accept-Encoding": "identity",
+                        "Accept": "application/json,text/plain,*/*",
+                    },
                 )
                 if response.status_code != 200:
                     break
@@ -331,6 +338,136 @@ class ProductScraper:
             self.errors.append(f"{collection_url}: {str(e)}")
         return products
 
+    def _shopify_search_tokens_from_url(self, listing_url: str) -> List[str]:
+        """Tokens from Shopify /search?q= or ?search= (e.g. Laam) for filtering all-products JSON."""
+        parsed = urlparse(listing_url or "")
+        q = parse_qs(parsed.query)
+        parts: List[str] = []
+        for key in ("q", "search"):
+            if key in q and q[key]:
+                parts.extend(q[key])
+        phrase = " ".join(parts).strip()
+        if not phrase:
+            return []
+        raw = re.split(r"[\s+]+", phrase.replace("%20", " "))
+        tokens = []
+        for t in raw:
+            t = re.sub(r"[^\w\-]", "", t, flags=re.UNICODE).strip().lower()
+            if not t:
+                continue
+            if len(t) >= 2 or t.isdigit():
+                tokens.append(t)
+        return list(dict.fromkeys(tokens))  # dedupe, preserve order
+
+    async def _scrape_shopify_search_via_all_products_json(
+        self, listing_url: str, brand_name: str, main_category: str, gender: Optional[str]
+    ) -> List[Dict]:
+        """
+        Shopify search pages are often JS-heavy; HTML fetch returns a shell. Many stores still expose
+        /collections/all/products.json — filter by search tokens from the listing URL query.
+        """
+        tokens = self._shopify_search_tokens_from_url(listing_url)
+        if not tokens:
+            return []
+        parsed = urlparse(listing_url)
+        base = f"{parsed.scheme or 'https'}://{parsed.netloc}"
+        products: List[Dict] = []
+        seen_handles = set()
+        page = 1
+        limit = 250
+        cat = main_category if main_category else ("Men → Eastern" if gender == "m" else "Women → Stitched")
+        try:
+            while page <= 200:
+                sep = "?" if "?" not in f"{base}/collections/all/products.json" else "&"
+                url = f"{base}/collections/all/products.json{sep}limit={limit}&page={page}"
+                response = await self.client.get(
+                    url,
+                    headers={
+                        "Referer": base + "/",
+                        "Accept-Encoding": "identity",
+                        "Accept": "application/json,text/plain,*/*",
+                    },
+                )
+                if response.status_code != 200:
+                    logger.info(f"Shopify all-products JSON stopped: HTTP {response.status_code} at page {page}")
+                    break
+                try:
+                    data = json.loads(response.content.decode("utf-8", errors="replace"))
+                except (json.JSONDecodeError, ValueError):
+                    break
+                raw_products = data.get("products") or []
+                if not raw_products:
+                    break
+                matched_page = 0
+                for p in raw_products:
+                    handle = (p.get("handle") or "").strip()
+                    if not handle or handle in seen_handles:
+                        continue
+                    tags_raw = p.get("tags") or []
+                    if isinstance(tags_raw, str):
+                        tag_blob = tags_raw
+                    else:
+                        tag_blob = " ".join(str(t) for t in tags_raw)
+                    blob = " ".join(
+                        [(p.get("title") or ""), handle, (p.get("body_html") or ""), tag_blob]
+                    ).lower()
+                    if not all(tok in blob for tok in tokens):
+                        continue
+                    seen_handles.add(handle)
+                    matched_page += 1
+                    title = (p.get("title") or "").strip()
+                    if not title or len(title) < 2:
+                        continue
+                    variants = p.get("variants") or []
+                    price_val = None
+                    if variants:
+                        try:
+                            price_val = float(str(variants[0].get("price", 0)))
+                        except (TypeError, ValueError):
+                            pass
+                    if not price_val or price_val <= 0:
+                        price_val = 1000.0
+                    images = p.get("images") or []
+                    image_url = ""
+                    if images:
+                        image_url = (images[0].get("src") or images[0].get("url") or "").strip()
+                    if not image_url:
+                        image_url = "https://via.placeholder.com/300?text=No+Image"
+                    product_url = f"{base}/products/{handle}"
+                    url_hash = hashlib.md5((product_url + title).encode("utf-8")).hexdigest()
+                    product_id = int(url_hash[:8], 16)
+                    products.append(
+                        {
+                            "product_id": product_id,
+                            "name": title,
+                            "brand": brand_name,
+                            "category": cat,
+                            "product_category": "",
+                            "normalized_category": normalize_category(cat, gender),
+                            "price": price_val,
+                            "image_url": image_url,
+                            "product_url": product_url,
+                            "description": (p.get("body_html") or "")[:500].strip() or "",
+                            "scraped_at": datetime.utcnow(),
+                            "gender": gender or "m",
+                            "broken_link": False,
+                        }
+                    )
+                    self.scraped_count += 1
+                logger.info(
+                    f"Shopify all-products filter page {page}: {matched_page} matches / {len(raw_products)} raw (tokens={tokens})"
+                )
+                # Do not stop when page size < limit (many stores cap at 30–50 per page).
+                if len(raw_products) == 0:
+                    break
+                page += 1
+                await asyncio.sleep(0.4)
+            logger.info(f"Shopify search-via-all-products done for {brand_name}: {len(products)} products")
+        except Exception as e:
+            logger.error(f"Shopify search-via-all-products failed {listing_url}: {e}")
+            self.errors.append(f"{listing_url}: {str(e)}")
+        return products
+
     async def scrape_exact_listing_url(self, listing_url: str, brand_name: str,
                                        main_category: str, gender: Optional[str] = None,
                                        price_range: str = None,
@@ -349,16 +486,45 @@ class ProductScraper:
             main_category = "Men → Eastern" if gender == "m" else "Women → Stitched"
         st = (scraper_type or "").strip().lower()
         logger.info(f"Scraping exact listing (all pages): {brand_name} from {listing_url} (scraper_type={st or 'generic'})")
-        # Option: Shopify collection JSON API (for JS-rendered Shopify stores)
-        if st == "shopify_json" and "/collections/" in (listing_url or ""):
-            return await self._scrape_shopify_collection_json(listing_url, brand_name, main_category, gender)
+        # Shopify: search pages are often empty in static HTML; use /collections/all/products.json + query filter.
+        if st == "shopify_json":
+            ul = (listing_url or "").lower()
+            if "/search" in ul or "q=" in ul or "search=" in ul:
+                filtered = await self._scrape_shopify_search_via_all_products_json(
+                    listing_url, brand_name, main_category, gender
+                )
+                if filtered:
+                    return filtered
+            if "/collections/" in (listing_url or ""):
+                coll_prods = await self._scrape_shopify_collection_json(
+                    listing_url, brand_name, main_category, gender
+                )
+                if coll_prods:
+                    return coll_prods
+                logger.info(
+                    f"Shopify JSON returned 0 products for {brand_name}; falling back to HTML listing scrape for {listing_url!r}"
+                )
+
+        # Laam.pk search is Shopify; CSV may mark it generic. Try catalog JSON before HTML.
+        parsed_early = urlparse(listing_url or "")
+        if "laam.pk" in (parsed_early.netloc or "").lower() and (
+            "/search" in (listing_url or "").lower() or "search=" in (parsed_early.query or "").lower()
+        ):
+            fb = await self._scrape_shopify_search_via_all_products_json(
+                listing_url, brand_name, main_category, gender
+            )
+            if fb:
+                return fb
+
         current_url = listing_url
         page_num = 1
         total_expected = None  # parsed from "Items 1-36 of 262"
         empty_page_count = 0
         max_empty_pages = 2  # stop after 2 consecutive pages with 0 new products
         max_pages = 50  # safety limit
-        
+        if "laam.pk" in (urlparse(listing_url or "").netloc or "").lower():
+            max_pages = 25  # search pages are slow; harvester fills most results early
+
         try:
             while current_url and page_num <= max_pages:
                 parsed = urlparse(current_url)
@@ -1595,17 +1761,21 @@ class ProductScraper:
                     # Check if name looks like a product (single word allowed only for known product types)
                     name_words = product_name.split()
                     if len(name_words) < 2:
-                        valid_single_words = [
-                            'kurta', 'shirt', 'kameez', 'shalwar', 'suit', 'dress', 'trouser', 'pant',
-                            'jacket', 'coat', 'vest', 'waistcoat', 'sneaker', 'sneakers', 'watch', 'watches',
-                            'bag', 'wallet', 'belt', 'shoes', 'footwear', 'sweater', 'hoodie', 'blazer',
-                            'chronograph', 'diver', 'military', 'sport', 'classic', 'digital', 'analog', 'quartz', 'automatic', 'luxury'
-                        ]
-                        if product_name_lower not in valid_single_words:
-                            if _idx < 5:
-                                sample_skip_reasons.append(("single_word", product_name[:40]))
-                            logger.debug(f"Skipping single word (likely not product): {product_name}")
-                            continue
+                        # Women's listings (e.g. WooCommerce formals) often use one-word style names ("Qandeel").
+                        if gender == "w":
+                            pass
+                        else:
+                            valid_single_words = [
+                                'kurta', 'shirt', 'kameez', 'shalwar', 'suit', 'dress', 'trouser', 'pant',
+                                'jacket', 'coat', 'vest', 'waistcoat', 'sneaker', 'sneakers', 'watch', 'watches',
+                                'bag', 'wallet', 'belt', 'shoes', 'footwear', 'sweater', 'hoodie', 'blazer',
+                                'chronograph', 'diver', 'military', 'sport', 'classic', 'digital', 'analog', 'quartz', 'automatic', 'luxury'
+                            ]
+                            if product_name_lower not in valid_single_words:
+                                if _idx < 5:
+                                    sample_skip_reasons.append(("single_word", product_name[:40]))
+                                logger.debug(f"Skipping single word (likely not product): {product_name}")
+                                continue
                     
                     # Check if name is too generic (like just "Product", "Item", "New")
                     generic_words = ['product', 'item', 'new', 'sale', 'discount', 'offer', 'deal', 'view', 'see', 'more', 'all', 'shop', 'buy']
@@ -1740,7 +1910,12 @@ class ProductScraper:
                     # Check if text contains navigation/menu words (likely not a product)
                     text_lower = container_text.lower()
                     nav_words = ['menu', 'navigation', 'search', 'cart', 'account', 'login', 'register', 'sign up', 'sign in', 'home', 'about', 'contact', 'help', 'faq']
-                    if any(nav_word in text_lower for nav_word in nav_words) and len(name_words) < 3:
+                    # Women's cards often include "Add to cart" / "cart" in the same block as the title.
+                    if (
+                        gender != "w"
+                        and any(nav_word in text_lower for nav_word in nav_words)
+                        and len(name_words) < 3
+                    ):
                         if _idx < 5:
                             sample_skip_reasons.append(("nav_item", product_name[:40]))
                         logger.debug(f"Skipping navigation/menu item: {product_name}")
@@ -1764,7 +1939,7 @@ class ProductScraper:
                         is_likely_product_image = any(indicator in img_url_lower for indicator in product_image_indicators)
                         
                         # If image doesn't look like a product image and name is generic, skip
-                        if not is_likely_product_image and len(name_words) < 3:
+                        if not is_likely_product_image and len(name_words) < 3 and gender != "w":
                             if _idx < 5:
                                 sample_skip_reasons.append(("non_product_image", product_name[:40]))
                             logger.debug(f"Skipping item with non-product image: {product_name} - {image_url[:50]}")
@@ -1825,6 +2000,12 @@ class ProductScraper:
                         sample_skip_reasons.append(("exception", str(e)[:50]))
                     logger.debug(f"Error extracting product from container: {e}")
                     continue
+
+            # Laam.pk (and similar): cards use Tailwind; harvest /products/ links when grid extract fails.
+            if not products and page_url and "laam.pk" in page_url.lower():
+                products = self._extract_products_from_shopify_product_links(
+                    soup, page_url, brand_name, main_category, gender
+                )
             
             if product_containers and len(products) == 0:
                 sample_classes = []
@@ -1842,6 +2023,89 @@ class ProductScraper:
             logger.error(traceback.format_exc())
         
         return products
+
+    def _extract_products_from_shopify_product_links(
+        self,
+        soup: BeautifulSoup,
+        page_url: str,
+        brand_name: str,
+        main_category: str,
+        gender: Optional[str],
+    ) -> List[Dict]:
+        """Fallback for themes where product grid selectors miss (e.g. Laam search)."""
+        out: List[Dict] = []
+        seen_urls: set = set()
+        final_cat = main_category if main_category else ("Men → Eastern" if gender == "m" else "Women → Stitched")
+        for a in soup.find_all("a", href=True):
+            href = (a.get("href") or "").strip()
+            low = href.lower()
+            if "/products/" not in low or "/collections/" in low:
+                continue
+            full = urljoin(page_url, href)
+            clean = full.split("#")[0].split("?")[0].rstrip("/")
+            if clean in seen_urls:
+                continue
+            if not re.search(r"/products/[^/]+", clean, re.I):
+                continue
+            seen_urls.add(clean)
+
+            name = a.get_text(" ", strip=True)
+            if not name or len(name) < 3:
+                slug = clean.split("/products/")[-1].replace("-", " ").title()
+                name = (slug or "Product")[:300]
+            nl = name.lower()
+            if nl in ("view", "quick view", "select options", "add to cart", "read more"):
+                continue
+
+            price = None
+            parent = a.parent
+            for _ in range(14):
+                if parent is None:
+                    break
+                price = self._extract_price_from_text(parent.get_text())
+                if price and 0 < price < 100000:
+                    break
+                parent = parent.parent
+            if not price or price <= 0:
+                price = 1000.0
+
+            img_url = ""
+            parent = a.parent
+            for _ in range(14):
+                if parent is None:
+                    break
+                im = parent.select_one("img[src]")
+                if im:
+                    src = (im.get("src") or "").strip()
+                    if src:
+                        img_url = urljoin(page_url, src)
+                        break
+                parent = parent.parent
+            if not img_url:
+                img_url = "https://via.placeholder.com/300?text=No+Image"
+
+            url_hash = hashlib.md5((clean + name).encode("utf-8")).hexdigest()
+            pid = int(url_hash[:8], 16)
+            out.append(
+                {
+                    "product_id": pid,
+                    "name": name[:300],
+                    "brand": brand_name,
+                    "category": final_cat,
+                    "product_category": "",
+                    "normalized_category": normalize_category(final_cat, gender),
+                    "price": price,
+                    "image_url": img_url,
+                    "product_url": clean,
+                    "description": "",
+                    "scraped_at": datetime.utcnow(),
+                    "gender": "m" if gender == "m" else (gender or "w"),
+                    "broken_link": False,
+                }
+            )
+            self.scraped_count += 1
+        logger.info(f"Shopify /products/ link harvester: {len(out)} items from {page_url}")
+        return out
     
     def _extract_price_from_text(self, text: str) -> Optional[float]:
         """Extract price from text - handles PKR, Rs., etc."""

@@ -1,6 +1,28 @@
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'api_service.dart';
+
+/// Backend sends UTC timestamps without a `Z` suffix; treat naive ISO as UTC.
+DateTime parseCommunityServerDate(String? s) {
+  if (s == null || s.isEmpty) return DateTime.now().toUtc();
+  final parsed = DateTime.tryParse(s);
+  if (parsed == null) return DateTime.now().toUtc();
+  final t = s.trim();
+  final hasExplicitTz = t.endsWith('Z') ||
+      RegExp(r'[+-]\d{2}:?\d{2}$').hasMatch(t);
+  if (hasExplicitTz) return parsed.toUtc();
+  return DateTime.utc(
+    parsed.year,
+    parsed.month,
+    parsed.day,
+    parsed.hour,
+    parsed.minute,
+    parsed.second,
+    parsed.millisecond,
+    parsed.microsecond,
+  );
+}
 
 class CommunityPost {
   final String id;
@@ -11,6 +33,8 @@ class CommunityPost {
   final String? imageBase64;
   final DateTime createdAt;
   final List<CommunityReply> replies;
+  final int likeCount;
+  final bool likedByMe;
 
   CommunityPost({
     required this.id,
@@ -21,6 +45,8 @@ class CommunityPost {
     this.imageBase64,
     required this.createdAt,
     List<CommunityReply>? replies,
+    this.likeCount = 0,
+    this.likedByMe = false,
   }) : replies = replies ?? [];
 
   Map<String, dynamic> toJson() => {
@@ -31,6 +57,8 @@ class CommunityPost {
         'authorPfp': authorPfp,
         'imageBase64': imageBase64,
         'createdAt': createdAt.toIso8601String(),
+        'likeCount': likeCount,
+        'likedByMe': likedByMe,
         'replies': replies.map((r) => r.toJson()).toList(),
       };
 
@@ -42,8 +70,11 @@ class CommunityPost {
       authorUserId: m['authorUserId'] as String?,
       authorPfp: m['authorPfp'] as String?,
       imageBase64: m['imageBase64'] as String?,
-      createdAt:
-          DateTime.tryParse(m['createdAt'] as String? ?? '') ?? DateTime.now(),
+      createdAt: parseCommunityServerDate(m['createdAt'] as String?),
+      likeCount: (m['likeCount'] as num?)?.toInt() ??
+          (m['like_count'] as num?)?.toInt() ??
+          0,
+      likedByMe: m['likedByMe'] == true,
       replies: (m['replies'] as List<dynamic>?)
               ?.map((e) =>
                   CommunityReply.fromJson(Map<String, dynamic>.from(e as Map)))
@@ -90,8 +121,7 @@ class CommunityReply {
       authorPfp: m['authorPfp'] as String?,
       authorUserId: m['authorUserId'] as String?,
       parentReplyId: m['parentReplyId'] as String?,
-      createdAt:
-          DateTime.tryParse(m['createdAt'] as String? ?? '') ?? DateTime.now(),
+      createdAt: parseCommunityServerDate(m['createdAt'] as String?),
     );
   }
 }
@@ -142,12 +172,16 @@ class CommunityService {
   static const _userIdKey = 'user_id';
   static const _postsCacheKey = 'community_posts_cache_v1';
   static const _postsCacheAtKey = 'community_posts_cache_at_v1';
-  static const Duration _postsCacheTtl = Duration(seconds: 12);
+  static const Duration _postsCacheTtl = Duration(seconds: 45);
   List<CommunityPost>? _postsCache;
   DateTime? _postsCacheAt;
+  /// Last fetch error message (for UI hints). Cleared on success.
+  String? lastPostsFetchError;
 
   Future<List<CommunityPost>> getPosts({bool forceRefresh = false}) async {
-    if (!forceRefresh && _postsCache == null) {
+    // Always hydrate from disk when memory is empty (even on forceRefresh)
+    // so a failed network refresh does not drop previously cached posts.
+    if (_postsCache == null) {
       final disk = await _readPostsCacheFromDisk();
       if (disk.isNotEmpty) {
         _postsCache = disk;
@@ -158,6 +192,7 @@ class CommunityService {
         _postsCache != null &&
         _postsCacheAt != null &&
         DateTime.now().difference(_postsCacheAt!) < _postsCacheTtl) {
+      lastPostsFetchError = null;
       return _postsCache!
           .map((e) => CommunityPost.fromJson(e.toJson()))
           .toList();
@@ -193,9 +228,18 @@ class CommunityService {
       }).toList();
       _postsCache = parsed;
       _postsCacheAt = DateTime.now();
+      lastPostsFetchError = null;
       await _savePostsCacheToDisk(parsed);
       return parsed.map((e) => CommunityPost.fromJson(e.toJson())).toList();
-    } catch (_) {
+    } catch (e, st) {
+      debugPrint('CommunityService.getPosts failed: $e\n$st');
+      lastPostsFetchError = e.toString();
+      final fromDisk = await _readPostsCacheFromDisk();
+      if (fromDisk.isNotEmpty) {
+        _postsCache = fromDisk;
+        _postsCacheAt = DateTime.now();
+        return fromDisk.map((e) => CommunityPost.fromJson(e.toJson())).toList();
+      }
       return _postsCache
               ?.map((e) => CommunityPost.fromJson(e.toJson()))
               .toList() ??
@@ -305,6 +349,20 @@ class CommunityService {
   Future<void> editPost(String postId, String description) async {
     await _api.editCommunityPost(postId: postId, description: description);
     _postsCacheAt = null;
+  }
+
+  Future<CommunityPost> togglePostLike(String postId) async {
+    final map = await _api.toggleCommunityPostLike(postId);
+    final parsed = CommunityPost.fromJson(map);
+    if (_postsCache != null) {
+      final idx = _postsCache!.indexWhere((p) => p.id == parsed.id);
+      if (idx >= 0) {
+        _postsCache![idx] = parsed;
+      }
+    }
+    _postsCacheAt = DateTime.now();
+    await _savePostsCacheToDisk(_postsCache ?? [parsed]);
+    return parsed;
   }
 
   Future<void> reportPost(String postId, String reason) async {

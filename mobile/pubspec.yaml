@@ -34,6 +34,7 @@ dependencies:
   # UI Enhancements
   flutter_svg: ^2.0.9
   shimmer: ^3.0.0
+  google_fonts: ^6.2.1
   
   # Utils
   intl: ^0.18.1
@@ -50,6 +51,7 @@ flutter:
   
   assets:
     - assets/login_welcome.png
+    - assets/splash_hero.png
   
   # Fonts
   # fonts:

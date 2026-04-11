@@ -3075,3 +3075,40 @@ Expected speedup: ~20s/batch → ~1-2s/batch → 23k images done in ~10 min inst
   2. First transition across tabs should be smoother than before (especially Community/Me/Insights).
   3. Community open + reply flow should feel near-instant without manual reload.
 - If any specific tab still feels slow, share exact tab + action and I will do targeted micro-optimization on that path next (API payload trimming, memoized parsing, and prefetch timing adjustments).
+
+### Current Status / Progress Tracking — Executor Update (Apr 11, 2026, Women scrape / Limelight Formal)
+
+- **Issue**: `Limelight Formal` used `https://www.limelight.pk/collections/women-formal`, which returns **HTTP 404** (collection removed or renamed), so scraper got **0 products**.
+- **Fix**: Updated `local_brands_links_women.csv` to `https://www.limelight.pk/collections/formal-wear` (200; `products.json` returns items).
+- **Verification**: Local `ProductScraper.scrape_exact_listing_url(..., scraper_type=shopify_json)` returned **33** products for the new URL.
+- **User action**: Restart backend if needed, re-run admin scrape for **Limelight Formal**; Mongo counts should update after successful run.
+
+### Lessons
+
+- For Limelight Shopify collections, verify the listing URL with a simple GET: old handles like `women-formal` may 404 while `formal-wear` remains valid.
+
+### Current Status / Progress Tracking — Executor Update (Apr 11, 2026, formal-wear → Women Lawn)
+
+- **User request**: Products that appeared under the **formal-wear** endpoint (Limelight Formal scrape) should show under **Women Lawn** in the admin catalogue.
+- **Code**: Added `"formal-wear"` to `WOMEN_LAWN_ENDPOINTS` in `backend/app/api/routes/admin_new.py`; `GET /api/admin/categories` now syncs all lawn endpoints (plus ramadan+lawn regex) to `display_category: Women Lawn` for `gender: w`, matching backfill behavior.
+- **DB**: Ran `update_many` for `gender=w` + `endpoint_category` matching `formal-wear` → **33** documents updated to `display_category: Women Lawn`.
+- **ml-engine**: Mirrored `formal-wear` in `scripts/backfill_display_category.py` lawn set for offline backfills.
+
+### Current Status / Progress Tracking — Executor Update (Apr 11, 2026, Community post detail theme)
+
+- **User feedback**: Post detail / reply sheet colors did not match app theme (pink / blue / teal).
+- **Changes** in `mobile/lib/screens/community_screen.dart`:
+  - `_PostDetailSheet`: subtle pink–teal gradient sheet background + soft shadow; themed divider; avatars use pink/teal fallbacks; reply highlight uses pink wash + teal border; thread accent border teal; “Replying to @…” chip uses pink–teal gradient pill; “View more replies” / “Hide nested replies” use pink / teal text; reply `TextField` rounded borders (teal enabled, pink focus) and `DupePalette` hint/cursor; send control uses `DupePalette.ctaGradient` circle instead of flat blue `IconButton.filled`.
+  - `_LinkText`: hashtags styled `DupePalette.pinkDeep`, URLs `DupePalette.teal`, default body `DupePalette.textPrimary`.
+- **Planner**: Please confirm after manual QA on device/web that the sheet matches the rest of the app.
+
+### Current Status / Progress Tracking — Executor Update (Apr 11, 2026, Community feed layout)
+
+- **User request**: Community page structure should match **first reference** (Instagram-style card: badge, full-bleed square image, like/comment/share row, bold name + caption), not the older layout (big gradient header + trending pills + compact card).
+- **Changes** in `mobile/lib/screens/community_screen.dart`:
+  - Removed in-body “Community” gradient title, subtitle, add-user shortcut, and horizontal **trending hashtag** strip.
+  - Feed background: soft **mint / teal–blue** gradient (`0xFFEEF9F6` + palette tints).
+  - Each post: white rounded card with shadow; header row (avatar, name, time, **pink→blue gradient badge** `New` / `N tips`, menu); **1:1** image (edge-to-edge, tap opens detail); **heart** (pink; local toggle + display count from stable hash + optional +1), **comments** (real reply count), **share** (copy caption to clipboard); caption row **bold author** + `_LinkText` / “No description.”
+  - **FAB**: pink→blue gradient pill + “New post” (matches reference vibe).
+  - **embedded**: single Playfair “Community” title above list (shell has no app bar there).
+- **Note**: Like counts are **not from the server** (no likes API); they are **deterministic per post id** for feed polish, plus a **local +1** when the user taps the heart.

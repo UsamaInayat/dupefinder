@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
 import '../services/api_service.dart';
 import '../services/user_profile_service.dart';
 import '../theme/app_theme.dart';
@@ -59,108 +60,182 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
+  InputDecoration _glassField(String label, String hint, {Widget? prefix, Widget? suffix}) {
+    return InputDecoration(
+      labelText: label,
+      hintText: hint,
+      labelStyle: TextStyle(color: Colors.white.withValues(alpha: 0.9), fontSize: 13),
+      hintStyle: TextStyle(color: Colors.white.withValues(alpha: 0.5)),
+      prefixIcon: prefix,
+      suffixIcon: suffix,
+      filled: true,
+      fillColor: Colors.white.withValues(alpha: 0.18),
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(18),
+        borderSide: BorderSide(color: Colors.white.withValues(alpha: 0.55)),
+      ),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(18),
+        borderSide: BorderSide(color: Colors.white.withValues(alpha: 0.55)),
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(18),
+        borderSide: const BorderSide(color: Colors.white, width: 1.5),
+      ),
+      errorBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(18),
+        borderSide: const BorderSide(color: Colors.redAccent, width: 1),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.white,
-      appBar: AppBar(
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios_new_rounded),
-          onPressed: () => Navigator.of(context).pushNamedAndRemoveUntil('/welcome', (r) => false),
+      body: Container(
+        width: double.infinity,
+        height: double.infinity,
+        decoration: BoxDecoration(
+          gradient: DupePalette.loginBackgroundGradient,
         ),
-        title: const Text('Log In'),
-      ),
-      body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 16),
-          child: Form(
-            key: _formKey,
+        child: SafeArea(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                const SizedBox(height: 8),
-                const Text(
-                  'Welcome back',
-                  style: TextStyle(
-                    fontSize: 26,
-                    fontWeight: FontWeight.bold,
-                    color: AppColors.purpleDark,
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: IconButton(
+                    icon: Icon(Icons.arrow_back_ios_new_rounded, color: Colors.white.withValues(alpha: 0.95)),
+                    onPressed: () => Navigator.of(context).pushNamedAndRemoveUntil('/welcome', (r) => false),
                   ),
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  'Sign in to save wishlists and see personalized insights.',
-                  style: TextStyle(fontSize: 15, color: AppColors.greySubtitle, height: 1.35),
+                  'Welcome Back',
+                  textAlign: TextAlign.center,
+                  style: DupePalette.serifHeading(32, w: FontWeight.w700, color: Colors.white),
                 ),
-                const SizedBox(height: 32),
-                TextFormField(
-                  controller: _emailController,
-                  keyboardType: TextInputType.emailAddress,
-                  decoration: const InputDecoration(
-                    labelText: 'Email',
-                    prefixIcon: Icon(Icons.email_outlined, color: AppColors.bluePrimary),
-                    hintText: 'you@example.com',
+                const SizedBox(height: 10),
+                Text(
+                  'Sign in to continue your journey',
+                  textAlign: TextAlign.center,
+                  style: GoogleFonts.inter(
+                    fontSize: 15,
+                    color: Colors.white.withValues(alpha: 0.88),
+                    height: 1.35,
                   ),
-                  validator: (v) {
-                    if (v == null || v.trim().isEmpty) return 'Enter your email';
-                    if (!_validEmail(v)) return 'Enter a valid email';
-                    return null;
-                  },
                 ),
-                const SizedBox(height: 18),
-                TextFormField(
-                  controller: _passwordController,
-                  obscureText: _obscurePassword,
-                  decoration: InputDecoration(
-                    labelText: 'Password',
-                    prefixIcon: const Icon(Icons.lock_outline_rounded, color: AppColors.bluePrimary),
-                    suffixIcon: IconButton(
-                      icon: Icon(_obscurePassword ? Icons.visibility_outlined : Icons.visibility_off_outlined),
-                      onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
-                    ),
-                  ),
-                  validator: (v) {
-                    if (v == null || v.isEmpty) return 'Enter your password';
-                    if (v.length < 8) return 'At least 8 characters';
-                    return null;
-                  },
-                ),
-                const SizedBox(height: 32),
-                SizedBox(
-                  height: 54,
-                  child: DecoratedBox(
-                    decoration: AppTheme.loginGradientButton,
-                    child: Material(
-                      color: Colors.transparent,
-                      child: InkWell(
-                        onTap: _isLoading ? null : _handleLogin,
-                        borderRadius: BorderRadius.circular(32),
-                        child: Center(
-                          child: _isLoading
-                              ? const SizedBox(
-                                  width: 24,
-                                  height: 24,
-                                  child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                                )
-                              : const Text(
-                                  'Log In',
-                                  style: TextStyle(
-                                    color: Colors.white,
-                                    fontSize: 17,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
+                const SizedBox(height: 28),
+                Container(
+                  padding: const EdgeInsets.fromLTRB(20, 26, 20, 26),
+                  decoration: AppDecor.glassCard(),
+                  child: Form(
+                    key: _formKey,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        TextFormField(
+                          controller: _emailController,
+                          keyboardType: TextInputType.emailAddress,
+                          style: const TextStyle(color: Colors.white),
+                          cursorColor: Colors.white,
+                          decoration: _glassField(
+                            'Email',
+                            'Enter your email',
+                            prefix: Icon(Icons.email_outlined, color: Colors.white.withValues(alpha: 0.85)),
+                          ),
+                          validator: (v) {
+                            if (v == null || v.trim().isEmpty) return 'Enter your email';
+                            if (!_validEmail(v)) return 'Enter a valid email';
+                            return null;
+                          },
                         ),
-                      ),
+                        const SizedBox(height: 18),
+                        TextFormField(
+                          controller: _passwordController,
+                          obscureText: _obscurePassword,
+                          style: const TextStyle(color: Colors.white),
+                          cursorColor: Colors.white,
+                          decoration: _glassField(
+                            'Password',
+                            'Enter your password',
+                            prefix: Icon(Icons.lock_outline_rounded, color: Colors.white.withValues(alpha: 0.85)),
+                            suffix: IconButton(
+                              icon: Icon(
+                                _obscurePassword ? Icons.visibility_outlined : Icons.visibility_off_outlined,
+                                color: Colors.white.withValues(alpha: 0.8),
+                              ),
+                              onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
+                            ),
+                          ),
+                          validator: (v) {
+                            if (v == null || v.isEmpty) return 'Enter your password';
+                            if (v.length < 8) return 'At least 8 characters';
+                            return null;
+                          },
+                        ),
+                        const SizedBox(height: 28),
+                        SizedBox(
+                          height: 54,
+                          child: DecoratedBox(
+                            decoration: AppTheme.loginGradientButton,
+                            child: Material(
+                              color: Colors.transparent,
+                              child: InkWell(
+                                onTap: _isLoading ? null : _handleLogin,
+                                borderRadius: BorderRadius.circular(32),
+                                child: Center(
+                                  child: _isLoading
+                                      ? const SizedBox(
+                                          width: 24,
+                                          height: 24,
+                                          child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                                        )
+                                      : Row(
+                                          mainAxisAlignment: MainAxisAlignment.center,
+                                          children: [
+                                            Text(
+                                              'Sign In',
+                                              style: GoogleFonts.inter(
+                                                color: Colors.white,
+                                                fontSize: 17,
+                                                fontWeight: FontWeight.bold,
+                                              ),
+                                            ),
+                                            const SizedBox(width: 8),
+                                            const Icon(Icons.arrow_forward_rounded, color: Colors.white, size: 22),
+                                          ],
+                                        ),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                 ),
-                const SizedBox(height: 20),
+                const SizedBox(height: 24),
                 TextButton(
                   onPressed: () => Navigator.of(context).pushReplacementNamed('/register'),
-                  child: const Text(
-                    'Don\'t have an account? Sign Up',
-                    style: TextStyle(color: AppColors.bluePrimary, fontWeight: FontWeight.w600),
+                  child: Text.rich(
+                    TextSpan(
+                      style: GoogleFonts.inter(color: Colors.white.withValues(alpha: 0.9), fontSize: 15),
+                      children: [
+                        const TextSpan(text: "Don't have an account? "),
+                        TextSpan(
+                          text: 'Sign Up',
+                          style: GoogleFonts.inter(
+                            decoration: TextDecoration.underline,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.white,
+                          ),
+                        ),
+                      ],
+                    ),
+                    textAlign: TextAlign.center,
                   ),
                 ),
               ],

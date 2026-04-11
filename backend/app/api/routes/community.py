@@ -6,7 +6,7 @@ Posts are kept for 7 days.
 from datetime import datetime, timedelta
 from typing import List, Optional
 
-from fastapi import APIRouter, HTTPException, Depends, Query
+from fastapi import APIRouter, HTTPException, Depends, Query, Request
 from pydantic import BaseModel, Field
 from bson import ObjectId
 
@@ -91,7 +91,22 @@ def _ensure_indexes():
     _index_ready = True
 
 
-def _serialize(doc: dict) -> dict:
+def _viewer_like_key(current_user: Optional[dict], device_id: Optional[str]) -> Optional[str]:
+    if current_user and current_user.get("_id"):
+        return f"u:{current_user.get('_id')}"
+    d = (device_id or "").strip()
+    if len(d) >= 8:
+        return f"d:{d}"
+    return None
+
+
+def _device_id_from_request(request: Request) -> Optional[str]:
+    return request.headers.get("x-community-like-id") or request.headers.get("X-Community-Like-Id")
+
+
+def _serialize(doc: dict, viewer_like_key: Optional[str] = None) -> dict:
+    like_keys = list(doc.get("like_keys") or [])
+    liked = bool(viewer_like_key and viewer_like_key in like_keys)
     return {
         "id": str(doc.get("_id")),
         "description": doc.get("description", ""),
@@ -100,6 +115,8 @@ def _serialize(doc: dict) -> dict:
         "imageBase64": doc.get("image_base64"),
         "createdAt": (doc.get("created_at") or datetime.utcnow()).isoformat(),
         "authorUserId": doc.get("author_user_id"),
+        "likeCount": len(like_keys),
+        "likedByMe": liked,
         "replies": [
             {
                 "id": r.get("id"),
@@ -129,7 +146,10 @@ def _serialize_notification(doc: dict) -> dict:
 
 
 @router.get("/posts")
-async def get_posts(current_user: Optional[dict] = Depends(get_optional_user)):
+async def get_posts(
+    request: Request,
+    current_user: Optional[dict] = Depends(get_optional_user),
+):
     _ensure_indexes()
     c = _col()
     b = _blocks_col()
@@ -150,11 +170,16 @@ async def get_posts(current_user: Optional[dict] = Depends(get_optional_user)):
         next_doc = dict(d)
         next_doc["replies"] = replies
         safe_docs.append(next_doc)
-    return {"posts": [_serialize(d) for d in safe_docs]}
+    vk = _viewer_like_key(current_user, _device_id_from_request(request))
+    return {"posts": [_serialize(d, vk) for d in safe_docs]}
 
 
 @router.post("/posts")
-async def add_post(payload: CommunityPostIn, current_user: Optional[dict] = Depends(get_optional_user)):
+async def add_post(
+    request: Request,
+    payload: CommunityPostIn,
+    current_user: Optional[dict] = Depends(get_optional_user),
+):
     _ensure_indexes()
     c = _col()
     resolved_author = (payload.author or "You").strip() or "You"
@@ -173,14 +198,21 @@ async def add_post(payload: CommunityPostIn, current_user: Optional[dict] = Depe
         "image_base64": payload.image_base64,
         "created_at": datetime.utcnow(),
         "replies": [],
+        "like_keys": [],
     }
     result = c.insert_one(doc)
     created = c.find_one({"_id": result.inserted_id})
-    return {"post": _serialize(created)}
+    vk = _viewer_like_key(current_user, _device_id_from_request(request))
+    return {"post": _serialize(created, vk)}
 
 
 @router.post("/posts/{post_id}/replies")
-async def add_reply(post_id: str, payload: CommunityReplyIn, current_user: Optional[dict] = Depends(get_optional_user)):
+async def add_reply(
+    post_id: str,
+    request: Request,
+    payload: CommunityReplyIn,
+    current_user: Optional[dict] = Depends(get_optional_user),
+):
     _ensure_indexes()
     c = _col()
     n = _notifications_col()
@@ -228,7 +260,8 @@ async def add_reply(post_id: str, payload: CommunityReplyIn, current_user: Optio
             and (datetime.utcnow() - latest_created).total_seconds() <= 8
         ):
             # Treat rapid duplicate sends as an idempotent success.
-            return {"post": _serialize(post), "duplicate_ignored": True}
+            vk = _viewer_like_key(current_user, _device_id_from_request(request))
+            return {"post": _serialize(post, vk), "duplicate_ignored": True}
     result = c.update_one(
         {"_id": ObjectId(post_id)},
         {"$push": {"replies": reply_doc}},
@@ -251,7 +284,38 @@ async def add_reply(post_id: str, payload: CommunityReplyIn, current_user: Optio
                 "created_at": datetime.utcnow(),
             }
         )
-    return {"post": _serialize(updated)}
+    vk = _viewer_like_key(current_user, _device_id_from_request(request))
+    return {"post": _serialize(updated, vk)}
+
+
+@router.post("/posts/{post_id}/like")
+async def toggle_post_like(
+    post_id: str,
+    request: Request,
+    current_user: Optional[dict] = Depends(get_optional_user),
+):
+    """Toggle like for the current user (JWT) or device id (X-Community-Like-Id header)."""
+    _ensure_indexes()
+    c = _col()
+    if not ObjectId.is_valid(post_id):
+        raise HTTPException(status_code=400, detail="Invalid post id")
+    vk = _viewer_like_key(current_user, _device_id_from_request(request))
+    if not vk:
+        raise HTTPException(
+            status_code=400,
+            detail="Sign in or send header X-Community-Like-Id (8+ characters)",
+        )
+    post = c.find_one({"_id": ObjectId(post_id)})
+    if not post:
+        raise HTTPException(status_code=404, detail="Post not found")
+    like_keys = list(post.get("like_keys") or [])
+    if vk in like_keys:
+        like_keys = [x for x in like_keys if x != vk]
+    else:
+        like_keys.append(vk)
+    c.update_one({"_id": ObjectId(post_id)}, {"$set": {"like_keys": like_keys}})
+    updated = c.find_one({"_id": ObjectId(post_id)})
+    return {"post": _serialize(updated, vk)}
 
 
 @router.get("/notifications")
@@ -294,6 +358,7 @@ async def mark_notification_read(notification_id: str, current_user: dict = Depe
 async def delete_own_reply(
     post_id: str,
     reply_id: str,
+    request: Request,
     current_user: dict = Depends(get_current_user),
 ):
     _ensure_indexes()
@@ -324,7 +389,8 @@ async def delete_own_reply(
         {"$pull": {"replies": {"id": reply_id}}},
     )
     updated = c.find_one({"_id": ObjectId(post_id)})
-    return {"post": _serialize(updated), "success": True}
+    vk = _viewer_like_key(current_user, _device_id_from_request(request))
+    return {"post": _serialize(updated, vk), "success": True}
 
 
 @router.delete("/posts/{post_id}")
@@ -343,7 +409,12 @@ async def delete_own_post(post_id: str, current_user: dict = Depends(get_current
 
 
 @router.put("/posts/{post_id}")
-async def edit_own_post(post_id: str, payload: CommunityPostUpdateIn, current_user: dict = Depends(get_current_user)):
+async def edit_own_post(
+    post_id: str,
+    request: Request,
+    payload: CommunityPostUpdateIn,
+    current_user: dict = Depends(get_current_user),
+):
     _ensure_indexes()
     c = _col()
     if not ObjectId.is_valid(post_id):
@@ -362,7 +433,8 @@ async def edit_own_post(post_id: str, payload: CommunityPostUpdateIn, current_us
         {"$set": {"description": payload.description.strip(), "updated_at": datetime.utcnow()}},
     )
     updated = c.find_one({"_id": ObjectId(post_id)})
-    return {"post": _serialize(updated)}
+    vk = _viewer_like_key(current_user, _device_id_from_request(request))
+    return {"post": _serialize(updated, vk)}
 
 
 @router.post("/posts/{post_id}/report")
