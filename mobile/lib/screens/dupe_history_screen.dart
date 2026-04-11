@@ -61,7 +61,7 @@ class _DupeHistoryScreenState extends State<DupeHistoryScreen> {
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : _entries.isEmpty
-              ? Center(
+              ? const Center(
                   child: Text(
                     'No clicked dupes yet.',
                     style: TextStyle(color: AppColors.greySubtitle),
@@ -117,7 +117,7 @@ class _DupeHistoryScreenState extends State<DupeHistoryScreen> {
                                     if (brand.isNotEmpty)
                                       Text(
                                         brand,
-                                        style: TextStyle(color: AppColors.greySubtitle),
+                                        style: const TextStyle(color: AppColors.greySubtitle),
                                       ),
                                     const SizedBox(height: 4),
                                     Text(

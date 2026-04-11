@@ -254,23 +254,23 @@ class _MainShellState extends State<MainShell> {
         indicatorColor: DupePalette.pink.withValues(alpha: 0.22),
         labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
         destinations: [
-          NavigationDestination(
+          const NavigationDestination(
               icon: Icon(Icons.home_outlined),
               selectedIcon: Icon(Icons.home_rounded),
               label: 'Home'),
-          NavigationDestination(
+          const NavigationDestination(
               icon: Icon(Icons.image_search_outlined),
               selectedIcon: Icon(Icons.image_search_rounded),
               label: 'Search'),
-          NavigationDestination(
+          const NavigationDestination(
               icon: Icon(Icons.favorite_outline),
               selectedIcon: Icon(Icons.favorite_rounded),
               label: 'Saved'),
-          NavigationDestination(
+          const NavigationDestination(
               icon: Icon(Icons.compare_arrows_outlined),
               selectedIcon: Icon(Icons.compare_arrows_rounded),
               label: 'Compare'),
-          NavigationDestination(
+          const NavigationDestination(
               icon: Icon(Icons.forum_outlined),
               selectedIcon: Icon(Icons.forum_rounded),
               label: 'Community'),

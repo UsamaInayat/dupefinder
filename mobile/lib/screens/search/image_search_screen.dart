@@ -376,7 +376,10 @@ class _ImageSearchScreenState extends State<ImageSearchScreen> {
               children: [
                 Expanded(
                   child: DropdownButtonFormField<String>(
-                    value: _selectedCategory.isEmpty ? null : _selectedCategory,
+                    key: ValueKey<String?>(
+                        _selectedCategory.isEmpty ? null : _selectedCategory),
+                    initialValue:
+                        _selectedCategory.isEmpty ? null : _selectedCategory,
                     menuMaxHeight: 420,
                     decoration: InputDecoration(
                       labelText: 'Category',
@@ -404,7 +407,8 @@ class _ImageSearchScreenState extends State<ImageSearchScreen> {
                 const SizedBox(width: 10),
                 Expanded(
                   child: DropdownButtonFormField<int>(
-                    value: _selectedPriceRangeIndex,
+                    key: ValueKey<int>(_selectedPriceRangeIndex),
+                    initialValue: _selectedPriceRangeIndex,
                     menuMaxHeight: 320,
                     decoration: InputDecoration(
                       labelText: 'Price range',
@@ -543,7 +547,7 @@ class _ImageSearchScreenState extends State<ImageSearchScreen> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          '${total} result${total == 1 ? '' : 's'}'
+          '$total result${total == 1 ? '' : 's'}'
           '${category.isNotEmpty ? ' in $category' : ''}'
           ' (${timeMs.toStringAsFixed(0)} ms)',
           style: Theme.of(context).textTheme.titleSmall?.copyWith(

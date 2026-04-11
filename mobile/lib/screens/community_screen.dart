@@ -583,9 +583,9 @@ class _CommunityScreenState extends State<CommunityScreen> {
                         behavior: SnackBarBehavior.floating));
                   }
                 },
-                child: const Text('Post'),
                 style: FilledButton.styleFrom(
                     backgroundColor: AppColors.bluePrimary),
+                child: const Text('Post'),
               ),
             ],
           ),
@@ -902,10 +902,13 @@ class _PostDetailSheetState extends State<_PostDetailSheet> {
       return true;
     }
     final author = r.author.trim().toLowerCase();
-    if (widget.myNameLower.isNotEmpty && author == widget.myNameLower)
+    if (widget.myNameLower.isNotEmpty && author == widget.myNameLower) {
       return true;
+    }
     if (widget.myEmailPrefixLower.isNotEmpty &&
-        author == widget.myEmailPrefixLower) return true;
+        author == widget.myEmailPrefixLower) {
+      return true;
+    }
     return false;
   }
 
@@ -1319,8 +1322,9 @@ class _PostDetailSheetState extends State<_PostDetailSheet> {
                                     if (v == 'report_reply') {
                                       if (r.id.isEmpty) return;
                                       final reason = await _askReason();
-                                      if (reason == null || reason.isEmpty)
+                                      if (reason == null || reason.isEmpty) {
                                         return;
+                                      }
                                       await widget.service.reportReply(
                                         postId: _post.id,
                                         replyId: r.id,

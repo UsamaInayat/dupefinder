@@ -37,11 +37,12 @@ class _CompareScreenState extends State<CompareScreen> {
       setState(() => _loading = true);
     }
     final list = await _compareService.getList();
-    if (mounted)
+    if (mounted) {
       setState(() {
         _items = list;
         _loading = false;
       });
+    }
   }
 
   Future<void> _openUrl(String? url) async {
