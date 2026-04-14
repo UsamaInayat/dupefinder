@@ -1,67 +1,259 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
+import 'package:device_info_plus/device_info_plus.dart';
 import 'package:http/http.dart' as http;
+import 'package:network_info_plus/network_info_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/foundation.dart'
+    show kIsWeb, defaultTargetPlatform, TargetPlatform;
 import 'package:image_picker/image_picker.dart';
 import 'package:http_parser/http_parser.dart';
 
 class ApiService {
-  // Candidate IPs tried in order at startup — first reachable one wins.
-  // Order matters: put the IP that matches *today's* ipconfig first (changes per network).
-  // 172.20.10.x    = PC when phone is iPhone Personal Hotspot (common)
-  // 192.168.137.1  = PC hosting Windows Mobile Hotspot
-  // 192.168.1.108  = example home-router LAN (update if your ipconfig shows another .x)
-  static const List<String> _candidateIPs = [
-    '172.20.10.6',
-    '192.168.137.1',
-    '192.168.1.108',
-  ];
+  /// Cleared once so old manual `backend_ip` values (e.g. hotspot IPs) are not reused.
+  static const String _kLanDiscoveryPrefsMigration = 'dupefinder_lan_discovery_v2';
 
-  // Cached after resolveBaseUrl() runs once at app startup.
+  /// Slightly longer probe when explicitly checking a saved or scanned host.
+  static const Duration _healthProbeTimeout = Duration(seconds: 3);
+  static const Duration _authRequestTimeout = Duration(seconds: 25);
+
+  /// Fast per-host probes while scanning /24 (many hosts in parallel).
+  static const Duration _lanScanProbeTimeout = Duration(milliseconds: 800);
+  static const int _lanScanBatchSize = 40;
+
+  // Cached after resolveBaseUrl(); cleared on force re-probe or connection failure retry.
   static String? _resolvedUrl;
   static Map<String, dynamic>? _userDataCache;
   static DateTime? _userDataCacheAt;
   static const Duration _userDataCacheTtl = Duration(seconds: 20);
 
-  /// Call once in main() before runApp().
-  /// Probes each candidate IP with a 3-second timeout and caches the first
-  /// one that responds. Falls back to the first candidate if none respond.
-  static Future<void> resolveBaseUrl() async {
+  static Future<void> _migrateClearLegacyBackendIp(SharedPreferences prefs) async {
+    if (prefs.getBool(_kLanDiscoveryPrefsMigration) == true) return;
+    await prefs.remove('backend_ip');
+    await prefs.setBool(_kLanDiscoveryPrefsMigration, true);
+    print('[ApiService] Cleared legacy backend_ip once — LAN discovery will find your PC on Wi‑Fi');
+  }
+
+  static String? _normalizeLanIpv4(String? raw) {
+    if (raw == null) return null;
+    var s = raw.trim().split('%').first.trim();
+    if (s.isEmpty || s == '0.0.0.0') return null;
+    if (s.contains(':') && s.contains('.')) {
+      final idx = s.lastIndexOf(':');
+      s = s.substring(idx + 1);
+    }
+    if (s.contains(':')) return null;
+    final parts = s.split('.');
+    if (parts.length != 4) return null;
+    for (final p in parts) {
+      if (int.tryParse(p) == null) return null;
+      final n = int.parse(p);
+      if (n < 0 || n > 255) return null;
+    }
+    return parts.join('.');
+  }
+
+  static Future<bool> _probeDupeFinderRoot(String hostIp,
+      {Duration? timeout}) async {
+    try {
+      final r = await http
+          .get(Uri.parse('http://$hostIp:8000/'))
+          .timeout(timeout ?? _healthProbeTimeout);
+      return r.statusCode == 200 &&
+          r.body.toLowerCase().contains('dupefinder');
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// First host in this /24 batch that responds with DupeFinder root JSON.
+  static Future<String?> _scanBatchForDupeFinder(
+      String prefix, List<int> lastOctets) async {
+    if (lastOctets.isEmpty) return null;
+    final completer = Completer<String?>();
+    var remaining = lastOctets.length;
+    for (final o in lastOctets) {
+      final ip = '$prefix.$o';
+      _probeDupeFinderRoot(ip, timeout: _lanScanProbeTimeout)
+          .then((ok) {
+        if (ok && !completer.isCompleted) {
+          completer.complete(ip);
+        }
+      })
+          .catchError((_) {})
+          .whenComplete(() {
+        remaining--;
+        if (remaining == 0 && !completer.isCompleted) {
+          completer.complete(null);
+        }
+      });
+    }
+    return completer.future;
+  }
+
+  /// Scans 1–254 on [prefix].0/24 (e.g. prefix `192.168.1`), optionally skipping [excludeLastOctet].
+  static Future<String?> _scanSubnetPrefix(
+      String prefix, int? excludeLastOctet) async {
+    final octets = <int>[];
+    for (var o = 1; o <= 254; o++) {
+      if (excludeLastOctet != null && o == excludeLastOctet) continue;
+      octets.add(o);
+    }
+    int bucket(int o) {
+      if (o >= 100 && o <= 220) return 0;
+      if (o >= 2 && o <= 99) return 1;
+      return 2;
+    }
+    octets.sort((a, b) {
+      final c = bucket(a).compareTo(bucket(b));
+      return c != 0 ? c : a.compareTo(b);
+    });
+
+    for (var i = 0; i < octets.length; i += _lanScanBatchSize) {
+      final end = min(i + _lanScanBatchSize, octets.length);
+      final batch = octets.sublist(i, end);
+      final hit = await _scanBatchForDupeFinder(prefix, batch);
+      if (hit != null) return hit;
+    }
+    return null;
+  }
+
+  /// Same /24 as this device’s IPv4; skips the phone’s own address.
+  static Future<String?> _scanSubnetForBackend(String myIpv4) async {
+    final parts = myIpv4.split('.');
+    if (parts.length != 4) return null;
+    final self = int.tryParse(parts[3]);
+    if (self == null) return null;
+    final prefix = '${parts[0]}.${parts[1]}.${parts[2]}';
+    return _scanSubnetPrefix(prefix, self);
+  }
+
+  static Future<bool> _isAndroidEmulator() async {
+    if (defaultTargetPlatform != TargetPlatform.android) return false;
+    try {
+      final a = await DeviceInfoPlugin().androidInfo;
+      return !a.isPhysicalDevice;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  static Future<bool> _isIosSimulator() async {
+    if (defaultTargetPlatform != TargetPlatform.iOS) return false;
+    try {
+      final ios = await DeviceInfoPlugin().iosInfo;
+      return !ios.isPhysicalDevice;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Finds the DupeFinder API base on the LAN. No hardcoded router or hotspot IPs.
+  /// [force] clears cache and re-runs discovery (e.g. after a connection error).
+  static Future<void> resolveBaseUrl({bool force = false}) async {
     if (kIsWeb) {
       _resolvedUrl = 'http://localhost:8000/api';
       print('[ApiService] Web platform — using localhost');
       return;
     }
-    for (final ip in _candidateIPs) {
-      try {
-        final uri = Uri.parse('http://$ip:8000/health');
-        final resp = await http.get(uri).timeout(const Duration(seconds: 3));
-        // Any HTTP response means the host:port is reachable (even 503 from /health).
-        _resolvedUrl = 'http://$ip:8000/api';
-        print(
-            '[ApiService] Resolved backend -> $_resolvedUrl (health HTTP ${resp.statusCode})');
+    if (!force && _resolvedUrl != null) return;
+
+    if (force) _resolvedUrl = null;
+
+    final prefs = await SharedPreferences.getInstance();
+    await _migrateClearLegacyBackendIp(prefs);
+
+    final savedRaw = prefs.getString('backend_ip')?.trim();
+    final saved = _normalizeLanIpv4(savedRaw);
+    if (saved != null && await _probeDupeFinderRoot(saved)) {
+      _resolvedUrl = 'http://$saved:8000/api';
+      print('[ApiService] Using saved backend_ip -> $_resolvedUrl');
+      return;
+    }
+    if (savedRaw != null && savedRaw.isNotEmpty && saved == null) {
+      print('[ApiService] Ignoring invalid saved backend_ip: $savedRaw');
+    }
+
+    final wifiRaw = await NetworkInfo().getWifiIP();
+    final wifiIp = _normalizeLanIpv4(wifiRaw);
+    if (wifiIp != null) {
+      print('[ApiService] Wi‑Fi IPv4 $wifiIp — scanning /24 for DupeFinder on :8000 ...');
+      final found = await _scanSubnetForBackend(wifiIp);
+      if (found != null) {
+        _resolvedUrl = 'http://$found:8000/api';
+        await prefs.setString('backend_ip', found);
+        print('[ApiService] LAN scan found backend -> $_resolvedUrl');
         return;
-      } catch (_) {
-        print('[ApiService] $ip unreachable, trying next...');
+      }
+      print('[ApiService] LAN scan found no DupeFinder on this subnet');
+    } else {
+      print(
+          '[ApiService] No Wi‑Fi device IP (common on Android 10+ without location) — trying gateway /24');
+      final gwRaw = await NetworkInfo().getWifiGatewayIP();
+      final gw = _normalizeLanIpv4(gwRaw);
+      if (gw != null) {
+        final gp = gw.split('.');
+        if (gp.length == 4) {
+          final prefix = '${gp[0]}.${gp[1]}.${gp[2]}';
+          final found = await _scanSubnetPrefix(prefix, null);
+          if (found != null) {
+            _resolvedUrl = 'http://$found:8000/api';
+            await prefs.setString('backend_ip', found);
+            print('[ApiService] Gateway-prefix scan found backend -> $_resolvedUrl');
+            return;
+          }
+        }
+      }
+      print('[ApiService] Gateway-based scan did not find DupeFinder');
+    }
+
+    if (await _isAndroidEmulator()) {
+      if (await _probeDupeFinderRoot('10.0.2.2')) {
+        _resolvedUrl = 'http://10.0.2.2:8000/api';
+        print('[ApiService] Android emulator -> $_resolvedUrl');
+        return;
       }
     }
-    // No candidate responded — fall back to first entry so the app still starts.
-    _resolvedUrl = 'http://${_candidateIPs.first}:8000/api';
-    print('[ApiService] No backend reachable — defaulting to $_resolvedUrl');
+
+    if (await _isIosSimulator()) {
+      if (await _probeDupeFinderRoot('127.0.0.1')) {
+        _resolvedUrl = 'http://127.0.0.1:8000/api';
+        print('[ApiService] iOS Simulator -> $_resolvedUrl');
+        return;
+      }
+    }
+
+    _resolvedUrl = 'http://unresolvable.invalid:8000/api';
+    print('[ApiService] Could not find DupeFinder on your network.');
     print('[ApiService] Fix checklist:');
-    print('  1) PC: run backend with LAN binding:  backend/start_lan.ps1  (or: uvicorn app.main:app --host 0.0.0.0 --port 8000)');
-    print('  2) Windows: allow inbound TCP port 8000 in Firewall');
-    print('  3) Same network: phone WiFi = PC WiFi (or phone hotspot + PC connected to it)');
-    print('  4) Add your PC IPv4 from ipconfig to _candidateIPs in api_service.dart if not listed');
-    print('  5) Android: usesCleartextTraffic must be true in AndroidManifest (http:// dev URLs)');
+    print('  1) PC: backend/start_lan.ps1 (uvicorn --host 0.0.0.0 --port 8000)');
+    print('  2) Windows Firewall: inbound TCP 8000');
+    print('  3) Phone + PC on same Wi‑Fi; open http://<PC-ip>:8000/ in phone browser');
+    print('  4) Optional: ApiService.setBackendIP("<ipv4>") if discovery is blocked');
+  }
+
+  static bool _isConnectionFailure(Object e) {
+    if (e is TimeoutException) return true;
+    final s = e.toString().toLowerCase();
+    return s.contains('socketexception') ||
+        s.contains('connection timed out') ||
+        s.contains('connection refused') ||
+        s.contains('failed host lookup') ||
+        s.contains('network is unreachable') ||
+        s.contains('timeoutexception') ||
+        s.contains('future not completed') ||
+        s.contains('clientexception');
   }
 
   static String get baseUrl {
     if (_resolvedUrl != null) return _resolvedUrl!;
-    // resolveBaseUrl() not yet called (e.g. unit tests) — use safe default.
     if (kIsWeb) return 'http://localhost:8000/api';
-    return 'http://${_candidateIPs.first}:8000/api';
+    // Before resolveBaseUrl() (e.g. tests): prefer emulator loopback.
+    if (defaultTargetPlatform == TargetPlatform.android) {
+      return 'http://10.0.2.2:8000/api';
+    }
+    return 'http://127.0.0.1:8000/api';
   }
 
   // Method to set custom backend IP (for switching between emulator and physical device)
@@ -129,20 +321,39 @@ class ApiService {
     };
   }
 
+  /// POST to /api/{path} with JSON body; re-probes LAN IPs once on connection failure.
+  Future<http.Response> _postAuthWithRetry(
+      String path, Map<String, dynamic> body) async {
+    await resolveBaseUrl();
+    Future<http.Response> postOnce() => http
+        .post(
+          Uri.parse('$baseUrl/$path'),
+          headers: {'Content-Type': 'application/json'},
+          body: jsonEncode(body),
+        )
+        .timeout(_authRequestTimeout);
+    try {
+      return await postOnce();
+    } catch (e) {
+      if (_isConnectionFailure(e)) {
+        print('[ApiService] $path failed ($e); re-probing backend...');
+        await resolveBaseUrl(force: true);
+        return await postOnce();
+      }
+      rethrow;
+    }
+  }
+
   // Register new user
   Future<Map<String, dynamic>> register(String email, String password,
       {String? fullName}) async {
     try {
-      final response = await http.post(
-        Uri.parse('$baseUrl/auth/signup'),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({
-          'email': email,
-          'password': password,
-          if (fullName != null && fullName.trim().isNotEmpty)
-            'full_name': fullName.trim(),
-        }),
-      );
+      final response = await _postAuthWithRetry('auth/signup', {
+        'email': email,
+        'password': password,
+        if (fullName != null && fullName.trim().isNotEmpty)
+          'full_name': fullName.trim(),
+      });
 
       if (response.statusCode == 201) {
         return jsonDecode(response.body);
@@ -158,14 +369,10 @@ class ApiService {
   // Verify OTP
   Future<Map<String, dynamic>> verifyOTP(String email, String otp) async {
     try {
-      final response = await http.post(
-        Uri.parse('$baseUrl/auth/verify-otp'),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({
-          'email': email,
-          'otp_code': otp, // Backend expects 'otp_code' not 'otp'
-        }),
-      );
+      final response = await _postAuthWithRetry('auth/verify-otp', {
+        'email': email,
+        'otp_code': otp, // Backend expects 'otp_code' not 'otp'
+      });
 
       if (response.statusCode == 200) {
         return jsonDecode(response.body);
@@ -181,14 +388,10 @@ class ApiService {
   // Login
   Future<Map<String, dynamic>> login(String email, String password) async {
     try {
-      final response = await http.post(
-        Uri.parse('$baseUrl/auth/login'),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({
-          'email': email,
-          'password': password,
-        }),
-      );
+      final response = await _postAuthWithRetry('auth/login', {
+        'email': email,
+        'password': password,
+      });
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);

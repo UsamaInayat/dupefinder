@@ -3112,3 +3112,31 @@ Expected speedup: ~20s/batch → ~1-2s/batch → 23k images done in ~10 min inst
   - **FAB**: pink→blue gradient pill + “New post” (matches reference vibe).
   - **embedded**: single Playfair “Community” title above list (shell has no app bar there).
 - **Note**: Like counts are **not from the server** (no likes API); they are **deterministic per post id** for feed polish, plus a **local +1** when the user taps the heart.
+
+### Current Status / Progress Tracking — Executor Update (Apr 3, 2026, Mobile LAN login timeout)
+
+- **Issue**: Flutter app login showed `SocketException: Connection timed out` to `http://172.20.10.6:8000/...` while web worked (stale hotspot IP vs home Wi‑Fi).
+- **Done** in `mobile/lib/services/api_service.dart`:
+  - Added `_postAuthWithRetry`: calls `resolveBaseUrl()`, POST with **25s** timeout; on `_isConnectionFailure`, calls `resolveBaseUrl(force: true)` and retries once.
+  - Wired **login**, **register**, **verifyOTP** through this helper (paths `auth/login`, `auth/signup`, `auth/verify-otp`).
+- **`flutter analyze`**: no errors on that file (existing `avoid_print` infos only).
+- **User QA**: Full app restart (not hot reload); if still failing, open `http://<PC-ip>:8000/health` on the phone browser and confirm backend `0.0.0.0:8000` + firewall.
+
+### Executor's Feedback or Assistance Requests — Apr 3, 2026 (Mobile login)
+
+- **Planner / user**: Please confirm login works on device after restart. If the PC’s IPv4 changed from `192.168.1.108`, update `_candidateIPs` or set `backend_ip` in prefs via existing `setBackendIP`.
+
+### Current Status / Progress Tracking — Executor Update (Apr 3, 2026, Mobile login TimeoutException)
+
+- **Symptom**: Snackbar `TimeoutException after 0:00:25` (not `SocketException`).
+- **Causes addressed**:
+  1. **`_isConnectionFailure`** did not treat `TimeoutException` as retriable — login never triggered `resolveBaseUrl(force: true)`. Fixed with `e is TimeoutException` plus string fallbacks (`timeoutexception`, `future not completed`, `clientexception`).
+  2. **Probe used `GET /health`**, which runs **sync Mongo** (`health_check`, `count_documents`) inside an `async` route and can **block the uvicorn worker**; a concurrent or subsequent **login POST** then sits behind it until the client’s 25s timeout. Probe now uses **`GET /`** and requires **`dupefinder`** in the body so we still verify the right app without heavy DB work on that path.
+
+### Current Status / Progress Tracking — Executor Update (Apr 3, 2026, LAN discovery — no hardcoded IPs)
+
+- **User request**: Same Wi‑Fi as backend; remove hand‑typed IPs (`192.168.x`, `172.20.x`, etc.).
+- **Implementation** (`mobile/lib/services/api_service.dart`, `pubspec.yaml`, Android/iOS manifests):
+  - **One-time migration**: removes `backend_ip` from SharedPreferences once (`dupefinder_lan_discovery_v2`) so stale hotspot entries are gone; successful scan or manual `setBackendIP` repopulates it.
+  - **Discovery order**: (1) validate `backend_ip` if set; (2) read Wi‑Fi IPv4 via `network_info_plus` → **parallel /24 scan** for `GET http://x:8000/` body containing `dupefinder`; (3) if device IP is null, **gateway /24 scan** (Android 10+); (4) Android **emulator** `10.0.2.2`; (5) iOS **Simulator** `127.0.0.1`; else `unresolvable.invalid` placeholder.
+  - **Deps**: `network_info_plus`, `device_info_plus`. **iOS**: `NSLocalNetworkUsageDescription`. **Android**: `ACCESS_NETWORK_STATE` (+ existing `INTERNET`).

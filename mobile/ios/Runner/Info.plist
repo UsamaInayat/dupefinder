@@ -45,5 +45,7 @@
 	<true/>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>DupeFinder looks for your development API on your Wi‑Fi network (same subnet as this device).</string>
 </dict>
 </plist>

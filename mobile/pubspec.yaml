@@ -41,6 +41,10 @@ dependencies:
   url_launcher: ^6.2.2
   image_cropper: ^11.0.0
 
+  # LAN: discover PC running the API on the same Wi‑Fi /24 subnet
+  network_info_plus: ^6.0.0
+  device_info_plus: ^11.3.0
+
 dev_dependencies:
   flutter_test:
     sdk: flutter
