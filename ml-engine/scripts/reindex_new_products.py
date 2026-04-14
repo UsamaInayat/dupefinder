@@ -232,14 +232,24 @@ def run_reindex(
             idx_path = FAISS_DIR / f"{s}.index"
             map_path = ID_MAPS_DIR / f"{s}.pkl"
 
-            vecs    = np.stack([v for v, _ in pairs]).astype("float32")
-            new_ids = [pid for _, pid in pairs]
-
             if idx_path.exists() and map_path.exists():
-                # Load existing index and append
+                # Load existing index — skip product_ids already present (safe resume / no dupes)
                 index = faiss.read_index(str(idx_path))
                 with open(map_path, "rb") as f:
                     id_map = pickle.load(f)
+                existing = {str(v) for v in id_map.values()}
+                to_add = [(v, pid) for v, pid in pairs if str(pid) not in existing]
+                for v, pid in pairs:
+                    if str(pid) in existing:
+                        indexed_pids.append(str(pid))
+                if len(to_add) < len(pairs):
+                    print(f"[INFO] '{cat}': skip {len(pairs) - len(to_add)} already in index")
+                if not to_add:
+                    print(f"[SKIP] '{cat}': nothing new to append")
+                    continue
+
+                vecs    = np.stack([v for v, _ in to_add]).astype("float32")
+                new_ids = [pid for _, pid in to_add]
                 start_pos = index.ntotal
                 index.add(vecs)
                 for i, pid in enumerate(new_ids):
@@ -248,10 +258,12 @@ def run_reindex(
                       f"(index now has {index.ntotal})")
             else:
                 # No existing index — create new one for this category
-                dim   = vecs.shape[1]   # 512
-                index = faiss.IndexFlatIP(dim)
+                vecs    = np.stack([v for v, _ in pairs]).astype("float32")
+                new_ids = [pid for _, pid in pairs]
+                dim     = vecs.shape[1]   # 512
+                index   = faiss.IndexFlatIP(dim)
                 index.add(vecs)
-                id_map = {i: pid for i, pid in enumerate(new_ids)}
+                id_map  = {i: pid for i, pid in enumerate(new_ids)}
                 print(f"[NEW] '{cat}': created index with {len(new_ids)} vectors")
 
             # Save updated index + id_map to disk atomically (write to .tmp first)
