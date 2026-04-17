@@ -136,6 +136,102 @@ async def get_products(
         raise HTTPException(status_code=500, detail=f"Error fetching products: {str(e)}")
 
 
+def _shop_browse_query(slot: str) -> dict:
+    """
+    Map home 'Shop by category' slots to a broad Mongo filter (display_category + legacy category).
+    """
+    if slot == "dresses":
+        return {
+            "$or": [
+                {"category": "clothing"},
+                {
+                    "display_category": {
+                        "$regex": r"Kurta|Lawn|Dress|Frock|Western|Kurti|Suit|Bottom|Unstitched|Anarkali|Fancy",
+                        "$options": "i",
+                    }
+                },
+            ]
+        }
+    if slot == "bags":
+        return {
+            "$or": [
+                {"category": "bags"},
+                {"display_category": {"$regex": r"Bag", "$options": "i"}},
+            ]
+        }
+    if slot == "accessories":
+        return {
+            "$or": [
+                {
+                    "category": "accessories",
+                    "display_category": {
+                        "$not": {"$regex": r"Jewel", "$options": "i"},
+                    },
+                },
+                {
+                    "display_category": {
+                        "$regex": r"Accessor|Wallet|Belt|Scarf|Cap|Hat|Sunglass",
+                        "$options": "i",
+                    }
+                },
+            ]
+        }
+    if slot == "jewelry":
+        return {
+            "$or": [
+                {"display_category": {"$regex": r"Jewel|Jewellery|Jewelry", "$options": "i"}},
+                {
+                    "category": "accessories",
+                    "name": {"$regex": r"jewel|necklace|ring|earring|bracelet|pendant", "$options": "i"},
+                },
+            ]
+        }
+    raise ValueError(slot)
+
+
+@router.get("/shop-browse")
+async def shop_browse(
+    slot: str = Query(..., pattern="^(dresses|bags|accessories|jewelry)$"),
+    limit: int = Query(10, ge=1, le=30),
+):
+    """
+    Curated first page for home category chips: up to `limit` products per slot from DB.
+    Returns lightweight dicts (no embeddings) for mobile list/detail rows.
+    """
+    collection = get_products_collection()
+    q = _shop_browse_query(slot)
+    try:
+        cursor = (
+            collection.find(q).sort("created_at", -1).limit(int(limit))
+        )
+        items = []
+        for doc in cursor:
+            if "embedding" in doc:
+                del doc["embedding"]
+            doc["_id"] = str(doc["_id"])
+            items.append(
+                {
+                    "id": doc["_id"],
+                    "_id": doc["_id"],
+                    "name": doc.get("name") or "Product",
+                    "brand": doc.get("brand") or "",
+                    "price": float(doc.get("price") or 0),
+                    "description": (doc.get("description") or "")[:800],
+                    "image_path": doc.get("image_path") or doc.get("image_url") or "",
+                    "image_url": doc.get("image_url") or "",
+                    "product_url": doc.get("product_url") or doc.get("product_link") or "",
+                    "display_category": doc.get("display_category"),
+                    "category": doc.get("category"),
+                }
+            )
+        return {"slot": slot, "limit": limit, "count": len(items), "items": items}
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid slot")
+    except Exception as e:
+        logger.error("shop_browse failed: %s", e)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # Inline "No image" SVG returned when URL is invalid or upstream returns 404/error (avoids 502 and broken img in UI)
 _NO_IMAGE_SVG = b'<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200" viewBox="0 0 200 200"><rect fill="#374151" width="200" height="200"/><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" fill="#9ca3af" font-size="14" font-family="sans-serif">No image</text></svg>'
 

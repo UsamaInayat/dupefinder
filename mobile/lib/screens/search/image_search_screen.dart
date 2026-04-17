@@ -156,13 +156,51 @@ class _ImageSearchScreenState extends State<ImageSearchScreen> {
   }
 
   Future<void> _openProductUrl(String? url) async {
+    final messenger = ScaffoldMessenger.maybeOf(context);
     if (url == null || url.isEmpty) return;
     final normalized = url.startsWith('http://') || url.startsWith('https://')
         ? url
         : 'https://$url';
     final uri = Uri.tryParse(normalized);
-    if (uri != null && await canLaunchUrl(uri)) {
-      await launchUrl(uri, mode: LaunchMode.platformDefault);
+    if (uri == null) {
+      messenger?.showSnackBar(
+        const SnackBar(content: Text('Invalid product link.')),
+      );
+      return;
+    }
+
+    try {
+      final openedExternally = await launchUrl(
+        uri,
+        mode: LaunchMode.externalApplication,
+      );
+      if (openedExternally) return;
+
+      final openedInApp = await launchUrl(
+        uri,
+        mode: LaunchMode.platformDefault,
+      );
+      if (!openedInApp) {
+        messenger?.showSnackBar(
+          SnackBar(
+            content: Text('Could not open link: ${uri.toString()}'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    } catch (e) {
+      messenger?.showSnackBar(
+        SnackBar(
+          content: Text('Failed to open link (${uri.toString()}): $e'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      if (mounted) {
+        debugPrint(
+          'ImageSearchScreen._openProductUrl launch failed '
+          'for ${uri.toString()}: $e',
+        );
+      }
     }
   }
 

@@ -9,6 +9,8 @@ class DupePalette {
   static const Color pinkDeep = Color(0xFFE91E8C);
   static const Color teal = Color(0xFF3BD6B6);
   static const Color tealWall = Color(0xFF37A8B9);
+  /// Welcome / `splash_hero` letterbox: turquoise wall in hero asset (matches letterbox + CTA harmony).
+  static const Color welcomeHeroWall = Color(0xFF5CB4C4);
   static const Color blue = Color(0xFF5B8DEF);
   static const Color blueSoft = Color(0xFF8EB7FF);
   static const Color textPrimary = Color(0xFF2D3748);

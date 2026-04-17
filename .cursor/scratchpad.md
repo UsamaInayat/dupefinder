@@ -3112,3 +3112,170 @@ Expected speedup: ~20s/batch → ~1-2s/batch → 23k images done in ~10 min inst
   - **FAB**: pink→blue gradient pill + “New post” (matches reference vibe).
   - **embedded**: single Playfair “Community” title above list (shell has no app bar there).
 - **Note**: Like counts are **not from the server** (no likes API); they are **deterministic per post id** for feed polish, plus a **local +1** when the user taps the heart.
+
+### Current Status / Progress Tracking — Executor Update (Apr 17, 2026, Mobile search result click/tap fix)
+
+- **User issue**: On mobile app, search result items were not opening the product website when tapped, while web/Chrome worked.
+- **Root cause hypothesis**: Link open flow in `mobile/lib/screens/search/image_search_screen.dart` used `canLaunchUrl()` gate before `launchUrl()`. On some Android devices this returns false for valid `https` links, causing tap to silently do nothing.
+- **Code fix**:
+  - Updated `_openProductUrl()` to normalize URL and parse URI, then attempt `launchUrl(..., mode: LaunchMode.externalApplication)` first.
+  - Added fallback to `LaunchMode.platformDefault` if external launch returns false.
+  - Added user-visible `SnackBar` messages and `debugPrint` failure log for easier debugging if opening still fails.
+- **Validation**:
+  - `flutter analyze lib/screens/search/image_search_screen.dart` run after change.
+  - File-level lints show no new diagnostics in editor checks.
+
+### Executor's Feedback or Assistance Requests — Apr 17, 2026 (Mobile search tap fix)
+
+- Please test on your physical mobile device:
+  1. Open app -> Find Similar search -> run a search image.
+  2. Tap any product card once.
+  3. Confirm browser opens target `product_url`.
+- If still not opening, please share:
+  - Android version + device model
+  - One sample result URL (copy from card/backend response)
+  - Whether you see snack bar text like "Could not open link ..." or "Failed to open link ..."
+
+### Current Status / Progress Tracking — Executor Update (Apr 17, 2026, Mobile lazy loading pass 1)
+
+- **User request**: Mobile app interactions are slow; improve lazy loading and reduce wait on each functionality.
+- **Root cause found** in `mobile/lib/screens/main_shell.dart`:
+  - `_loadedTabs` had all tabs pre-marked (`{0,1,2,3,4,5}`), so all major tab screens were effectively built at startup.
+  - Non-critical startup calls (review prompt check + community notification count) were triggered immediately after first frame.
+  - Profile image refresh I/O ran on every tab switch even when Me tab was not opened.
+- **Changes implemented (single focused task)**:
+  - Enabled **true tab lazy loading**: `_loadedTabs` now starts as `{0}` and adds tabs only when visited.
+  - Deferred non-critical startup work by ~700ms after first frame before running prompt/notification refresh.
+  - Limited profile refresh disk read to Me tab open only (`targetIndex == 5`).
+- **Validation**:
+  - `flutter analyze lib/screens/main_shell.dart` => **No issues found**.
+
+### Executor's Feedback or Assistance Requests — Apr 17, 2026 (Mobile lazy loading pass 1)
+
+- Please test on physical device after full app restart:
+  1. Open app cold start: check Home appears faster.
+  2. Tap Search/Saved/Compare/Community/Me one-by-one: first open may take slightly longer, but subsequent opens should feel faster.
+  3. Confirm general scrolling/tap response improved on first 1-2 minutes of use.
+- If a specific screen is still slow, share exact path (e.g., "Home -> Community -> open post detail"), and I will do **pass 2** targeted optimization for that path.
+
+### Current Status / Progress Tracking — Executor Update (Apr 17, 2026, Login reliability fix)
+
+- **User issue**: Login was not working on mobile.
+- **Fix 1 (UI validation alignment)** in `mobile/lib/screens/login_screen.dart`:
+  - Removed login-time password minimum-length guard from client form.
+  - Login now validates only non-empty password and lets backend decide correctness.
+  - This avoids blocking legacy users at client side before request is sent.
+- **Fix 2 (network/debug visibility)** in `mobile/lib/services/api_service.dart`:
+  - Added login request timeout (`12s`) so spinner does not hang too long on bad network/backend state.
+  - Added explicit error handling for `TimeoutException` and `SocketException`.
+  - Error text now includes endpoint info (`.../auth/login`) and actionable network hint for debugging.
+- **Validation**:
+  - `flutter analyze` run on edited files; no blocking compile errors.
+
+### Executor's Feedback or Assistance Requests — Apr 17, 2026 (Login reliability fix)
+
+- Please verify on device:
+  1. Open Login screen and try valid credentials.
+  2. Confirm app navigates to Home.
+  3. If login fails, share exact snackbar message (it now includes debugging details).
+
+### Current Status / Progress Tracking — Executor Update (Apr 17, 2026, Login restriction restored + backend fallback fix)
+
+- **User correction**: Keep login password restriction (min length) in UI; previous removal was not desired.
+- **Revert done**:
+  - Restored login form password validator in `mobile/lib/screens/login_screen.dart` (`At least 8 characters` guard is back).
+- **Actual issue identified from device screenshot**:
+  - Login failed due to network timeout to one backend IP (`172.20.10.6`), not due to password validator.
+- **Fix implemented** in `mobile/lib/services/api_service.dart`:
+  - Added ordered backend URL list that prioritizes:
+    1) currently resolved URL,
+    2) saved `backend_ip`,
+    3) configured candidate IPs.
+  - `resolveBaseUrl()` now persists the successfully reachable IP to `SharedPreferences`.
+  - On login `TimeoutException` / `SocketException`, app now automatically retries login across known backend IPs and switches to the first reachable backend.
+  - If none reachable, debug message includes all attempted login endpoints.
+- **Validation**:
+  - `flutter analyze` run on edited files; no blocking analyzer errors.
+
+### Executor's Feedback or Assistance Requests — Apr 17, 2026 (Login network fallback fix)
+
+- Please test login on device again with valid credentials.
+- Expected behavior now:
+  - If first IP is down, app should auto-try other known backend IPs and still login.
+  - If all IPs are unreachable, snackbar will list attempted endpoints for quick backend/network diagnosis.
+
+### Current Status / Progress Tracking — Executor Update (Apr 17, 2026, Backend unreachable root cause resolved)
+
+- **Observed from user screenshot**: login error showed all known endpoints unreachable.
+- **Root cause confirmed**:
+  - Backend server was not running (`127.0.0.1:8000/health` connection refused).
+  - PC WiFi IP had changed to `192.168.10.8` (not in old mobile candidate list).
+- **Actions completed**:
+  - Started backend in LAN mode via `backend/start_lan.ps1` (`uvicorn` on `0.0.0.0:8000`).
+  - Verified `/health` returns healthy with DB connected.
+  - Added current LAN IP `192.168.10.8` to mobile `ApiService._candidateIPs`.
+  - Re-ran app on device; logs now show successful backend resolution:
+    - `Resolved backend -> http://192.168.10.8:8000/api (health HTTP 200)`.
+
+### Executor's Feedback or Assistance Requests — Apr 17, 2026 (Login retest after backend fix)
+
+- Please retry login now on mobile.
+- If any issue appears, share new snackbar text; networking path is now healthy and connected to active backend.
+
+### Current Status / Progress Tracking — Executor Update (Apr 17, 2026, Community timeout + slow reload fix pass 2)
+
+- **User report**: Community tab still slow to reload; timeout errors while fetching posts.
+- **Log evidence** from terminal:
+  - `CommunityService.getPosts failed: ClientException: Software caused connection abort ... /api/community/posts`
+- **Fixes implemented**:
+  - `mobile/lib/services/api_service.dart`:
+    - Reworked `getCommunityPosts()` to use backend **failover loop** across ordered known API roots (resolved + saved + candidates), not just single endpoint.
+    - Added timeout handling per attempt and automatic resolved-IP persistence on success.
+    - Added one final `resolveBaseUrl()` re-probe pass before failing, with explicit attempted endpoints in error.
+  - `mobile/lib/screens/community_screen.dart`:
+    - Made post-detail return refresh **non-blocking** (`unawaited(_load(forceRefresh: true))`) so UI comes back instantly and feed refreshes in background.
+- **Expected outcome**:
+  - Community feed should stop hanging on one stale IP and recover faster on network changes.
+  - Returning from post detail should feel immediate (no blocking wait for network round-trip).
+
+### Current Status / Progress Tracking — Executor Update (Apr 17, 2026, API saved-IP + community retry hardening)
+
+- **`resolveBaseUrl()`**: When every `/health` probe fails (e.g. app resumed quickly, Wi‑Fi still waking), `_resolvedUrl` now falls back to **`SharedPreferences` `backend_ip`** instead of blindly using the first hardcoded candidate. Reduces “wrong IP / nothing loads” after background.
+- **`getCommunityPosts()`**: Inner loop now **`catch (_) { continue; }`** for **any** error (not only socket/timeout/client), then **`resolveBaseUrl()`** and a **second full URL pass** before throwing. Error message lists all endpoints tried.
+- **Welcome / hero**: Already on **`BoxFit.contain`** + **`Scaffold` / `ColoredBox` `DupePalette.tealWall`** so both people stay visible and letterboxing matches backdrop (no white “frame”).
+- **Analyzer**: `flutter analyze` on `main.dart`, `welcome_screen.dart`, `api_service.dart` — no errors (info-level only).
+
+### Executor's Feedback or Assistance Requests — Apr 17, 2026 (Retest Community + cold start)
+
+- Rebuild/run on device; open **Community** twice (cold + after switching Wi‑Fi).
+- If it still fails, copy the snackbar / log line that shows **“Tried: …”** — that list is the fastest way to see which hosts the phone actually hit.
+- Confirm **PC backend** is running (`backend/start_lan.ps1`); without it, retries will still eventually fail.
+
+### Lessons — Apr 17, 2026
+
+- **Partial exception handling is risky**: `ClientException` / JSON / HTTP errors must all advance the failover loop, not only `SocketException` / `TimeoutException`.
+- **Probe-all-fail fallback**: Prefer **saved** `backend_ip` over first static candidate when health checks all time out.
+
+### Current Status / Progress Tracking — Executor Update (Apr 17, 2026, Community feed payload size)
+
+- **Symptom**: Community tab showed “feed unreachable” while `/health` and other tabs worked — all `/api/community/posts` attempts failed.
+- **Cause**: Feed JSON included **full `imageBase64`** for every post → very large response → mobile **timeouts / connection abort**; other endpoints stayed small so they felt “fast”.
+- **Fix**:
+  - **Backend** `community.py`: list handler returns **lite** serialization (`imageBase64` omitted, `hasImage` flag). New **`GET /api/community/posts/{post_id}`** returns full post (with image) for detail/hydration.
+  - **Mobile**: `CommunityPost.hasImage`; feed shows **“Photo — tap to load”** when lite; detail sheet **hydrates** image via `fetchPostById`; `_refreshPost` **merges** hydrated bytes so lite refresh does not strip the image. `ApiService.getCommunityPost` with same URL failover as feed.
+
+### Current Status / Progress Tracking — Executor Update (Apr 17, 2026, Community live counts + reply sheet + register readability)
+
+- **Community like/comment counts**: Feed timer now every **10s** and calls `_load(forceRefresh: true, showErrorSnack: false)` so counts sync from the server while the Community tab is active. **`feedPollActive: _index == 4`** in `main_shell.dart` avoids polling when another tab is selected; switching back to Community triggers a refresh in `didUpdateWidget`. **`_load`** gained optional **`showErrorSnack`** so background polls do not spam snackbars on empty/error.
+- **Post detail / reply sheet**: **`DraggableScrollableSheet`** sizes reduced (**initial 0.58**, **min 0.38**, **max 0.86**); sheet **`decoration`** is **solid white** with a neutral shadow; modal uses **`barrierColor`** ~32% black so the feed does not bleed through; reply field fill uses **`DupePalette.scaffoldLight`** (opaque).
+- **Register screen**: Removed full-screen glass-on-gradient; **`Scaffold`** **`backgroundColor: DupePalette.scaffoldLight`**, form on **`AppDecor.cardDecoration`** (white card), **`_solidField`** inputs with dark text, **`_passwordChecksSolid`** panel on light grey.
+- **Validation**: `dart analyze` on `register_screen.dart`, `community_screen.dart`, `main_shell.dart` — no errors (info-level only).
+
+### Executor's Feedback or Assistance Requests — Apr 17, 2026 (Community UI + register)
+
+- Please hot-restart the app and confirm: (1) like/reply counts update within ~10s when another device changes them, (2) reply sheet is white, smaller, and readable, (3) register/OTP screens are easy to read on device.
+
+### Current Status / Progress Tracking — Executor Update (Apr 17, 2026, Register revert + Welcome container fix)
+
+- **User clarification**: The “container” that should be solid/smaller was the **Welcome** bottom CTA panel (Register / Log In), not the **Register** form screen. Register changes were **reverted** (`git checkout HEAD -- mobile/lib/screens/register_screen.dart`).
+- **Welcome** (`welcome_screen.dart`): Removed **BackdropFilter** / translucent glass `Material`; bottom block is now a **compact** card (**`maxWidth: 300`**, tighter padding), **solid** **`DupePalette.cardSurface`** with shadow. **Log In** uses light grey fill + border so it reads on white.

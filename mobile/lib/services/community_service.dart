@@ -3,6 +3,18 @@ import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'api_service.dart';
 
+String _coerceId(dynamic v) {
+  if (v == null) return '';
+  if (v is String) return v;
+  return v.toString();
+}
+
+String? _coerceIdNullable(dynamic v) {
+  if (v == null) return null;
+  if (v is String) return v;
+  return v.toString();
+}
+
 /// Backend sends UTC timestamps without a `Z` suffix; treat naive ISO as UTC.
 DateTime parseCommunityServerDate(String? s) {
   if (s == null || s.isEmpty) return DateTime.now().toUtc();
@@ -31,6 +43,8 @@ class CommunityPost {
   final String? authorUserId;
   final String? authorPfp;
   final String? imageBase64;
+  /// True when server stripped image from feed (`lite`) but post has a photo.
+  final bool hasImage;
   final DateTime createdAt;
   final List<CommunityReply> replies;
   final int likeCount;
@@ -43,6 +57,7 @@ class CommunityPost {
     this.authorUserId,
     this.authorPfp,
     this.imageBase64,
+    this.hasImage = false,
     required this.createdAt,
     List<CommunityReply>? replies,
     this.likeCount = 0,
@@ -56,6 +71,7 @@ class CommunityPost {
         'authorUserId': authorUserId,
         'authorPfp': authorPfp,
         'imageBase64': imageBase64,
+        'hasImage': hasImage,
         'createdAt': createdAt.toIso8601String(),
         'likeCount': likeCount,
         'likedByMe': likedByMe,
@@ -63,13 +79,17 @@ class CommunityPost {
       };
 
   static CommunityPost fromJson(Map<String, dynamic> m) {
+    final img = m['imageBase64'] as String?;
+    final hasImg = m['hasImage'] == true ||
+        (img != null && img.trim().isNotEmpty);
     return CommunityPost(
-      id: m['id'] as String? ?? '',
-      description: m['description'] as String? ?? '',
-      author: m['author'] as String? ?? 'You',
-      authorUserId: m['authorUserId'] as String?,
+      id: _coerceId(m['id'] ?? m['_id']),
+      description: (m['description'] ?? '').toString(),
+      author: (m['author'] ?? 'You').toString(),
+      authorUserId: _coerceIdNullable(m['authorUserId']),
       authorPfp: m['authorPfp'] as String?,
-      imageBase64: m['imageBase64'] as String?,
+      imageBase64: img,
+      hasImage: hasImg,
       createdAt: parseCommunityServerDate(m['createdAt'] as String?),
       likeCount: (m['likeCount'] as num?)?.toInt() ??
           (m['like_count'] as num?)?.toInt() ??
@@ -115,12 +135,12 @@ class CommunityReply {
 
   static CommunityReply fromJson(Map<String, dynamic> m) {
     return CommunityReply(
-      id: m['id'] as String? ?? '',
-      body: m['body'] as String? ?? '',
-      author: m['author'] as String? ?? 'Anonymous',
+      id: _coerceId(m['id']),
+      body: (m['body'] ?? '').toString(),
+      author: (m['author'] ?? 'Anonymous').toString(),
       authorPfp: m['authorPfp'] as String?,
-      authorUserId: m['authorUserId'] as String?,
-      parentReplyId: m['parentReplyId'] as String?,
+      authorUserId: _coerceIdNullable(m['authorUserId']),
+      parentReplyId: _coerceIdNullable(m['parentReplyId']),
       createdAt: parseCommunityServerDate(m['createdAt'] as String?),
     );
   }
@@ -208,24 +228,32 @@ class CommunityService {
           ((prefs.getString(_emailKey) ?? '').trim().split('@').first)
               .toLowerCase();
       final currentPfp = prefs.getString(_profileImageKey);
-      final parsed = list.map((e) {
-        final map = Map<String, dynamic>.from(e);
-        final author = (map['author'] as String? ?? '').trim().toLowerCase();
-        final isCurrentUserPost =
-            (currentUsername.isNotEmpty && author == currentUsername) ||
-                (currentEmailPrefix.isNotEmpty && author == currentEmailPrefix);
-        if (isCurrentUserPost && currentDisplayName.isNotEmpty) {
-          map['author'] = currentDisplayName;
+      final parsed = <CommunityPost>[];
+      for (final e in list) {
+        try {
+          final map = Map<String, dynamic>.from(e as Map);
+          final author =
+              (map['author'] ?? '').toString().trim().toLowerCase();
+          final isCurrentUserPost =
+              (currentUsername.isNotEmpty && author == currentUsername) ||
+                  (currentEmailPrefix.isNotEmpty &&
+                      author == currentEmailPrefix);
+          if (isCurrentUserPost && currentDisplayName.isNotEmpty) {
+            map['author'] = currentDisplayName;
+          }
+          final hasPfp =
+              (map['authorPfp'] as String?)?.trim().isNotEmpty == true;
+          if (!hasPfp &&
+              currentPfp != null &&
+              currentPfp.isNotEmpty &&
+              isCurrentUserPost) {
+            map['authorPfp'] = currentPfp;
+          }
+          parsed.add(CommunityPost.fromJson(map));
+        } catch (err, st) {
+          debugPrint('CommunityService: skip bad post JSON: $err\n$st');
         }
-        final hasPfp = (map['authorPfp'] as String?)?.trim().isNotEmpty == true;
-        if (!hasPfp &&
-            currentPfp != null &&
-            currentPfp.isNotEmpty &&
-            isCurrentUserPost) {
-          map['authorPfp'] = currentPfp;
-        }
-        return CommunityPost.fromJson(map);
-      }).toList();
+      }
       _postsCache = parsed;
       _postsCacheAt = DateTime.now();
       lastPostsFetchError = null;
@@ -245,6 +273,34 @@ class CommunityService {
               .toList() ??
           [];
     }
+  }
+
+  /// Full post with image (feed list is lite — omit large base64).
+  Future<CommunityPost> fetchPostById(String postId) async {
+    final map = Map<String, dynamic>.from(await _api.getCommunityPost(postId));
+    final prefs = await SharedPreferences.getInstance();
+    final currentUsername =
+        (prefs.getString(_usernameKey) ?? '').trim().toLowerCase();
+    final currentDisplayName = (prefs.getString(_usernameKey) ?? '').trim();
+    final currentEmailPrefix =
+        ((prefs.getString(_emailKey) ?? '').trim().split('@').first)
+            .toLowerCase();
+    final currentPfp = prefs.getString(_profileImageKey);
+    final author = (map['author'] as String? ?? '').trim().toLowerCase();
+    final isCurrentUserPost =
+        (currentUsername.isNotEmpty && author == currentUsername) ||
+            (currentEmailPrefix.isNotEmpty && author == currentEmailPrefix);
+    if (isCurrentUserPost && currentDisplayName.isNotEmpty) {
+      map['author'] = currentDisplayName;
+    }
+    final hasPfp = (map['authorPfp'] as String?)?.trim().isNotEmpty == true;
+    if (!hasPfp &&
+        currentPfp != null &&
+        currentPfp.isNotEmpty &&
+        isCurrentUserPost) {
+      map['authorPfp'] = currentPfp;
+    }
+    return CommunityPost.fromJson(map);
   }
 
   Future<List<CommunityPost>> getCachedPostsFast() async {
@@ -291,7 +347,7 @@ class CommunityService {
     }
   }
 
-  Future<void> addPost(String description, {String? imageBase64}) async {
+  Future<CommunityPost> addPost(String description, {String? imageBase64}) async {
     final prefs = await SharedPreferences.getInstance();
     final username = (prefs.getString(_usernameKey) ?? '').trim();
     final email = (prefs.getString(_emailKey) ?? '').trim();
@@ -299,13 +355,21 @@ class CommunityService {
         ? username
         : (email.isNotEmpty ? email.split('@').first : 'User');
     final pfp = prefs.getString(_profileImageKey);
-    await _api.addCommunityPost(
+    final post = await _api.addCommunityPost(
       description: description,
       author: author,
       authorPfp: pfp,
       imageBase64: imageBase64,
     );
-    _postsCacheAt = null;
+    final parsed = CommunityPost.fromJson(post);
+    final existing = _postsCache ?? await _readPostsCacheFromDisk();
+    _postsCache = [
+      parsed,
+      ...existing.where((p) => p.id != parsed.id),
+    ];
+    _postsCacheAt = DateTime.now();
+    await _savePostsCacheToDisk(_postsCache!);
+    return parsed;
   }
 
   Future<CommunityPost> addReply(String postId, String body,

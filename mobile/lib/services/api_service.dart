@@ -1,5 +1,7 @@
 import 'dart:convert';
 import 'dart:math';
+import 'dart:async';
+import 'dart:io';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
@@ -15,6 +17,7 @@ class ApiService {
   static const List<String> _candidateIPs = [
     '172.20.10.6',
     '192.168.137.1',
+    '192.168.10.8',
     '192.168.1.108',
   ];
 
@@ -23,6 +26,31 @@ class ApiService {
   static Map<String, dynamic>? _userDataCache;
   static DateTime? _userDataCacheAt;
   static const Duration _userDataCacheTtl = Duration(seconds: 20);
+
+  static String _apiUrlFromIp(String ip) => 'http://$ip:8000/api';
+
+  static String? _ipFromApiUrl(String apiUrl) {
+    final uri = Uri.tryParse(apiUrl);
+    return uri?.host;
+  }
+
+  static Future<List<String>> _orderedApiUrls() async {
+    final prefs = await SharedPreferences.getInstance();
+    final savedIp = (prefs.getString('backend_ip') ?? '').trim();
+    final urls = <String>[];
+    final seen = <String>{};
+
+    void addApi(String apiUrl) {
+      if (seen.add(apiUrl)) urls.add(apiUrl);
+    }
+
+    if (_resolvedUrl != null) addApi(_resolvedUrl!);
+    if (savedIp.isNotEmpty) addApi(_apiUrlFromIp(savedIp));
+    for (final ip in _candidateIPs) {
+      addApi(_apiUrlFromIp(ip));
+    }
+    return urls;
+  }
 
   /// Call once in main() before runApp().
   /// Probes each candidate IP with a 3-second timeout and caches the first
@@ -33,20 +61,33 @@ class ApiService {
       print('[ApiService] Web platform — using localhost');
       return;
     }
-    for (final ip in _candidateIPs) {
+    final apiUrls = await _orderedApiUrls();
+    for (final api in apiUrls) {
       try {
+        final ip = _ipFromApiUrl(api);
+        if (ip == null || ip.isEmpty) continue;
         final uri = Uri.parse('http://$ip:8000/health');
-        final resp = await http.get(uri).timeout(const Duration(seconds: 3));
+        final resp = await http.get(uri).timeout(const Duration(seconds: 6));
         // Any HTTP response means the host:port is reachable (even 503 from /health).
-        _resolvedUrl = 'http://$ip:8000/api';
+        _resolvedUrl = api;
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString('backend_ip', ip);
         print(
             '[ApiService] Resolved backend -> $_resolvedUrl (health HTTP ${resp.statusCode})');
         return;
       } catch (_) {
+        final ip = _ipFromApiUrl(api) ?? api;
         print('[ApiService] $ip unreachable, trying next...');
       }
     }
-    // No candidate responded — fall back to first entry so the app still starts.
+    // No live probe: prefer last known good IP from prefs so resume/background works.
+    final prefs = await SharedPreferences.getInstance();
+    final saved = (prefs.getString('backend_ip') ?? '').trim();
+    if (saved.isNotEmpty) {
+      _resolvedUrl = _apiUrlFromIp(saved);
+      print('[ApiService] No live probe — using saved backend_ip -> $_resolvedUrl');
+      return;
+    }
     _resolvedUrl = 'http://${_candidateIPs.first}:8000/api';
     print('[ApiService] No backend reachable — defaulting to $_resolvedUrl');
     print('[ApiService] Fix checklist:');
@@ -180,15 +221,16 @@ class ApiService {
 
   // Login
   Future<Map<String, dynamic>> login(String email, String password) async {
+    final loginUrl = '$baseUrl/auth/login';
     try {
       final response = await http.post(
-        Uri.parse('$baseUrl/auth/login'),
+        Uri.parse(loginUrl),
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({
           'email': email,
           'password': password,
         }),
-      );
+      ).timeout(const Duration(seconds: 12));
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
@@ -220,9 +262,92 @@ class ApiService {
         final error = jsonDecode(response.body);
         throw Exception(error['detail'] ?? 'Login failed');
       }
+    } on TimeoutException {
+      final retryResponse =
+          await _tryLoginAcrossKnownBackends(email: email, password: password);
+      if (retryResponse != null) return retryResponse;
+      throw Exception(
+        'Login timed out. Check backend/network and try again. Endpoint: $loginUrl',
+      );
+    } on SocketException catch (e) {
+      final retryResponse =
+          await _tryLoginAcrossKnownBackends(email: email, password: password);
+      if (retryResponse != null) return retryResponse;
+      throw Exception(
+        'Cannot reach backend. Verify server is running and phone is on same network. '
+        'Endpoint: $loginUrl. Error: ${e.message}',
+      );
     } catch (e) {
       throw Exception('Login failed: ${e.toString()}');
     }
+  }
+
+  Future<Map<String, dynamic>?> _tryLoginAcrossKnownBackends({
+    required String email,
+    required String password,
+  }) async {
+    final apiUrls = await _orderedApiUrls();
+    final attempted = <String>[];
+    for (final api in apiUrls) {
+      final endpoint = '$api/auth/login';
+      attempted.add(endpoint);
+      try {
+        final response = await http
+            .post(
+              Uri.parse(endpoint),
+              headers: {'Content-Type': 'application/json'},
+              body: jsonEncode({
+                'email': email,
+                'password': password,
+              }),
+            )
+            .timeout(const Duration(seconds: 7));
+
+        if (response.statusCode == 200) {
+          _resolvedUrl = api;
+          final ip = _ipFromApiUrl(api);
+          if (ip != null && ip.isNotEmpty) {
+            final prefs = await SharedPreferences.getInstance();
+            await prefs.setString('backend_ip', ip);
+          }
+
+          final data = jsonDecode(response.body);
+          if (data['access_token'] != null) {
+            await setAccessToken(data['access_token']);
+            final prefs = await SharedPreferences.getInstance();
+            await prefs.setString('user_email', email);
+            final user = data['user'] as Map<String, dynamic>?;
+            final fullName = _extractDisplayName(user);
+            final userId = (user?['_id'] ?? user?['id'] ?? '').toString().trim();
+            if (fullName.isNotEmpty) {
+              await prefs.setString('user_name', fullName);
+            }
+            if (userId.isNotEmpty) {
+              await prefs.setString('user_id', userId);
+            }
+            if (data['refresh_token'] != null) {
+              await prefs.setString('refresh_token', data['refresh_token']);
+            }
+            await syncUserProfileFromBackend();
+          }
+          return Map<String, dynamic>.from(data as Map);
+        }
+
+        // Reachable backend with auth response (wrong creds/verify/etc) => stop fallback and show server message.
+        final error = jsonDecode(response.body);
+        throw Exception(error['detail'] ?? 'Login failed');
+      } on SocketException {
+        continue;
+      } on TimeoutException {
+        continue;
+      } catch (e) {
+        throw Exception(e.toString().replaceFirst('Exception: ', ''));
+      }
+    }
+
+    throw Exception(
+      'Cannot reach backend on known addresses. Tried: ${attempted.join(', ')}',
+    );
   }
 
   // Logout
@@ -359,19 +484,149 @@ class ApiService {
     return jsonDecode(response.body) as Map<String, dynamic>;
   }
 
-  Future<List<Map<String, dynamic>>> getCommunityPosts() async {
-    final response = await http.get(
-      Uri.parse('$baseUrl/community/posts'),
-      headers: await getCommunityHeaders(),
+  /// Home category chips: `dresses` | `bags` | `accessories` | `jewelry` → up to [limit] products.
+  Future<Map<String, dynamic>> shopBrowse({
+    required String slot,
+    int limit = 10,
+  }) async {
+    final uri = Uri.parse('$baseUrl/products/shop-browse').replace(
+      queryParameters: {
+        'slot': slot,
+        'limit': limit.toString(),
+      },
     );
+    final response = await http.get(uri, headers: await getHeaders());
     if (response.statusCode != 200) {
-      throw Exception('Failed to load community posts');
+      throw Exception(
+        'Shop browse failed (${response.statusCode}): ${response.body}',
+      );
     }
-    final body = jsonDecode(response.body) as Map<String, dynamic>;
-    final posts = (body['posts'] as List<dynamic>? ?? [])
-        .map((e) => Map<String, dynamic>.from(e as Map))
-        .toList();
-    return posts;
+    return Map<String, dynamic>.from(jsonDecode(response.body) as Map);
+  }
+
+  Future<List<Map<String, dynamic>>> getCommunityPosts() async {
+    const communityTimeout = Duration(seconds: 35);
+
+    Future<List<Map<String, dynamic>>> run(String apiRoot) async {
+      final endpoint = '$apiRoot/community/posts';
+      final response = await http
+          .get(
+            Uri.parse(endpoint),
+            headers: await getCommunityHeaders(),
+          )
+          .timeout(communityTimeout);
+      if (response.statusCode != 200) {
+        throw Exception(
+            'Failed to load community posts (${response.statusCode}) via $endpoint');
+      }
+      final body = jsonDecode(response.body) as Map<String, dynamic>;
+      return (body['posts'] as List<dynamic>? ?? [])
+          .map((e) => Map<String, dynamic>.from(e as Map))
+          .toList();
+    }
+
+    final tried = <String>[];
+
+    Future<List<Map<String, dynamic>>?> walk(List<String> urls) async {
+      for (final api in urls) {
+        final endpoint = '$api/community/posts';
+        tried.add(endpoint);
+        try {
+          final posts = await run(api);
+          _resolvedUrl = api;
+          final ip = _ipFromApiUrl(api);
+          if (ip != null && ip.isNotEmpty) {
+            final prefs = await SharedPreferences.getInstance();
+            await prefs.setString('backend_ip', ip);
+          }
+          return posts;
+        } catch (_) {
+          continue;
+        }
+      }
+      return null;
+    }
+
+    var urls = await _orderedApiUrls();
+    var posts = await walk(urls);
+    if (posts != null) return posts;
+
+    await Future<void>.delayed(const Duration(milliseconds: 500));
+    posts = await walk(urls);
+    if (posts != null) return posts;
+
+    await ApiService.resolveBaseUrl();
+    urls = await _orderedApiUrls();
+    posts = await walk(urls);
+    if (posts != null) return posts;
+
+    await Future<void>.delayed(const Duration(milliseconds: 500));
+    posts = await walk(urls);
+    if (posts != null) return posts;
+
+    throw Exception(
+      'Community feed unreachable. Tried: ${tried.join(', ')}',
+    );
+  }
+
+  /// Full single post (includes image bytes). Same URL failover as feed.
+  Future<Map<String, dynamic>> getCommunityPost(String postId) async {
+    Future<Map<String, dynamic>> run(String apiRoot) async {
+      final endpoint = '$apiRoot/community/posts/$postId';
+      final response = await http
+          .get(
+            Uri.parse(endpoint),
+            headers: await getCommunityHeaders(),
+          )
+          .timeout(const Duration(seconds: 45));
+      if (response.statusCode != 200) {
+        throw Exception(
+            'Failed to load post (${response.statusCode}) via $endpoint');
+      }
+      final body = jsonDecode(response.body) as Map<String, dynamic>;
+      return Map<String, dynamic>.from(body['post'] as Map);
+    }
+
+    final tried = <String>[];
+    final urls = await _orderedApiUrls();
+
+    for (final api in urls) {
+      tried.add('$api/community/posts/$postId');
+      try {
+        final post = await run(api);
+        _resolvedUrl = api;
+        final ip = _ipFromApiUrl(api);
+        if (ip != null && ip.isNotEmpty) {
+          final prefs = await SharedPreferences.getInstance();
+          await prefs.setString('backend_ip', ip);
+        }
+        return post;
+      } catch (_) {
+        continue;
+      }
+    }
+
+    await ApiService.resolveBaseUrl();
+    final urls2 = await _orderedApiUrls();
+    for (final api in urls2) {
+      tried.add('$api/community/posts/$postId');
+      try {
+        final post = await run(api);
+        _resolvedUrl = api;
+        final ip = _ipFromApiUrl(api);
+        if (ip != null && ip.isNotEmpty) {
+          final prefs = await SharedPreferences.getInstance();
+          await prefs.setString('backend_ip', ip);
+        }
+        return post;
+      } catch (_) {
+        continue;
+      }
+    }
+
+    throw Exception(
+      'Community post unreachable. Tried: ${tried.join(', ')}',
+    );
   }
 
   Future<Map<String, dynamic>> addCommunityPost({

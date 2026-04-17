@@ -24,8 +24,8 @@ class MainShell extends StatefulWidget {
 class _MainShellState extends State<MainShell> {
   static const _lastTabKey = 'main_shell_last_tab';
   int _index = 0;
-  /// All tabs built up-front so switching feels instant (no lazy placeholder).
-  final Set<int> _loadedTabs = {0, 1, 2, 3, 4, 5};
+  /// Build only visited tabs to keep startup responsive on physical devices.
+  final Set<int> _loadedTabs = {0};
   final _dupeHistoryService = DupeHistoryService();
   final _communityService = CommunityService();
   String? _navProfileImage;
@@ -37,10 +37,13 @@ class _MainShellState extends State<MainShell> {
   void initState() {
     super.initState();
     _restoreState();
-    WidgetsBinding.instance
-        .addPostFrameCallback((_) => _maybeShowReviewPrompt());
-    WidgetsBinding.instance
-        .addPostFrameCallback((_) => _refreshCommunityNotificationCount());
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      // Defer non-critical IO so first frame and first interactions stay snappy.
+      await Future<void>.delayed(const Duration(milliseconds: 700));
+      if (!mounted) return;
+      await _maybeShowReviewPrompt();
+      _refreshCommunityNotificationCount();
+    });
   }
 
   Future<void> _restoreState() async {
@@ -119,7 +122,9 @@ class _MainShellState extends State<MainShell> {
       _loadedTabs.add(targetIndex);
     });
     _saveCurrentTab();
-    _refreshNavProfile();
+    if (targetIndex == 5) {
+      _refreshNavProfile();
+    }
     if (targetIndex == 4 || targetIndex == 5) {
       _refreshCommunityNotificationCount();
     }
@@ -229,6 +234,7 @@ class _MainShellState extends State<MainShell> {
             4,
             CommunityScreen(
               embedded: true,
+              feedPollActive: _index == 4,
               focusPostId: _focusCommunityPostId,
               focusReplyId: _focusCommunityReplyId,
             ),
@@ -245,8 +251,8 @@ class _MainShellState extends State<MainShell> {
       bottomNavigationBar: NavigationBar(
         backgroundColor: Colors.white,
         surfaceTintColor: Colors.transparent,
-        shadowColor: Colors.black.withValues(alpha: 0.06),
-        elevation: 8,
+        shadowColor: Colors.transparent,
+        elevation: 0,
         selectedIndex: _index,
         onDestinationSelected: (i) {
           _openTab(i);

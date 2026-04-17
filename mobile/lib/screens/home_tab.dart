@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../theme/app_theme.dart';
+import 'category_browse_screen.dart';
 
 /// Home: Discover header, hero, shop-by-category (classic icons), explore tiles.
 class HomeTab extends StatefulWidget {
@@ -164,21 +165,25 @@ class _HomeTabState extends State<HomeTab> {
                 children: [
                   _categoryChip(
                     label: 'Dresses',
+                    slot: 'dresses',
                     icon: Icons.checkroom_outlined,
                     gradient: [DupePalette.pink, DupePalette.pinkDeep],
                   ),
                   _categoryChip(
                     label: 'Bags',
+                    slot: 'bags',
                     icon: Icons.shopping_bag_outlined,
                     gradient: [DupePalette.pinkDeep, DupePalette.blue],
                   ),
                   _categoryChip(
-                    label: 'Shoes',
-                    icon: Icons.directions_run_rounded,
+                    label: 'Accessories',
+                    slot: 'accessories',
+                    icon: Icons.style_rounded,
                     gradient: [DupePalette.blue, DupePalette.teal],
                   ),
                   _categoryChip(
-                    label: 'Jewelry',
+                    label: 'Jewellery',
+                    slot: 'jewelry',
                     icon: Icons.diamond_outlined,
                     gradient: [DupePalette.teal, DupePalette.tealWall],
                   ),
@@ -267,6 +272,14 @@ class _HomeTabState extends State<HomeTab> {
       return _userEmail!.split('@').first.trim();
     }
     return 'there';
+  }
+
+  void _openCategoryBrowse(String slot, String title) {
+    Navigator.of(context).push<void>(
+      MaterialPageRoute<void>(
+        builder: (_) => CategoryBrowseScreen(slot: slot, title: title),
+      ),
+    );
   }
 
   Widget _heroCard(BuildContext context) {
@@ -361,6 +374,7 @@ class _HomeTabState extends State<HomeTab> {
 
   Widget _categoryChip({
     required String label,
+    required String slot,
     required IconData icon,
     required List<Color> gradient,
   }) {
@@ -369,7 +383,7 @@ class _HomeTabState extends State<HomeTab> {
       child: Material(
         color: Colors.transparent,
         child: InkWell(
-          onTap: widget.onOpenSearch,
+          onTap: () => _openCategoryBrowse(slot, label),
           borderRadius: BorderRadius.circular(20),
           child: Ink(
             width: 96,

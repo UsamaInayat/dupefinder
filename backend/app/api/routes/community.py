@@ -3,6 +3,7 @@ Community routes: persistent feed + replies backed by MongoDB.
 Posts are kept for 7 days.
 """
 
+import logging
 from datetime import datetime, timedelta
 from typing import List, Optional
 
@@ -14,6 +15,7 @@ from app.core.database import db_manager
 from app.dependencies.auth import get_current_user, get_optional_user
 
 router = APIRouter(tags=["Community"])
+logger = logging.getLogger(__name__)
 
 COMMUNITY_COLLECTION = "community_posts"
 COMMUNITY_REPORTS_COLLECTION = "community_reports"
@@ -68,27 +70,60 @@ def _blocks_col():
     return db_manager.get_collection(COMMUNITY_BLOCKS_COLLECTION)
 
 
-def _ensure_indexes():
+def _safe_create_index(collection, keys, **kwargs) -> None:
+    """Best-effort indexes; TTL / duplicate-option conflicts must not take down the feed."""
+    try:
+        collection.create_index(keys, **kwargs)
+    except Exception as e:
+        logger.warning(
+            "community index skipped keys=%s on %s: %s",
+            keys,
+            getattr(collection, "name", "?"),
+            e,
+        )
+
+
+def _ensure_indexes() -> bool:
+    """Create indexes once. Returns False if DB unavailable."""
     global _index_ready
     if _index_ready:
-        return
-    c = _col()
-    # Auto-delete posts older than 7 days.
-    c.create_index("created_at", expireAfterSeconds=RETENTION_DAYS * 24 * 60 * 60)
-    c.create_index([("created_at", -1)])
-    c.create_index([("author_user_id", 1)])
-    c.create_index([("replies.author_user_id", 1)])
+        return True
+    if not db_manager.is_connected():
+        try:
+            db_manager.connect()
+        except Exception as e:
+            logger.warning("community _ensure_indexes: connect failed: %s", e)
+            return False
+    try:
+        c = _col()
+    except RuntimeError as e:
+        logger.warning("community _ensure_indexes: %s", e)
+        return False
+    # TTL on created_at can fail if an incompatible index already exists — feed still works.
+    _safe_create_index(
+        c,
+        "created_at",
+        expireAfterSeconds=RETENTION_DAYS * 24 * 60 * 60,
+    )
+    _safe_create_index(c, [("created_at", -1)])
+    _safe_create_index(c, [("author_user_id", 1)])
+    _safe_create_index(c, [("replies.author_user_id", 1)])
     r = _reports_col()
-    r.create_index([("post_id", 1)])
-    r.create_index([("status", 1), ("created_at", -1)])
+    _safe_create_index(r, [("post_id", 1)])
+    _safe_create_index(r, [("status", 1), ("created_at", -1)])
     n = _notifications_col()
-    n.create_index([("recipient_user_id", 1), ("is_read", 1), ("created_at", -1)])
-    n.create_index([("post_id", 1), ("reply_id", 1)])
-    n.create_index([("created_at", -1)])
+    _safe_create_index(n, [("recipient_user_id", 1), ("is_read", 1), ("created_at", -1)])
+    _safe_create_index(n, [("post_id", 1), ("reply_id", 1)])
+    _safe_create_index(n, [("created_at", -1)])
     b = _blocks_col()
-    b.create_index([("blocker_user_id", 1), ("blocked_user_id", 1)], unique=True)
-    b.create_index([("blocker_user_id", 1)])
+    _safe_create_index(
+        b,
+        [("blocker_user_id", 1), ("blocked_user_id", 1)],
+        unique=True,
+    )
+    _safe_create_index(b, [("blocker_user_id", 1)])
     _index_ready = True
+    return True
 
 
 def _viewer_like_key(current_user: Optional[dict], device_id: Optional[str]) -> Optional[str]:
@@ -104,32 +139,53 @@ def _device_id_from_request(request: Request) -> Optional[str]:
     return request.headers.get("x-community-like-id") or request.headers.get("X-Community-Like-Id")
 
 
-def _serialize(doc: dict, viewer_like_key: Optional[str] = None) -> dict:
+def _json_scalar(v):
+    """BSON ObjectId and other non-JSON types → string for FastAPI/mobile."""
+    if v is None:
+        return None
+    if isinstance(v, ObjectId):
+        return str(v)
+    return v
+
+
+def _serialize(
+    doc: dict,
+    viewer_like_key: Optional[str] = None,
+    *,
+    lite: bool = False,
+) -> dict:
+    """If lite=True, omit post image bytes (feed list) but set hasImage for the client."""
     like_keys = list(doc.get("like_keys") or [])
     liked = bool(viewer_like_key and viewer_like_key in like_keys)
-    return {
+    raw_img = doc.get("image_base64")
+    has_image = bool(raw_img and str(raw_img).strip())
+    image_out = None if lite else raw_img
+    out = {
         "id": str(doc.get("_id")),
         "description": doc.get("description", ""),
         "author": doc.get("author", "You"),
         "authorPfp": doc.get("author_pfp"),
-        "imageBase64": doc.get("image_base64"),
+        "imageBase64": image_out,
         "createdAt": (doc.get("created_at") or datetime.utcnow()).isoformat(),
-        "authorUserId": doc.get("author_user_id"),
+        "authorUserId": _json_scalar(doc.get("author_user_id")),
         "likeCount": len(like_keys),
         "likedByMe": liked,
         "replies": [
             {
-                "id": r.get("id"),
+                "id": str(r.get("id") or ""),
                 "body": r.get("body", ""),
                 "author": r.get("author", "Anonymous"),
                 "authorPfp": r.get("author_pfp"),
                 "createdAt": (r.get("created_at") or datetime.utcnow()).isoformat(),
-                "authorUserId": r.get("author_user_id"),
-                "parentReplyId": r.get("parent_reply_id"),
+                "authorUserId": _json_scalar(r.get("author_user_id")),
+                "parentReplyId": _json_scalar(r.get("parent_reply_id")),
             }
             for r in (doc.get("replies") or [])
         ],
     }
+    if lite:
+        out["hasImage"] = has_image
+    return out
 
 def _serialize_notification(doc: dict) -> dict:
     return {
@@ -150,28 +206,82 @@ async def get_posts(
     request: Request,
     current_user: Optional[dict] = Depends(get_optional_user),
 ):
-    _ensure_indexes()
+    """Always HTTP 200 with `posts` when possible so mobile feed does not hard-fail on DB/index glitches."""
+    try:
+        if not db_manager.is_connected():
+            try:
+                db_manager.connect()
+            except Exception as e:
+                logger.warning("get_posts: DB reconnect failed: %s", e)
+                return {"posts": []}
+        if not _ensure_indexes():
+            return {"posts": []}
+        c = _col()
+        b = _blocks_col()
+        # Defensive cleanup in addition to TTL monitor.
+        try:
+            c.delete_many(
+                {"created_at": {"$lt": datetime.utcnow() - timedelta(days=RETENTION_DAYS)}}
+            )
+        except Exception as e:
+            logger.debug("community delete_many cleanup skipped: %s", e)
+        docs: List[dict] = list(c.find({}).sort("created_at", -1))
+        blocked_ids = set()
+        if current_user and current_user.get("_id"):
+            blocked_cursor = b.find({"blocker_user_id": current_user.get("_id")})
+            blocked_ids = {
+                str(x.get("blocked_user_id"))
+                for x in blocked_cursor
+                if x.get("blocked_user_id")
+            }
+        safe_docs: List[dict] = []
+        for d in docs:
+            if blocked_ids and (d.get("author_user_id") in blocked_ids):
+                continue
+            replies = d.get("replies") or []
+            if blocked_ids:
+                replies = [
+                    r for r in replies if r.get("author_user_id") not in blocked_ids
+                ]
+            next_doc = dict(d)
+            next_doc["replies"] = replies
+            safe_docs.append(next_doc)
+        vk = _viewer_like_key(current_user, _device_id_from_request(request))
+        return {"posts": [_serialize(d, vk, lite=True) for d in safe_docs]}
+    except Exception:
+        logger.exception("get_posts failed; returning empty feed")
+        return {"posts": []}
+
+
+@router.get("/posts/{post_id}")
+async def get_post(
+    post_id: str,
+    request: Request,
+    current_user: Optional[dict] = Depends(get_optional_user),
+):
+    """Full post payload including image (feed uses lite list to keep responses small)."""
+    if not db_manager.is_connected() or not _ensure_indexes():
+        raise HTTPException(status_code=503, detail="Database unavailable")
     c = _col()
     b = _blocks_col()
-    # Defensive cleanup in addition to TTL monitor.
-    c.delete_many({"created_at": {"$lt": datetime.utcnow() - timedelta(days=RETENTION_DAYS)}})
-    docs: List[dict] = list(c.find({}).sort("created_at", -1))
+    if not ObjectId.is_valid(post_id):
+        raise HTTPException(status_code=400, detail="Invalid post id")
+    doc = c.find_one({"_id": ObjectId(post_id)})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Post not found")
     blocked_ids = set()
     if current_user and current_user.get("_id"):
         blocked_cursor = b.find({"blocker_user_id": current_user.get("_id")})
         blocked_ids = {str(x.get("blocked_user_id")) for x in blocked_cursor if x.get("blocked_user_id")}
-    safe_docs: List[dict] = []
-    for d in docs:
-        if blocked_ids and (d.get("author_user_id") in blocked_ids):
-            continue
-        replies = d.get("replies") or []
-        if blocked_ids:
-            replies = [r for r in replies if r.get("author_user_id") not in blocked_ids]
-        next_doc = dict(d)
-        next_doc["replies"] = replies
-        safe_docs.append(next_doc)
+    if blocked_ids and (doc.get("author_user_id") in blocked_ids):
+        raise HTTPException(status_code=404, detail="Post not found")
+    replies = doc.get("replies") or []
+    if blocked_ids:
+        replies = [r for r in replies if r.get("author_user_id") not in blocked_ids]
+    next_doc = dict(doc)
+    next_doc["replies"] = replies
     vk = _viewer_like_key(current_user, _device_id_from_request(request))
-    return {"posts": [_serialize(d, vk) for d in safe_docs]}
+    return {"post": _serialize(next_doc, vk, lite=False)}
 
 
 @router.post("/posts")

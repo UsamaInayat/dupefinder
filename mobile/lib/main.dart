@@ -9,6 +9,7 @@ import 'theme/app_theme.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  // Await so first screens (home/community) never hit a stale or unset base URL.
   await ApiService.resolveBaseUrl();
   runApp(const DupeFinderApp());
 }

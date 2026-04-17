@@ -13,12 +13,15 @@ import '../services/community_service.dart';
 /// Community: local posts and replies. Ask for dupes, others can reply with store links.
 class CommunityScreen extends StatefulWidget {
   final bool embedded;
+  /// When embedded in a tab shell, set false for inactive tabs to avoid background polling.
+  final bool feedPollActive;
   final String? focusPostId;
   final String? focusReplyId;
 
   const CommunityScreen({
     super.key,
     this.embedded = false,
+    this.feedPollActive = true,
     this.focusPostId,
     this.focusReplyId,
   });
@@ -41,8 +44,11 @@ class _CommunityScreenState extends State<CommunityScreen> {
   @override
   void initState() {
     super.initState();
-    _feedTimeTicker = Timer.periodic(const Duration(seconds: 30), (_) {
-      if (mounted) setState(() {});
+    _feedTimeTicker = Timer.periodic(const Duration(seconds: 10), (_) {
+      if (!mounted) return;
+      if (widget.embedded && !widget.feedPollActive) return;
+      setState(() {});
+      unawaited(_load(forceRefresh: true, showErrorSnack: false));
     });
     _loadCachedThenRefresh();
   }
@@ -85,9 +91,14 @@ class _CommunityScreenState extends State<CommunityScreen> {
         _openFocusedPostIfNeeded();
       });
     }
+    if (!oldWidget.feedPollActive &&
+        widget.feedPollActive &&
+        widget.embedded) {
+      unawaited(_load(forceRefresh: true, showErrorSnack: false));
+    }
   }
 
-  Future<void> _load({bool forceRefresh = false}) async {
+  Future<void> _load({bool forceRefresh = false, bool showErrorSnack = true}) async {
     if (_posts.isEmpty) {
       setState(() => _loading = true);
     }
@@ -108,7 +119,8 @@ class _CommunityScreenState extends State<CommunityScreen> {
       });
       if (list.isEmpty &&
           _service.lastPostsFetchError != null &&
-          forceRefresh) {
+          forceRefresh &&
+          showErrorSnack) {
         final msg = _service.lastPostsFetchError!;
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (!context.mounted) return;
@@ -194,8 +206,9 @@ class _CommunityScreenState extends State<CommunityScreen> {
   }
 
   Widget _buildFeedPostCard(CommunityPost post) {
-    final hasImage =
+    final hasImageBytes =
         post.imageBase64 != null && post.imageBase64!.isNotEmpty;
+    final showImagePlaceholder = post.hasImage && !hasImageBytes;
     final liked = post.likedByMe;
     final captionStyle = GoogleFonts.inter(
       fontSize: 14,
@@ -362,7 +375,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
               ],
             ),
           ),
-          if (hasImage) ...[
+          if (hasImageBytes) ...[
             const SizedBox(height: 12),
             GestureDetector(
               onTap: () => _showPostDetail(post),
@@ -372,6 +385,39 @@ class _CommunityScreenState extends State<CommunityScreen> {
                   base64Decode(post.imageBase64!),
                   fit: BoxFit.cover,
                   gaplessPlayback: true,
+                ),
+              ),
+            ),
+          ] else if (showImagePlaceholder) ...[
+            const SizedBox(height: 12),
+            GestureDetector(
+              onTap: () => _showPostDetail(post),
+              child: AspectRatio(
+                aspectRatio: 1,
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    color: DupePalette.teal.withValues(alpha: 0.08),
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(
+                        Icons.photo_outlined,
+                        size: 40,
+                        color: DupePalette.teal.withValues(alpha: 0.55),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        'Photo — tap to load',
+                        style: GoogleFonts.inter(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          color: DupePalette.greySubtitle,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
             ),
@@ -571,13 +617,19 @@ class _CommunityScreenState extends State<CommunityScreen> {
                 onPressed: () async {
                   final desc = descController.text.trim();
                   if (desc.isEmpty && selectedImageBase64 == null) return;
-                  await _service.addPost(
+                  final created = await _service.addPost(
                     desc.isNotEmpty ? desc : 'No description.',
                     imageBase64: selectedImageBase64,
                   );
                   if (mounted) {
                     Navigator.pop(ctx);
-                    await _load();
+                    setState(() {
+                      _posts = [
+                        created,
+                        ..._posts.where((p) => p.id != created.id),
+                      ];
+                    });
+                    unawaited(_load(forceRefresh: true));
                     ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
                         content: Text('Post added'),
                         behavior: SnackBarBehavior.floating));
@@ -602,6 +654,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
       useRootNavigator: true,
       useSafeArea: true,
       backgroundColor: Colors.transparent,
+      barrierColor: Colors.black.withValues(alpha: 0.32),
       builder: (ctx) => _PostDetailSheet(
         initialPost: post,
         service: _service,
@@ -624,7 +677,10 @@ class _CommunityScreenState extends State<CommunityScreen> {
         },
       ),
     );
-    if (mounted) await _load(forceRefresh: true);
+    if (mounted) {
+      // Refresh in background so returning from detail feels instant.
+      unawaited(_load(forceRefresh: true));
+    }
   }
 
   @override
@@ -772,6 +828,7 @@ class _PostDetailSheetState extends State<_PostDetailSheet> {
   late CommunityPost _post;
   final _replyController = TextEditingController();
   bool _sendingReply = false;
+  bool _hydratingImage = false;
   String? _pendingReplyTempId;
   String? _highlightReplyId;
   String? _replyingToName;
@@ -784,6 +841,11 @@ class _PostDetailSheetState extends State<_PostDetailSheet> {
   void initState() {
     super.initState();
     _post = widget.initialPost;
+    if (_post.hasImage &&
+        (_post.imageBase64 == null || _post.imageBase64!.trim().isEmpty)) {
+      _hydratingImage = true;
+      unawaited(_loadFullPostForImage());
+    }
     _highlightReplyId = widget.initialHighlightReplyId;
     _detailTimeTicker = Timer.periodic(const Duration(seconds: 30), (_) {
       if (mounted) setState(() {});
@@ -803,14 +865,53 @@ class _PostDetailSheetState extends State<_PostDetailSheet> {
     super.dispose();
   }
 
+  Future<void> _loadFullPostForImage() async {
+    try {
+      final full = await widget.service.fetchPostById(_post.id);
+      if (!mounted) return;
+      setState(() {
+        _post = full;
+        _hydratingImage = false;
+      });
+      widget.onPostChanged(full);
+    } catch (_) {
+      if (mounted) setState(() => _hydratingImage = false);
+    }
+  }
+
+  CommunityPost _mergeFeedWithHydratedImage(CommunityPost next) {
+    if (next.hasImage &&
+        (next.imageBase64 == null || next.imageBase64!.trim().isEmpty) &&
+        _post.imageBase64 != null &&
+        _post.imageBase64!.trim().isNotEmpty) {
+      return CommunityPost(
+        id: next.id,
+        description: next.description,
+        author: next.author,
+        authorUserId: next.authorUserId,
+        authorPfp: next.authorPfp,
+        imageBase64: _post.imageBase64,
+        hasImage: true,
+        createdAt: next.createdAt,
+        replies: next.replies,
+        likeCount: next.likeCount,
+        likedByMe: next.likedByMe,
+      );
+    }
+    return next;
+  }
+
   Future<void> _refreshPost() async {
     final list = await widget.service.getPosts(forceRefresh: true);
     CommunityPost? next;
     try {
       next = list.firstWhere((p) => p.id == _post.id);
     } catch (_) {}
-    if (next != null && mounted) setState(() => _post = next!);
-    if (next != null) widget.onPostChanged(next);
+    if (next != null && mounted) {
+      final merged = _mergeFeedWithHydratedImage(next);
+      setState(() => _post = merged);
+      widget.onPostChanged(merged);
+    }
   }
 
   Future<void> _sendReply() async {
@@ -838,6 +939,7 @@ class _PostDetailSheetState extends State<_PostDetailSheet> {
         authorUserId: _post.authorUserId,
         authorPfp: _post.authorPfp,
         imageBase64: _post.imageBase64,
+        hasImage: _post.hasImage,
         createdAt: _post.createdAt,
         replies: [..._post.replies, optimistic],
         likeCount: _post.likeCount,
@@ -875,6 +977,7 @@ class _PostDetailSheetState extends State<_PostDetailSheet> {
             authorUserId: _post.authorUserId,
             authorPfp: _post.authorPfp,
             imageBase64: _post.imageBase64,
+            hasImage: _post.hasImage,
             createdAt: _post.createdAt,
             replies:
                 _post.replies.where((r) => r.id != _pendingReplyTempId).toList(),
@@ -987,27 +1090,24 @@ class _PostDetailSheetState extends State<_PostDetailSheet> {
 
   @override
   Widget build(BuildContext context) {
-    return DraggableScrollableSheet(
-      initialChildSize: 0.82,
-      minChildSize: 0.45,
-      maxChildSize: 0.95,
+    // Lift the whole sheet above the keyboard; insets are not always applied
+    // correctly to children of DraggableScrollableSheet alone.
+    final keyboardBottom = MediaQuery.of(context).viewInsets.bottom;
+    return Padding(
+      padding: EdgeInsets.only(bottom: keyboardBottom),
+      child: DraggableScrollableSheet(
+      initialChildSize: 0.58,
+      minChildSize: 0.38,
+      maxChildSize: 0.86,
       expand: false,
       builder: (_, scrollController) => Container(
         decoration: BoxDecoration(
-          gradient: LinearGradient(
-            colors: [
-              DupePalette.cardSurface,
-              DupePalette.pink.withValues(alpha: 0.06),
-              DupePalette.teal.withValues(alpha: 0.05),
-            ],
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-          ),
+          color: DupePalette.cardSurface,
           borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
           boxShadow: [
             BoxShadow(
-              color: DupePalette.pink.withValues(alpha: 0.12),
-              blurRadius: 18,
+              color: Colors.black.withValues(alpha: 0.12),
+              blurRadius: 20,
               offset: const Offset(0, -4),
             ),
           ],
@@ -1165,7 +1265,17 @@ class _PostDetailSheetState extends State<_PostDetailSheet> {
                       ),
                     ],
                   ),
-                  if (_post.imageBase64 != null &&
+                  if (_hydratingImage) ...[
+                    const SizedBox(height: 10),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 24),
+                      child: Center(
+                        child: CircularProgressIndicator(
+                          color: DupePalette.pink,
+                        ),
+                      ),
+                    ),
+                  ] else if (_post.imageBase64 != null &&
                       _post.imageBase64!.isNotEmpty) ...[
                     const SizedBox(height: 10),
                     ClipRRect(
@@ -1178,6 +1288,15 @@ class _PostDetailSheetState extends State<_PostDetailSheet> {
                             fit: BoxFit.contain,
                           ),
                         ),
+                      ),
+                    ),
+                  ] else if (_post.hasImage) ...[
+                    const SizedBox(height: 10),
+                    Text(
+                      'Photo could not be loaded.',
+                      style: GoogleFonts.inter(
+                        fontSize: 13,
+                        color: DupePalette.greySubtitle,
                       ),
                     ),
                   ],
@@ -1514,9 +1633,7 @@ class _PostDetailSheetState extends State<_PostDetailSheet> {
                 16,
                 8,
                 16,
-                12 +
-                    MediaQuery.of(context).viewPadding.bottom +
-                    MediaQuery.of(context).viewInsets.bottom,
+                12 + MediaQuery.of(context).viewPadding.bottom,
               ),
               child: Row(
                 children: [
@@ -1524,6 +1641,7 @@ class _PostDetailSheetState extends State<_PostDetailSheet> {
                     child: TextField(
                       controller: _replyController,
                       enabled: !_sendingReply,
+                      scrollPadding: const EdgeInsets.fromLTRB(16, 80, 16, 120),
                       style: const TextStyle(
                         color: AppColors.purpleDark,
                         fontSize: 15,
@@ -1532,8 +1650,7 @@ class _PostDetailSheetState extends State<_PostDetailSheet> {
                       cursorColor: DupePalette.pinkDeep,
                       decoration: InputDecoration(
                         filled: true,
-                        fillColor: DupePalette.cardSurface.withValues(
-                            alpha: 0.92),
+                        fillColor: DupePalette.scaffoldLight,
                         hintText: _replyingToName != null &&
                                 _replyingToName!.isNotEmpty
                             ? 'Replying to $_replyingToName...'
@@ -1618,6 +1735,7 @@ class _PostDetailSheetState extends State<_PostDetailSheet> {
           ],
         ),
       ),
+    ),
     );
   }
 }
