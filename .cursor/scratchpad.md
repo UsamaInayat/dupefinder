@@ -3279,3 +3279,8 @@ Expected speedup: ~20s/batch → ~1-2s/batch → 23k images done in ~10 min inst
 
 - **User clarification**: The “container” that should be solid/smaller was the **Welcome** bottom CTA panel (Register / Log In), not the **Register** form screen. Register changes were **reverted** (`git checkout HEAD -- mobile/lib/screens/register_screen.dart`).
 - **Welcome** (`welcome_screen.dart`): Removed **BackdropFilter** / translucent glass `Material`; bottom block is now a **compact** card (**`maxWidth: 300`**, tighter padding), **solid** **`DupePalette.cardSurface`** with shadow. **Log In** uses light grey fill + border so it reads on white.
+
+### Merge note — `origin/main` LAN discovery (merged into `api_service.dart`)
+
+- **Upstream**: Wi‑Fi /24 + gateway scan, `device_info_plus` / `network_info_plus`, one-time `backend_ip` migration (`dupefinder_lan_discovery_v2`), `resolveBaseUrl({bool force})`, `_postAuthWithRetry` for auth POSTs, lightweight **`GET /`** probe (not heavy `/health`).
+- **Kept from local**: **`_orderedApiUrls()`** for community feed + post fetch and login fallback over **resolved + normalized saved** API roots; **`_tryLoginAcrossKnownBackends`** after `TimeoutException` / `SocketException`; **`resolveBaseUrl(force: true)`** before community URL re-walk.
