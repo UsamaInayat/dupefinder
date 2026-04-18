@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -16,6 +17,25 @@ String? _coerceIdNullable(dynamic v) {
 }
 
 /// True when this post belongs to the logged-in user (matches [user_id] first, then name heuristics).
+/// Feed / disk cache: drop embedded photo bytes (keep [hasImage]) so JSON + prefs stay small and fast.
+CommunityPost stripPostImageForFeed(CommunityPost p) {
+  final img = p.imageBase64?.trim();
+  if (img == null || img.isEmpty) return p;
+  return CommunityPost(
+    id: p.id,
+    description: p.description,
+    author: p.author,
+    authorUserId: p.authorUserId,
+    authorPfp: p.authorPfp,
+    imageBase64: null,
+    hasImage: true,
+    createdAt: p.createdAt,
+    replies: p.replies,
+    likeCount: p.likeCount,
+    likedByMe: p.likedByMe,
+  );
+}
+
 bool _isOwnCommunityPost(Map<String, dynamic> map, SharedPreferences prefs) {
   final myUserId = (prefs.getString('user_id') ?? '').trim();
   final authorUserId =
@@ -275,7 +295,7 @@ class CommunityService {
       _postsCache = parsed;
       _postsCacheAt = DateTime.now();
       lastPostsFetchError = null;
-      await _savePostsCacheToDisk(parsed);
+      unawaited(_savePostsCacheToDisk(parsed));
       return parsed.map((e) => CommunityPost.fromJson(e.toJson())).toList();
     } catch (e, st) {
       debugPrint('CommunityService.getPosts failed: $e\n$st');
@@ -379,14 +399,14 @@ class CommunityService {
       authorPfp: pfp,
       imageBase64: imageBase64,
     );
-    final parsed = CommunityPost.fromJson(post);
+    final parsed = stripPostImageForFeed(CommunityPost.fromJson(post));
     final existing = _postsCache ?? await _readPostsCacheFromDisk();
     _postsCache = [
       parsed,
-      ...existing.where((p) => p.id != parsed.id),
+      ...existing.map(stripPostImageForFeed).where((p) => p.id != parsed.id),
     ];
     _postsCacheAt = DateTime.now();
-    await _savePostsCacheToDisk(_postsCache!);
+    unawaited(_savePostsCacheToDisk(_postsCache!));
     return parsed;
   }
 
@@ -406,7 +426,7 @@ class CommunityService {
       authorPfp: pfp,
       parentReplyId: parentReplyId,
     );
-    final parsed = CommunityPost.fromJson(post);
+    final parsed = stripPostImageForFeed(CommunityPost.fromJson(post));
     if (_postsCache != null) {
       final idx = _postsCache!.indexWhere((p) => p.id == parsed.id);
       if (idx >= 0) {
@@ -414,7 +434,7 @@ class CommunityService {
       }
     }
     _postsCacheAt = DateTime.now();
-    await _savePostsCacheToDisk(_postsCache ?? [parsed]);
+    unawaited(_savePostsCacheToDisk(_postsCache ?? [parsed]));
     return parsed;
   }
 
@@ -435,7 +455,7 @@ class CommunityService {
 
   Future<CommunityPost> togglePostLike(String postId) async {
     final map = await _api.toggleCommunityPostLike(postId);
-    final parsed = CommunityPost.fromJson(map);
+    final parsed = stripPostImageForFeed(CommunityPost.fromJson(map));
     if (_postsCache != null) {
       final idx = _postsCache!.indexWhere((p) => p.id == parsed.id);
       if (idx >= 0) {
@@ -443,7 +463,7 @@ class CommunityService {
       }
     }
     _postsCacheAt = DateTime.now();
-    await _savePostsCacheToDisk(_postsCache ?? [parsed]);
+    unawaited(_savePostsCacheToDisk(_postsCache ?? [parsed]));
     return parsed;
   }
 
@@ -503,7 +523,8 @@ class CommunityService {
   Future<void> _savePostsCacheToDisk(List<CommunityPost> posts) async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      final encoded = jsonEncode(posts.map((e) => e.toJson()).toList());
+      final lite = posts.map(stripPostImageForFeed).toList();
+      final encoded = jsonEncode(lite.map((e) => e.toJson()).toList());
       await prefs.setString(_postsCacheKey, encoded);
       await prefs.setString(_postsCacheAtKey, DateTime.now().toIso8601String());
     } catch (_) {}

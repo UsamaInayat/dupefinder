@@ -28,6 +28,29 @@ int _decodeDetailImageHeightPx(BuildContext context) {
   return (280 * dpr).round().clamp(200, 1200);
 }
 
+/// When the server returns a lite post (no [imageBase64]) but we still have bytes in memory, keep them.
+CommunityPost mergeCommunityPostKeepImage(CommunityPost prev, CommunityPost next) {
+  if (next.hasImage &&
+      (next.imageBase64 == null || next.imageBase64!.trim().isEmpty) &&
+      prev.imageBase64 != null &&
+      prev.imageBase64!.trim().isNotEmpty) {
+    return CommunityPost(
+      id: next.id,
+      description: next.description,
+      author: next.author,
+      authorUserId: next.authorUserId,
+      authorPfp: next.authorPfp,
+      imageBase64: prev.imageBase64,
+      hasImage: true,
+      createdAt: next.createdAt,
+      replies: next.replies,
+      likeCount: next.likeCount,
+      likedByMe: next.likedByMe,
+    );
+  }
+  return next;
+}
+
 /// Community: local posts and replies. Ask for dupes, others can reply with store links.
 class CommunityScreen extends StatefulWidget {
   final bool embedded;
@@ -208,7 +231,10 @@ class _CommunityScreenState extends State<CommunityScreen> {
       if (!mounted) return;
       setState(() {
         final i = _posts.indexWhere((p) => p.id == post.id);
-        if (i >= 0) _posts[i] = updated;
+        if (i >= 0) {
+          final prev = _posts[i];
+          _posts[i] = mergeCommunityPostKeepImage(prev, updated);
+        }
       });
     } catch (e) {
       if (!mounted) return;
@@ -584,6 +610,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
   }
 
   void _showAddPost(BuildContext context) {
+    final rootMessenger = ScaffoldMessenger.of(context);
     final descController = TextEditingController();
     String? selectedImageBase64;
     showModalBottomSheet(
@@ -620,7 +647,9 @@ class _CommunityScreenState extends State<CommunityScreen> {
                       onPressed: () async {
                         final x = await _picker.pickImage(
                           source: ImageSource.gallery,
-                          imageQuality: 80,
+                          maxWidth: 1600,
+                          maxHeight: 1600,
+                          imageQuality: 82,
                         );
                         if (x == null) return;
                         final bytes = await x.readAsBytes();
@@ -665,22 +694,39 @@ class _CommunityScreenState extends State<CommunityScreen> {
                 onPressed: () async {
                   final desc = descController.text.trim();
                   if (desc.isEmpty && selectedImageBase64 == null) return;
-                  final created = await _service.addPost(
-                    desc.isNotEmpty ? desc : 'No description.',
-                    imageBase64: selectedImageBase64,
-                  );
-                  if (mounted) {
-                    Navigator.pop(ctx);
+                  final body =
+                      desc.isNotEmpty ? desc : 'No description.';
+                  final imageB64 = selectedImageBase64;
+                  Navigator.pop(ctx);
+                  if (!mounted) return;
+                  try {
+                    final created = await _service.addPost(
+                      body,
+                      imageBase64: imageB64,
+                    );
+                    if (!mounted) return;
                     setState(() {
                       _posts = [
                         created,
                         ..._posts.where((p) => p.id != created.id),
                       ];
                     });
-                    unawaited(_load(forceRefresh: true));
-                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                    rootMessenger.showSnackBar(
+                      const SnackBar(
                         content: Text('Post added'),
-                        behavior: SnackBarBehavior.floating));
+                        behavior: SnackBarBehavior.floating,
+                      ),
+                    );
+                  } catch (e) {
+                    if (!mounted) return;
+                    rootMessenger.showSnackBar(
+                      SnackBar(
+                        content: Text(
+                          'Post failed: ${e.toString().replaceFirst('Exception: ', '')}',
+                        ),
+                        behavior: SnackBarBehavior.floating,
+                      ),
+                    );
                   }
                 },
                 style: FilledButton.styleFrom(
@@ -715,7 +761,8 @@ class _CommunityScreenState extends State<CommunityScreen> {
           setState(() {
             final idx = _posts.indexWhere((p) => p.id == updatedPost.id);
             if (idx >= 0) {
-              _posts[idx] = updatedPost;
+              final prev = _posts[idx];
+              _posts[idx] = mergeCommunityPostKeepImage(prev, updatedPost);
             }
           });
         },
@@ -1001,13 +1048,14 @@ class _PostDetailSheetState extends State<_PostDetailSheet> {
         parentReplyId: pendingParentReplyId,
       );
       _replyController.clear();
+      final merged = _mergeFeedWithHydratedImage(updated);
       setState(() {
         _replyingToName = null;
         _replyingToReplyId = null;
         _pendingReplyTempId = null;
-        _post = updated;
+        _post = merged;
       });
-      widget.onPostChanged(updated);
+      widget.onPostChanged(merged);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(

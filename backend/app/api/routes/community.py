@@ -313,7 +313,8 @@ async def add_post(
     result = c.insert_one(doc)
     created = c.find_one({"_id": result.inserted_id})
     vk = _viewer_like_key(current_user, _device_id_from_request(request))
-    return {"post": _serialize(created, vk)}
+    # Lite payload: same as feed list — avoids multi‑MB JSON on create (mobile parses faster).
+    return {"post": _serialize(created, vk, lite=True)}
 
 
 @router.post("/posts/{post_id}/replies")
@@ -371,7 +372,7 @@ async def add_reply(
         ):
             # Treat rapid duplicate sends as an idempotent success.
             vk = _viewer_like_key(current_user, _device_id_from_request(request))
-            return {"post": _serialize(post, vk), "duplicate_ignored": True}
+            return {"post": _serialize(post, vk, lite=True), "duplicate_ignored": True}
     result = c.update_one(
         {"_id": ObjectId(post_id)},
         {"$push": {"replies": reply_doc}},
@@ -395,7 +396,7 @@ async def add_reply(
             }
         )
     vk = _viewer_like_key(current_user, _device_id_from_request(request))
-    return {"post": _serialize(updated, vk)}
+    return {"post": _serialize(updated, vk, lite=True)}
 
 
 @router.post("/posts/{post_id}/like")
@@ -425,7 +426,7 @@ async def toggle_post_like(
         like_keys.append(vk)
     c.update_one({"_id": ObjectId(post_id)}, {"$set": {"like_keys": like_keys}})
     updated = c.find_one({"_id": ObjectId(post_id)})
-    return {"post": _serialize(updated, vk)}
+    return {"post": _serialize(updated, vk, lite=True)}
 
 
 @router.get("/notifications")
@@ -500,7 +501,7 @@ async def delete_own_reply(
     )
     updated = c.find_one({"_id": ObjectId(post_id)})
     vk = _viewer_like_key(current_user, _device_id_from_request(request))
-    return {"post": _serialize(updated, vk), "success": True}
+    return {"post": _serialize(updated, vk, lite=True), "success": True}
 
 
 @router.delete("/posts/{post_id}")
@@ -544,7 +545,7 @@ async def edit_own_post(
     )
     updated = c.find_one({"_id": ObjectId(post_id)})
     vk = _viewer_like_key(current_user, _device_id_from_request(request))
-    return {"post": _serialize(updated, vk)}
+    return {"post": _serialize(updated, vk, lite=True)}
 
 
 @router.post("/posts/{post_id}/report")
