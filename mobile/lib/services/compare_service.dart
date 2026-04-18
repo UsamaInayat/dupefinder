@@ -7,10 +7,20 @@ class CompareService {
   static const _key = 'compare_products';
   static const _migratedKey = 'compare_migrated_to_backend';
   static const maxItems = 4;
-  static const Duration _cacheTtl = Duration(seconds: 20);
+  static const Duration _cacheTtl = Duration(seconds: 60);
   final _api = ApiService();
   List<Map<String, dynamic>>? _memoryCache;
   DateTime? _cacheAt;
+
+  /// Fast path for UI: memory TTL hit, else local disk only (no network). Pair with [getList] to sync server.
+  Future<List<Map<String, dynamic>>> snapshotForUi() async {
+    if (_memoryCache != null &&
+        _cacheAt != null &&
+        DateTime.now().difference(_cacheAt!) < _cacheTtl) {
+      return _cloneList(_memoryCache!);
+    }
+    return _getLocal();
+  }
 
   Future<List<Map<String, dynamic>>> getList() async {
     if (_memoryCache != null &&

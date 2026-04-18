@@ -11,17 +11,25 @@ import 'package:flutter/foundation.dart'
     show kIsWeb, defaultTargetPlatform, TargetPlatform;
 import 'package:image_picker/image_picker.dart';
 import 'package:http_parser/http_parser.dart';
+import 'package:permission_handler/permission_handler.dart';
 
 class ApiService {
   /// Cleared once so old manual `backend_ip` values (e.g. hotspot IPs) are not reused.
   static const String _kLanDiscoveryPrefsMigration = 'dupefinder_lan_discovery_v2';
 
+  static bool _hasUsableBackendBase() {
+    final u = _resolvedUrl;
+    return u != null &&
+        u.isNotEmpty &&
+        !u.contains('unresolvable.invalid');
+  }
+
   /// Slightly longer probe when explicitly checking a saved or scanned host.
   static const Duration _healthProbeTimeout = Duration(seconds: 3);
   static const Duration _authRequestTimeout = Duration(seconds: 25);
 
-  /// Fast per-host probes while scanning /24 (many hosts in parallel).
-  static const Duration _lanScanProbeTimeout = Duration(milliseconds: 800);
+  /// Per-host probes while scanning /24 (parallel). Too short misses slow PCs / Wi‑Fi.
+  static const Duration _lanScanProbeTimeout = Duration(milliseconds: 2000);
   static const int _lanScanBatchSize = 40;
 
   // Cached after resolveBaseUrl(); cleared on force re-probe or connection failure retry.
@@ -30,11 +38,29 @@ class ApiService {
   static DateTime? _userDataCacheAt;
   static const Duration _userDataCacheTtl = Duration(seconds: 20);
 
+  /// One-time v2 migration: old builds could save a wrong hotspot IP. We only drop [backend_ip]
+  /// if it is invalid or does not answer DupeFinder on :8000 — a still-working saved IP is kept.
   static Future<void> _migrateClearLegacyBackendIp(SharedPreferences prefs) async {
     if (prefs.getBool(_kLanDiscoveryPrefsMigration) == true) return;
-    await prefs.remove('backend_ip');
+
+    final savedRaw = (prefs.getString('backend_ip') ?? '').trim();
+    final saved = _normalizeLanIpv4(savedRaw);
+
+    if (saved != null && await _probeDupeFinderRoot(saved)) {
+      await prefs.setBool(_kLanDiscoveryPrefsMigration, true);
+      print('[ApiService] LAN v2 migration: kept reachable backend_ip $saved');
+      return;
+    }
+
+    if (savedRaw.isNotEmpty) {
+      await prefs.remove('backend_ip');
+      if (saved == null) {
+        print('[ApiService] LAN v2 migration: removed invalid backend_ip: $savedRaw');
+      } else {
+        print('[ApiService] LAN v2 migration: removed unreachable backend_ip: $saved');
+      }
+    }
     await prefs.setBool(_kLanDiscoveryPrefsMigration, true);
-    print('[ApiService] Cleared legacy backend_ip once — LAN discovery will find your PC on Wi‑Fi');
   }
 
   static String? _normalizeLanIpv4(String? raw) {
@@ -131,6 +157,39 @@ class ApiService {
     return _scanSubnetPrefix(prefix, self);
   }
 
+  /// Probe common last-octets on the same /24 in parallel (faster than serial for login cold start).
+  static Future<String?> _slowProbeLikelyHostsOnSubnet(String myIpv4) async {
+    final parts = myIpv4.split('.');
+    if (parts.length != 4) return null;
+    final self = int.tryParse(parts[3]);
+    if (self == null) return null;
+    final prefix = '${parts[0]}.${parts[1]}.${parts[2]}';
+    final targets = <String>[];
+    for (final last in [8, 100, 108, 1, 254, 2, 50, 3, 20]) {
+      if (last == self) continue;
+      targets.add('$prefix.$last');
+    }
+    if (targets.isEmpty) return null;
+    final completer = Completer<String?>();
+    var pending = targets.length;
+    for (final ip in targets) {
+      _probeDupeFinderRoot(ip, timeout: _healthProbeTimeout)
+          .then((ok) {
+        if (ok && !completer.isCompleted) {
+          completer.complete(ip);
+        }
+      })
+          .catchError((_) {})
+          .whenComplete(() {
+        pending--;
+        if (pending == 0 && !completer.isCompleted) {
+          completer.complete(null);
+        }
+      });
+    }
+    return completer.future;
+  }
+
   static Future<bool> _isAndroidEmulator() async {
     if (defaultTargetPlatform != TargetPlatform.android) return false;
     try {
@@ -169,25 +228,51 @@ class ApiService {
       if (seen.add(apiUrl)) urls.add(apiUrl);
     }
     if (_resolvedUrl != null && _resolvedUrl!.isNotEmpty) {
-      addApi(_resolvedUrl!);
+      if (!_resolvedUrl!.contains('unresolvable.invalid')) {
+        addApi(_resolvedUrl!);
+      }
     }
     if (saved != null) {
       addApi(_apiUrlFromIp(saved));
     }
+    // Extra roots for login/community retry when discovery cached a bad URL.
+    try {
+      final wifiRaw = await NetworkInfo().getWifiIP();
+      final wifi = _normalizeLanIpv4(wifiRaw);
+      if (wifi != null) {
+        final parts = wifi.split('.');
+        if (parts.length == 4) {
+          final self = int.tryParse(parts[3]);
+          final prefix = '${parts[0]}.${parts[1]}.${parts[2]}';
+          for (final last in [8, 100, 108, 1, 254]) {
+            if (self != null && last == self) continue;
+            addApi(_apiUrlFromIp('$prefix.$last'));
+          }
+        }
+      }
+    } catch (_) {}
     return urls;
   }
 
   /// Finds the DupeFinder API base on the LAN. No hardcoded router or hotspot IPs.
   /// [force] clears cache and re-runs discovery (e.g. after a connection error).
-  static Future<void> resolveBaseUrl({bool force = false}) async {
+  /// [fullLanScan] when false, skips scanning the whole /24 (saves many seconds on login).
+  static Future<void> resolveBaseUrl(
+      {bool force = false, bool fullLanScan = true}) async {
     if (kIsWeb) {
       _resolvedUrl = 'http://localhost:8000/api';
       print('[ApiService] Web platform — using localhost');
       return;
     }
-    if (!force && _resolvedUrl != null) return;
-
-    if (force) _resolvedUrl = null;
+    // Do not treat unresolvable.invalid as "done" — otherwise login keeps using 10.0.2.2 on real phones.
+    if (!force && _hasUsableBackendBase()) {
+      return;
+    }
+    if (force ||
+        (_resolvedUrl != null &&
+            _resolvedUrl!.contains('unresolvable.invalid'))) {
+      _resolvedUrl = null;
+    }
 
     final prefs = await SharedPreferences.getInstance();
     await _migrateClearLegacyBackendIp(prefs);
@@ -203,37 +288,77 @@ class ApiService {
       print('[ApiService] Ignoring invalid saved backend_ip: $savedRaw');
     }
 
-    final wifiRaw = await NetworkInfo().getWifiIP();
-    final wifiIp = _normalizeLanIpv4(wifiRaw);
+    String? wifiRaw = await NetworkInfo().getWifiIP();
+    String? wifiIp = _normalizeLanIpv4(wifiRaw);
+    if (wifiIp == null &&
+        !kIsWeb &&
+        defaultTargetPlatform == TargetPlatform.android &&
+        !await _isAndroidEmulator()) {
+      try {
+        final loc = await Permission.locationWhenInUse.request();
+        if (loc.isGranted || loc.isLimited) {
+          wifiRaw = await NetworkInfo().getWifiIP();
+          wifiIp = _normalizeLanIpv4(wifiRaw);
+          if (wifiIp != null) {
+            print('[ApiService] Wi‑Fi IPv4 after location permission: $wifiIp');
+          }
+        } else {
+          print(
+            '[ApiService] Location not granted — Wi‑Fi IP may stay hidden on Android 10+. '
+            'Grant location for this app or set your PC IP manually (backend_ip).',
+          );
+        }
+      } catch (e) {
+        print('[ApiService] Location permission request failed: $e');
+      }
+    }
     if (wifiIp != null) {
-      print('[ApiService] Wi‑Fi IPv4 $wifiIp — scanning /24 for DupeFinder on :8000 ...');
-      final found = await _scanSubnetForBackend(wifiIp);
-      if (found != null) {
-        _resolvedUrl = 'http://$found:8000/api';
-        await prefs.setString('backend_ip', found);
-        print('[ApiService] LAN scan found backend -> $_resolvedUrl');
+      print(
+          '[ApiService] Wi‑Fi IPv4 $wifiIp — probing likely PC addresses on :8000 ...');
+      final slow = await _slowProbeLikelyHostsOnSubnet(wifiIp);
+      if (slow != null) {
+        _resolvedUrl = 'http://$slow:8000/api';
+        await prefs.setString('backend_ip', slow);
+        print('[ApiService] Likely-host probe found backend -> $_resolvedUrl');
         return;
       }
-      print('[ApiService] LAN scan found no DupeFinder on this subnet');
+      if (fullLanScan) {
+        print('[ApiService] Likely-host probe missed — scanning /24 for DupeFinder ...');
+        final found = await _scanSubnetForBackend(wifiIp);
+        if (found != null) {
+          _resolvedUrl = 'http://$found:8000/api';
+          await prefs.setString('backend_ip', found);
+          print('[ApiService] LAN scan found backend -> $_resolvedUrl');
+          return;
+        }
+        print('[ApiService] LAN scan found no DupeFinder on this subnet');
+      } else {
+        print(
+            '[ApiService] Skipping full /24 scan (fast path); login will retry on failure.',
+        );
+      }
     } else {
       print(
           '[ApiService] No Wi‑Fi device IP (common on Android 10+ without location) — trying gateway /24');
-      final gwRaw = await NetworkInfo().getWifiGatewayIP();
-      final gw = _normalizeLanIpv4(gwRaw);
-      if (gw != null) {
-        final gp = gw.split('.');
-        if (gp.length == 4) {
-          final prefix = '${gp[0]}.${gp[1]}.${gp[2]}';
-          final found = await _scanSubnetPrefix(prefix, null);
-          if (found != null) {
-            _resolvedUrl = 'http://$found:8000/api';
-            await prefs.setString('backend_ip', found);
-            print('[ApiService] Gateway-prefix scan found backend -> $_resolvedUrl');
-            return;
+      if (fullLanScan) {
+        final gwRaw = await NetworkInfo().getWifiGatewayIP();
+        final gw = _normalizeLanIpv4(gwRaw);
+        if (gw != null) {
+          final gp = gw.split('.');
+          if (gp.length == 4) {
+            final prefix = '${gp[0]}.${gp[1]}.${gp[2]}';
+            final found = await _scanSubnetPrefix(prefix, null);
+            if (found != null) {
+              _resolvedUrl = 'http://$found:8000/api';
+              await prefs.setString('backend_ip', found);
+              print(
+                  '[ApiService] Gateway-prefix scan found backend -> $_resolvedUrl');
+              return;
+            }
           }
         }
+        print('[ApiService] Gateway-based scan did not find DupeFinder');
       }
-      print('[ApiService] Gateway-based scan did not find DupeFinder');
     }
 
     if (await _isAndroidEmulator()) {
@@ -275,7 +400,12 @@ class ApiService {
   }
 
   static String get baseUrl {
-    if (_resolvedUrl != null) return _resolvedUrl!;
+    final u = _resolvedUrl;
+    if (u != null &&
+        u.isNotEmpty &&
+        !u.contains('unresolvable.invalid')) {
+      return u;
+    }
     if (kIsWeb) return 'http://localhost:8000/api';
     // Before resolveBaseUrl() (e.g. tests): prefer emulator loopback.
     if (defaultTargetPlatform == TargetPlatform.android) {
@@ -352,7 +482,11 @@ class ApiService {
   /// POST to /api/{path} with JSON body; re-probes LAN IPs once on connection failure.
   Future<http.Response> _postAuthWithRetry(
       String path, Map<String, dynamic> body) async {
-    await resolveBaseUrl();
+    // Fast path first; if still no backend (e.g. app started before PC API was up), run full LAN once.
+    await resolveBaseUrl(fullLanScan: false);
+    if (!_hasUsableBackendBase()) {
+      await resolveBaseUrl(force: true, fullLanScan: true);
+    }
     Future<http.Response> postOnce() => http
         .post(
           Uri.parse('$baseUrl/$path'),
@@ -364,8 +498,8 @@ class ApiService {
       return await postOnce();
     } catch (e) {
       if (_isConnectionFailure(e)) {
-        print('[ApiService] $path failed ($e); re-probing backend...');
-        await resolveBaseUrl(force: true);
+        print('[ApiService] $path failed ($e); re-probing backend (full LAN)...');
+        await resolveBaseUrl(force: true, fullLanScan: true);
         return await postOnce();
       }
       rethrow;
@@ -443,8 +577,8 @@ class ApiService {
             await prefs.setString('refresh_token', data['refresh_token']);
           }
 
-          // Strong sync for older accounts so existing users also get their real backend name.
-          await syncUserProfileFromBackend();
+          // Profile sync can wait — do not block returning from login().
+          unawaited(syncUserProfileFromBackend());
         }
 
         return data;
@@ -452,25 +586,58 @@ class ApiService {
         final error = jsonDecode(response.body);
         throw Exception(error['detail'] ?? 'Login failed');
       }
-    } on TimeoutException {
-      try {
-        return await _tryLoginAcrossKnownBackends(email: email, password: password);
-      } catch (_) {
+    } on TimeoutException catch (e) {
+      return await _loginFailoverOrThrow(
+        email: email,
+        password: password,
+        loginUrl: loginUrl,
+        probeError: e,
+      );
+    } on SocketException catch (e) {
+      return await _loginFailoverOrThrow(
+        email: email,
+        password: password,
+        loginUrl: loginUrl,
+        probeError: e,
+      );
+    } catch (e) {
+      if (_isConnectionFailure(e)) {
+        return await _loginFailoverOrThrow(
+          email: email,
+          password: password,
+          loginUrl: loginUrl,
+          probeError: e,
+        );
+      }
+      throw Exception('Login failed: ${e.toString()}');
+    }
+  }
+
+  Future<Map<String, dynamic>> _loginFailoverOrThrow({
+    required String email,
+    required String password,
+    required String loginUrl,
+    required Object probeError,
+  }) async {
+    try {
+      return await _tryLoginAcrossKnownBackends(
+          email: email, password: password);
+    } catch (_) {
+      final detail = probeError is SocketException
+          ? probeError.message
+          : probeError.toString();
+      if (probeError is TimeoutException) {
         throw Exception(
           'Login timed out. Check backend/network and try again. Endpoint: $loginUrl',
         );
       }
-    } on SocketException catch (e) {
-      try {
-        return await _tryLoginAcrossKnownBackends(email: email, password: password);
-      } catch (_) {
-        throw Exception(
-          'Cannot reach backend. Verify server is running and phone is on same network. '
-          'Endpoint: $loginUrl. Error: ${e.message}',
-        );
-      }
-    } catch (e) {
-      throw Exception('Login failed: ${e.toString()}');
+      throw Exception(
+        'Cannot reach backend. Use the same Wi‑Fi as the PC (not guest Wi‑Fi), run the API on '
+        '0.0.0.0:8000, and allow TCP 8000 in Windows Firewall. On Android, allow Location for '
+        'this app so it can read your Wi‑Fi IP for discovery. In the phone browser open '
+        'http://YOUR_PC_IP:8000/ — you should see JSON mentioning DupeFinder. '
+        'Endpoint: $loginUrl. Error: $detail',
+      );
     }
   }
 
@@ -493,7 +660,7 @@ class ApiService {
                 'password': password,
               }),
             )
-            .timeout(const Duration(seconds: 7));
+            .timeout(const Duration(seconds: 5));
 
         if (response.statusCode == 200) {
           _resolvedUrl = api;
@@ -520,7 +687,7 @@ class ApiService {
             if (data['refresh_token'] != null) {
               await prefs.setString('refresh_token', data['refresh_token']);
             }
-            await syncUserProfileFromBackend();
+            unawaited(syncUserProfileFromBackend());
           }
           return Map<String, dynamic>.from(data as Map);
         }
@@ -533,6 +700,9 @@ class ApiService {
       } on TimeoutException {
         continue;
       } catch (e) {
+        if (_isConnectionFailure(e)) {
+          continue;
+        }
         throw Exception(e.toString().replaceFirst('Exception: ', ''));
       }
     }
@@ -571,11 +741,17 @@ class ApiService {
     final token = await getAccessToken();
     if (token == null || token.isEmpty) return;
     try {
-      final body = await getMe();
+      final body = await getMe().timeout(
+        const Duration(seconds: 15),
+        onTimeout: () => throw TimeoutException('getMe'),
+      );
       final user = Map<String, dynamic>.from((body['user'] as Map?) ?? {});
       Map<String, dynamic> profile = {};
       try {
-        profile = await getUserProfileData();
+        profile = await getUserProfileData().timeout(
+          const Duration(seconds: 12),
+          onTimeout: () => throw TimeoutException('getUserProfileData'),
+        );
       } catch (_) {}
       final name = _extractDisplayName(user);
       final profileName = (profile['display_name'] ?? '').toString().trim();

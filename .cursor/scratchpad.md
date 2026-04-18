@@ -1561,6 +1561,18 @@ All ML Engine components are functional and tested!
 
 ## Executor's Feedback or Assistance Requests
 
+### EXECUTOR: Mobile “Cannot reach backend” (Apr 17, 2026)
+
+**Cause (typical)**: Android hides Wi‑Fi IPv4 without **Location** permission → LAN scan never gets the right `/24`, so login failover exhausts guesses.
+
+**Done**: `permission_handler` + `ACCESS_COARSE_LOCATION` in Android manifest; `resolveBaseUrl()` requests `locationWhenInUse` once on physical Android when Wi‑Fi IP is null, then re-reads `getWifiIP()`. Login now treats any `_isConnectionFailure` like Socket/timeout and runs LAN failover; failover loop skips all connection-style errors; user-facing error text lists firewall / `0.0.0.0:8000` / browser smoke test.
+
+**Follow-up**: LAN v2 migration no longer blindly deletes `backend_ip` — it keeps the saved IP if `GET http://ip:8000/` still returns DupeFinder (fixes “pehle login ho gaya tha” after an update when discovery is flaky).
+
+**Apr 18, 2026 — Perf (Community / Wishlist / Compare)**: Wishlist + Compare use `snapshotForUi()` (disk or warm memory) then `getSavedProducts`/`getList()` so the grid appears without waiting on `getUserData()`; service TTL 20→60s. Community: coalesced `_load` (skip overlapping polls; force-refresh waits), `RepaintBoundary` per feed card, `cacheWidth`/`cacheHeight` on feed + sheet + composer preview images, `ResizeImage` on avatars; Compare `CachedNetworkImage` gets `memCacheWidth: 400`.
+
+**User verify**: Hot restart app → allow Location when prompted → PC `uvicorn --host 0.0.0.0 --port 8000` + firewall TCP 8000 → phone browser `http://<PC-ip>:8000/` shows DupeFinder JSON.
+
 ### EXECUTOR: Frontend–Backend connectivity (March 2, 2025)
 
 **Issue**: Backend + MongoDB connected (terminal shows OK) but frontend still not "connected" (data not showing / unclear why).
@@ -3284,3 +3296,15 @@ Expected speedup: ~20s/batch → ~1-2s/batch → 23k images done in ~10 min inst
 
 - **Upstream**: Wi‑Fi /24 + gateway scan, `device_info_plus` / `network_info_plus`, one-time `backend_ip` migration (`dupefinder_lan_discovery_v2`), `resolveBaseUrl({bool force})`, `_postAuthWithRetry` for auth POSTs, lightweight **`GET /`** probe (not heavy `/health`).
 - **Kept from local**: **`_orderedApiUrls()`** for community feed + post fetch and login fallback over **resolved + normalized saved** API roots; **`_tryLoginAcrossKnownBackends`** after `TimeoutException` / `SocketException`; **`resolveBaseUrl(force: true)`** before community URL re-walk.
+
+### Current Status / Progress Tracking — Executor Update (Apr 17, 2026, Mobile UX batch)
+
+- **Welcome hero** (`welcome_screen.dart`): `Image.asset` **`alignment: Alignment.bottomCenter`** (still **`BoxFit.contain`**) so the couple stays visible above the CTA card on tall screens without cropping the artwork.
+- **Login → Home tab** (`main_shell.dart`, `login_screen.dart`): Exposed **`MainShell.lastTabPreferenceKey`**; on successful login **`SharedPreferences.remove(MainShell.lastTabPreferenceKey)`** so **`_restoreState`** defaults to tab **0 (Home)** instead of last session’s **Me**.
+- **Community feed card** (`community_screen.dart`): Post body (author + message) is **above** the like / comment / share row.
+- **Home trending dupes** (`home_tab.dart`): Removed **Explore** 2×2 tiles; **`_loadTrendingDupes`** merges up to **12** unique products from **`shopBrowse`** across **dresses / bags / accessories / jewelry**; horizontal cards with image, brand, name, price; tap opens store URL (same resolution as category browse). **`HomeTab`** now only takes **`onOpenSearch`**. **`main_shell.dart`**: dropped unused **`_openInsightsPage`** / **`InsightsScreen`** import (Insights still reachable elsewhere if linked from Me).
+- **Checks**: `dart analyze` on touched screens — **exit 0** (info-level hints only).
+
+### Executor's Feedback or Assistance Requests — Apr 17, 2026 (Mobile UX batch)
+
+- Please hot-restart and verify: (1) welcome hero framing on a tall and a short phone, (2) after login you land on **Home**, (3) Community actions are under the post text, (4) Home shows horizontal **Trending Dupes** from the API when the backend is reachable. **Planner**: confirm whether task set is complete after user sign-off.

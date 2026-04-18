@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../services/api_service.dart';
 import '../services/user_profile_service.dart';
 import '../theme/app_theme.dart';
+import 'main_shell.dart';
 import 'welcome_screen.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -41,8 +43,11 @@ class _LoginScreenState extends State<LoginScreen> {
         _emailController.text.trim(),
         _passwordController.text,
       );
-      await _apiService.syncUserProfileFromBackend();
+      // Profile sync already runs inside login() (unawaited). Do not await getMe here —
+      // it has no timeout and can block the button forever on slow/hung /auth/me.
       await _profileService.ensureDefaultsForLogin(_emailController.text.trim());
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove(MainShell.lastTabPreferenceKey);
       if (mounted) {
         Navigator.of(context).pushNamedAndRemoveUntil('/home', (r) => false);
       }

@@ -11,18 +11,19 @@ import 'compare_screen.dart';
 import 'community_screen.dart';
 import 'me_screen.dart';
 import 'dupe_history_screen.dart';
-import 'insights_screen.dart';
 
 /// Bottom navigation: Home | Search | Saved | Compare | Community | Me
 class MainShell extends StatefulWidget {
   const MainShell({super.key});
+
+  /// SharedPreferences key for last selected tab; clear on login so Home opens first.
+  static const String lastTabPreferenceKey = 'main_shell_last_tab';
 
   @override
   State<MainShell> createState() => _MainShellState();
 }
 
 class _MainShellState extends State<MainShell> {
-  static const _lastTabKey = 'main_shell_last_tab';
   int _index = 0;
   /// Build only visited tabs to keep startup responsive on physical devices.
   final Set<int> _loadedTabs = {0};
@@ -48,7 +49,7 @@ class _MainShellState extends State<MainShell> {
 
   Future<void> _restoreState() async {
     final prefs = await SharedPreferences.getInstance();
-    final saved = prefs.getInt(_lastTabKey) ?? 0;
+    final saved = prefs.getInt(MainShell.lastTabPreferenceKey) ?? 0;
     final pfp = prefs.getString('user_profile_image');
     if (!mounted) return;
     setState(() {
@@ -60,7 +61,7 @@ class _MainShellState extends State<MainShell> {
 
   Future<void> _saveCurrentTab() async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setInt(_lastTabKey, _index);
+    await prefs.setInt(MainShell.lastTabPreferenceKey, _index);
   }
 
   Future<void> _refreshNavProfile() async {
@@ -150,13 +151,6 @@ class _MainShellState extends State<MainShell> {
     _refreshCommunityNotificationCount();
   }
 
-  void _openInsightsPage() {
-    Navigator.push(
-      context,
-      MaterialPageRoute(builder: (_) => const InsightsScreen()),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     final titles = [
@@ -222,9 +216,6 @@ class _MainShellState extends State<MainShell> {
             0,
             HomeTab(
               onOpenSearch: () => _openTab(1),
-              onOpenCompare: () => _openTab(3),
-              onOpenWishlist: () => _openTab(2),
-              onOpenInsights: _openInsightsPage,
             ),
           ),
           lazyTab(1, const ImageSearchScreen(embedded: true)),

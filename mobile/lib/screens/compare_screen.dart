@@ -23,7 +23,19 @@ class _CompareScreenState extends State<CompareScreen> {
   @override
   void initState() {
     super.initState();
-    _load(silent: false);
+    _bootstrap();
+  }
+
+  /// Stale-while-revalidate: show local list immediately, then refresh from server when logged in.
+  Future<void> _bootstrap() async {
+    final snap = await _compareService.snapshotForUi();
+    if (mounted) {
+      setState(() {
+        _items = snap;
+        _loading = false;
+      });
+    }
+    await _load(silent: true);
   }
 
   @override
@@ -181,8 +193,12 @@ class _CompareScreenState extends State<CompareScreen> {
                                         fit: BoxFit.cover,
                                         width: double.infinity,
                                         height: double.infinity,
+                                        memCacheWidth: 400,
                                         placeholder: (_, __) => const Center(
-                                            child: CircularProgressIndicator()),
+                                            child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                          color: DupePalette.pink,
+                                        )),
                                         errorWidget: (_, __, ___) => const Icon(
                                             Icons.broken_image,
                                             size: 40),

@@ -6,10 +6,20 @@ import 'api_service.dart';
 class WishlistService {
   static const _key = 'wishlist_products';
   static const _migratedKey = 'wishlist_migrated_to_backend';
-  static const Duration _cacheTtl = Duration(seconds: 20);
+  static const Duration _cacheTtl = Duration(seconds: 60);
   final _api = ApiService();
   List<Map<String, dynamic>>? _memoryCache;
   DateTime? _cacheAt;
+
+  /// Fast path for UI: memory TTL hit, else local disk only (no network). Pair with [getSavedProducts] to sync server.
+  Future<List<Map<String, dynamic>>> snapshotForUi() async {
+    if (_memoryCache != null &&
+        _cacheAt != null &&
+        DateTime.now().difference(_cacheAt!) < _cacheTtl) {
+      return _cloneList(_memoryCache!);
+    }
+    return _getLocal();
+  }
 
   Future<List<Map<String, dynamic>>> getSavedProducts() async {
     if (_memoryCache != null &&

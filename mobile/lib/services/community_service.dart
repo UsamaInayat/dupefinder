@@ -15,6 +15,26 @@ String? _coerceIdNullable(dynamic v) {
   return v.toString();
 }
 
+/// True when this post belongs to the logged-in user (matches [user_id] first, then name heuristics).
+bool _isOwnCommunityPost(Map<String, dynamic> map, SharedPreferences prefs) {
+  final myUserId = (prefs.getString('user_id') ?? '').trim();
+  final authorUserId =
+      (map['authorUserId'] ?? map['author_user_id'] ?? '').toString().trim();
+  if (myUserId.isNotEmpty &&
+      authorUserId.isNotEmpty &&
+      authorUserId == myUserId) {
+    return true;
+  }
+  final author = (map['author'] ?? '').toString().trim().toLowerCase();
+  final currentUsername =
+      (prefs.getString('user_name') ?? '').trim().toLowerCase();
+  final currentEmailPrefix =
+      ((prefs.getString('user_email') ?? '').trim().split('@').first)
+          .toLowerCase();
+  return (currentUsername.isNotEmpty && author == currentUsername) ||
+      (currentEmailPrefix.isNotEmpty && author == currentEmailPrefix);
+}
+
 /// Backend sends UTC timestamps without a `Z` suffix; treat naive ISO as UTC.
 DateTime parseCommunityServerDate(String? s) {
   if (s == null || s.isEmpty) return DateTime.now().toUtc();
@@ -221,23 +241,13 @@ class CommunityService {
       await _migrateLegacyIfNeeded();
       final list = await _api.getCommunityPosts();
       final prefs = await SharedPreferences.getInstance();
-      final currentUsername =
-          (prefs.getString(_usernameKey) ?? '').trim().toLowerCase();
       final currentDisplayName = (prefs.getString(_usernameKey) ?? '').trim();
-      final currentEmailPrefix =
-          ((prefs.getString(_emailKey) ?? '').trim().split('@').first)
-              .toLowerCase();
       final currentPfp = prefs.getString(_profileImageKey);
       final parsed = <CommunityPost>[];
       for (final e in list) {
         try {
           final map = Map<String, dynamic>.from(e as Map);
-          final author =
-              (map['author'] ?? '').toString().trim().toLowerCase();
-          final isCurrentUserPost =
-              (currentUsername.isNotEmpty && author == currentUsername) ||
-                  (currentEmailPrefix.isNotEmpty &&
-                      author == currentEmailPrefix);
+          final isCurrentUserPost = _isOwnCommunityPost(map, prefs);
           if (isCurrentUserPost && currentDisplayName.isNotEmpty) {
             map['author'] = currentDisplayName;
           }
@@ -248,6 +258,14 @@ class CommunityService {
               currentPfp.isNotEmpty &&
               isCurrentUserPost) {
             map['authorPfp'] = currentPfp;
+          }
+          if (isCurrentUserPost) {
+            final eff = (map['authorPfp'] as String?)?.trim();
+            if (eff != null &&
+                eff.isNotEmpty &&
+                (prefs.getString(_profileImageKey) ?? '').trim().isEmpty) {
+              await prefs.setString(_profileImageKey, eff);
+            }
           }
           parsed.add(CommunityPost.fromJson(map));
         } catch (err, st) {
@@ -279,17 +297,9 @@ class CommunityService {
   Future<CommunityPost> fetchPostById(String postId) async {
     final map = Map<String, dynamic>.from(await _api.getCommunityPost(postId));
     final prefs = await SharedPreferences.getInstance();
-    final currentUsername =
-        (prefs.getString(_usernameKey) ?? '').trim().toLowerCase();
     final currentDisplayName = (prefs.getString(_usernameKey) ?? '').trim();
-    final currentEmailPrefix =
-        ((prefs.getString(_emailKey) ?? '').trim().split('@').first)
-            .toLowerCase();
     final currentPfp = prefs.getString(_profileImageKey);
-    final author = (map['author'] as String? ?? '').trim().toLowerCase();
-    final isCurrentUserPost =
-        (currentUsername.isNotEmpty && author == currentUsername) ||
-            (currentEmailPrefix.isNotEmpty && author == currentEmailPrefix);
+    final isCurrentUserPost = _isOwnCommunityPost(map, prefs);
     if (isCurrentUserPost && currentDisplayName.isNotEmpty) {
       map['author'] = currentDisplayName;
     }
@@ -299,6 +309,14 @@ class CommunityService {
         currentPfp.isNotEmpty &&
         isCurrentUserPost) {
       map['authorPfp'] = currentPfp;
+    }
+    if (isCurrentUserPost) {
+      final eff = (map['authorPfp'] as String?)?.trim();
+      if (eff != null &&
+          eff.isNotEmpty &&
+          (prefs.getString(_profileImageKey) ?? '').trim().isEmpty) {
+        await prefs.setString(_profileImageKey, eff);
+      }
     }
     return CommunityPost.fromJson(map);
   }

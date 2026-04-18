@@ -25,7 +25,19 @@ class _WishlistScreenState extends State<WishlistScreen> {
   @override
   void initState() {
     super.initState();
-    _load(silent: false);
+    _bootstrap();
+  }
+
+  /// Stale-while-revalidate: show disk/memory list immediately, then refresh (API if logged in).
+  Future<void> _bootstrap() async {
+    final snap = await _wishlistService.snapshotForUi();
+    if (mounted) {
+      setState(() {
+        _items = snap;
+        _loading = false;
+      });
+    }
+    await _load(silent: true);
   }
 
   @override

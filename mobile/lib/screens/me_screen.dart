@@ -15,6 +15,22 @@ import 'welcome_screen.dart';
 import 'insights_screen.dart';
 import 'dupe_history_screen.dart';
 
+/// Strips `data:*;base64,` prefix if present, then decodes. Returns null on failure.
+Uint8List? _decodeProfileImageBytes(String? raw) {
+  if (raw == null) return null;
+  var s = raw.trim();
+  if (s.isEmpty) return null;
+  final idx = s.indexOf(';base64,');
+  if (idx >= 0) {
+    s = s.substring(idx + ';base64,'.length);
+  }
+  try {
+    return base64Decode(s);
+  } catch (_) {
+    return null;
+  }
+}
+
 class MeScreen extends StatefulWidget {
   final Future<void> Function(
           String postId, String replyId, String notificationId)?
@@ -92,6 +108,18 @@ class _MeScreenState extends State<MeScreen> {
       _dupeHistoryCount = history.length;
       _notifications = notifications;
     });
+    if (!isGuest &&
+        (_profileImageBase64 == null || _profileImageBase64!.trim().isEmpty)) {
+      try {
+        await _communityService.getPosts(forceRefresh: true);
+        if (!mounted) return;
+        final prefsAfter = await SharedPreferences.getInstance();
+        final synced = prefsAfter.getString('user_profile_image');
+        if (synced != null && synced.trim().isNotEmpty) {
+          setState(() => _profileImageBase64 = synced);
+        }
+      } catch (_) {}
+    }
     _maybeShowNotificationSnack(notifications);
     widget.onNotificationStateChanged?.call();
   }
@@ -286,6 +314,7 @@ class _MeScreenState extends State<MeScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final pfpBytes = _decodeProfileImageBytes(_profileImageBase64);
     return Container(
       decoration: BoxDecoration(
         gradient: LinearGradient(
@@ -339,12 +368,9 @@ class _MeScreenState extends State<MeScreen> {
                         CircleAvatar(
                           radius: 40,
                           backgroundColor: DupePalette.pink.withValues(alpha: 0.15),
-                          backgroundImage: (_profileImageBase64 != null &&
-                                  _profileImageBase64!.isNotEmpty)
-                              ? MemoryImage(base64Decode(_profileImageBase64!))
-                              : null,
-                          child: (_profileImageBase64 == null ||
-                                  _profileImageBase64!.isEmpty)
+                          backgroundImage:
+                              pfpBytes != null ? MemoryImage(pfpBytes) : null,
+                          child: pfpBytes == null
                               ? Icon(
                                   _guest ? Icons.person_outline : Icons.person_rounded,
                                   size: 40,

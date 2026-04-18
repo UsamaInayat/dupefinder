@@ -10,6 +10,24 @@ import 'package:url_launcher/url_launcher.dart';
 import '../theme/app_theme.dart';
 import '../services/community_service.dart';
 
+/// Decode feed photos near on-screen width (avoids decoding full camera resolution).
+int _decodeFeedImagePx(BuildContext context) {
+  final w = MediaQuery.sizeOf(context).width;
+  final dpr = MediaQuery.devicePixelRatioOf(context);
+  return ((w - 48) * dpr).round().clamp(200, 1600);
+}
+
+int _decodeDetailImagePx(BuildContext context) {
+  final w = MediaQuery.sizeOf(context).width;
+  final dpr = MediaQuery.devicePixelRatioOf(context);
+  return (w * dpr).round().clamp(240, 1600);
+}
+
+int _decodeDetailImageHeightPx(BuildContext context) {
+  final dpr = MediaQuery.devicePixelRatioOf(context);
+  return (280 * dpr).round().clamp(200, 1200);
+}
+
 /// Community: local posts and replies. Ask for dupes, others can reply with store links.
 class CommunityScreen extends StatefulWidget {
   final bool embedded;
@@ -40,6 +58,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
   String _myEmailPrefix = '';
   bool _openedFocusedPost = false;
   Timer? _feedTimeTicker;
+  bool _loadBusy = false;
 
   @override
   void initState() {
@@ -99,46 +118,56 @@ class _CommunityScreenState extends State<CommunityScreen> {
   }
 
   Future<void> _load({bool forceRefresh = false, bool showErrorSnack = true}) async {
-    if (_posts.isEmpty) {
-      setState(() => _loading = true);
+    if (_loadBusy && !forceRefresh) return;
+    while (_loadBusy) {
+      await Future<void>.delayed(const Duration(milliseconds: 16));
+      if (!mounted) return;
     }
-    final list = await _service.getPosts(forceRefresh: forceRefresh);
-    final me = await _service.currentUserId();
-    final prefs = await SharedPreferences.getInstance();
-    final myName = (prefs.getString('user_name') ?? '').trim();
-    final email = (prefs.getString('user_email') ?? '').trim();
-    final emailPrefix =
-        email.contains('@') ? email.split('@').first.trim() : '';
-    if (mounted) {
-      setState(() {
-        _posts = list;
-        _myUserId = me;
-        _myName = myName.toLowerCase();
-        _myEmailPrefix = emailPrefix.toLowerCase();
-        _loading = false;
-      });
-      if (list.isEmpty &&
-          _service.lastPostsFetchError != null &&
-          forceRefresh &&
-          showErrorSnack) {
-        final msg = _service.lastPostsFetchError!;
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (!context.mounted) return;
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(
-                'Feed could not refresh ($msg). '
-                'On web, ensure the backend runs at http://localhost:8000.',
-                style: const TextStyle(fontSize: 13),
-              ),
-              behavior: SnackBarBehavior.floating,
-              duration: const Duration(seconds: 5),
-            ),
-          );
-        });
+    _loadBusy = true;
+    try {
+      if (_posts.isEmpty) {
+        setState(() => _loading = true);
       }
+      final list = await _service.getPosts(forceRefresh: forceRefresh);
+      final me = await _service.currentUserId();
+      final prefs = await SharedPreferences.getInstance();
+      final myName = (prefs.getString('user_name') ?? '').trim();
+      final email = (prefs.getString('user_email') ?? '').trim();
+      final emailPrefix =
+          email.contains('@') ? email.split('@').first.trim() : '';
+      if (mounted) {
+        setState(() {
+          _posts = list;
+          _myUserId = me;
+          _myName = myName.toLowerCase();
+          _myEmailPrefix = emailPrefix.toLowerCase();
+          _loading = false;
+        });
+        if (list.isEmpty &&
+            _service.lastPostsFetchError != null &&
+            forceRefresh &&
+            showErrorSnack) {
+          final msg = _service.lastPostsFetchError!;
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (!context.mounted) return;
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(
+                  'Feed could not refresh ($msg). '
+                  'On web, ensure the backend runs at http://localhost:8000.',
+                  style: const TextStyle(fontSize: 13),
+                ),
+                behavior: SnackBarBehavior.floating,
+                duration: const Duration(seconds: 5),
+              ),
+            );
+          });
+        }
+      }
+      _openFocusedPostIfNeeded();
+    } finally {
+      _loadBusy = false;
     }
-    _openFocusedPostIfNeeded();
   }
 
   Future<void> _openFocusedPostIfNeeded() async {
@@ -206,6 +235,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
   }
 
   Widget _buildFeedPostCard(CommunityPost post) {
+    final decodePx = _decodeFeedImagePx(context);
     final hasImageBytes =
         post.imageBase64 != null && post.imageBase64!.isNotEmpty;
     final showImagePlaceholder = post.hasImage && !hasImageBytes;
@@ -223,28 +253,29 @@ class _CommunityScreenState extends State<CommunityScreen> {
       height: 1.35,
     );
 
-    return Container(
-      margin: const EdgeInsets.only(bottom: 18),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(22),
-        boxShadow: [
-          BoxShadow(
-            color: DupePalette.teal.withValues(alpha: 0.12),
-            blurRadius: 18,
-            offset: const Offset(0, 6),
-          ),
-          BoxShadow(
-            color: DupePalette.pink.withValues(alpha: 0.06),
-            blurRadius: 12,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      clipBehavior: Clip.antiAlias,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
+    return RepaintBoundary(
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 18),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(22),
+          boxShadow: [
+            BoxShadow(
+              color: DupePalette.teal.withValues(alpha: 0.12),
+              blurRadius: 18,
+              offset: const Offset(0, 6),
+            ),
+            BoxShadow(
+              color: DupePalette.pink.withValues(alpha: 0.06),
+              blurRadius: 12,
+              offset: const Offset(0, 2),
+            ),
+          ],
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
           Padding(
             padding: const EdgeInsets.fromLTRB(14, 14, 6, 0),
             child: Row(
@@ -255,7 +286,11 @@ class _CommunityScreenState extends State<CommunityScreen> {
                   backgroundColor: DupePalette.pink.withValues(alpha: 0.2),
                   backgroundImage: (post.authorPfp != null &&
                           post.authorPfp!.isNotEmpty)
-                      ? MemoryImage(base64Decode(post.authorPfp!))
+                      ? ResizeImage(
+                          MemoryImage(base64Decode(post.authorPfp!)),
+                          width: 128,
+                          height: 128,
+                        )
                       : null,
                   child: (post.authorPfp == null || post.authorPfp!.isEmpty)
                       ? Icon(Icons.person_outline_rounded,
@@ -385,6 +420,9 @@ class _CommunityScreenState extends State<CommunityScreen> {
                   base64Decode(post.imageBase64!),
                   fit: BoxFit.cover,
                   gaplessPlayback: true,
+                  cacheWidth: decodePx,
+                  cacheHeight: decodePx,
+                  filterQuality: FilterQuality.medium,
                 ),
               ),
             ),
@@ -422,8 +460,32 @@ class _CommunityScreenState extends State<CommunityScreen> {
               ),
             ),
           ],
+          GestureDetector(
+            onTap: () => _showPostDetail(post),
+            behavior: HitTestBehavior.opaque,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(14, 0, 14, 10),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(post.author, style: authorStyle),
+                  Text(' ', style: authorStyle),
+                  Expanded(
+                    child: post.description.isEmpty
+                        ? Text(
+                            'No description.',
+                            style: captionStyle.copyWith(
+                              color: DupePalette.greySubtitle,
+                            ),
+                          )
+                        : _LinkText(post.description, style: captionStyle),
+                  ),
+                ],
+              ),
+            ),
+          ),
           Padding(
-            padding: const EdgeInsets.fromLTRB(10, 12, 10, 4),
+            padding: const EdgeInsets.fromLTRB(10, 0, 10, 12),
             child: Row(
               children: [
                 InkWell(
@@ -490,32 +552,9 @@ class _CommunityScreenState extends State<CommunityScreen> {
               ],
             ),
           ),
-          GestureDetector(
-            onTap: () => _showPostDetail(post),
-            behavior: HitTestBehavior.opaque,
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(14, 0, 14, 16),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(post.author, style: authorStyle),
-                  Text(' ', style: authorStyle),
-                  Expanded(
-                    child: post.description.isEmpty
-                        ? Text(
-                            'No description.',
-                            style: captionStyle.copyWith(
-                              color: DupePalette.greySubtitle,
-                            ),
-                          )
-                        : _LinkText(post.description, style: captionStyle),
-                  ),
-                ],
-              ),
-            ),
-          ),
         ],
       ),
+    ),
     );
   }
 
@@ -570,6 +609,10 @@ class _CommunityScreenState extends State<CommunityScreen> {
                       color: AppColors.purpleDark)),
               const SizedBox(height: 8),
               StatefulBuilder(builder: (ctx, setInnerState) {
+                final previewDecode = (MediaQuery.sizeOf(ctx).width *
+                        MediaQuery.devicePixelRatioOf(ctx))
+                    .round()
+                    .clamp(200, 720);
                 return Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
@@ -597,6 +640,11 @@ class _CommunityScreenState extends State<CommunityScreen> {
                           base64Decode(selectedImageBase64!),
                           height: 120,
                           fit: BoxFit.cover,
+                          cacheWidth: previewDecode,
+                          cacheHeight: (120 * MediaQuery.devicePixelRatioOf(ctx))
+                              .round()
+                              .clamp(120, 900),
+                          filterQuality: FilterQuality.medium,
                         ),
                       ),
                     ],
@@ -1093,6 +1141,8 @@ class _PostDetailSheetState extends State<_PostDetailSheet> {
     // Lift the whole sheet above the keyboard; insets are not always applied
     // correctly to children of DraggableScrollableSheet alone.
     final keyboardBottom = MediaQuery.of(context).viewInsets.bottom;
+    final detailDecodeW = _decodeDetailImagePx(context);
+    final detailDecodeH = _decodeDetailImageHeightPx(context);
     return Padding(
       padding: EdgeInsets.only(bottom: keyboardBottom),
       child: DraggableScrollableSheet(
@@ -1127,7 +1177,11 @@ class _PostDetailSheetState extends State<_PostDetailSheet> {
                         backgroundColor: DupePalette.pink.withValues(alpha: 0.18),
                         backgroundImage: (_post.authorPfp != null &&
                                 _post.authorPfp!.isNotEmpty)
-                            ? MemoryImage(base64Decode(_post.authorPfp!))
+                            ? ResizeImage(
+                                MemoryImage(base64Decode(_post.authorPfp!)),
+                                width: 120,
+                                height: 120,
+                              )
                             : null,
                         child: (_post.authorPfp == null ||
                                 _post.authorPfp!.isEmpty)
@@ -1286,6 +1340,9 @@ class _PostDetailSheetState extends State<_PostDetailSheet> {
                           child: Image.memory(
                             base64Decode(_post.imageBase64!),
                             fit: BoxFit.contain,
+                            cacheWidth: detailDecodeW,
+                            cacheHeight: detailDecodeH,
+                            filterQuality: FilterQuality.medium,
                           ),
                         ),
                       ),
@@ -1371,7 +1428,12 @@ class _PostDetailSheetState extends State<_PostDetailSheet> {
                                     DupePalette.teal.withValues(alpha: 0.15),
                                 backgroundImage: (r.authorPfp != null &&
                                         r.authorPfp!.isNotEmpty)
-                                    ? MemoryImage(base64Decode(r.authorPfp!))
+                                    ? ResizeImage(
+                                        MemoryImage(
+                                            base64Decode(r.authorPfp!)),
+                                        width: 96,
+                                        height: 96,
+                                      )
                                     : null,
                                 child: (r.authorPfp == null ||
                                         r.authorPfp!.isEmpty)

@@ -1,22 +1,21 @@
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:url_launcher/url_launcher.dart';
+
+import '../services/api_service.dart';
+import '../services/dupe_history_service.dart';
 import '../theme/app_theme.dart';
 import 'category_browse_screen.dart';
 
-/// Home: Discover header, hero, shop-by-category (classic icons), explore tiles.
+/// Home: Discover header, hero, shop-by-category, and DB-backed trending dupes strip.
 class HomeTab extends StatefulWidget {
   final VoidCallback onOpenSearch;
-  final VoidCallback onOpenCompare;
-  final VoidCallback onOpenWishlist;
-  final VoidCallback onOpenInsights;
 
   const HomeTab({
     super.key,
     required this.onOpenSearch,
-    required this.onOpenCompare,
-    required this.onOpenWishlist,
-    required this.onOpenInsights,
   });
 
   @override
@@ -24,14 +23,20 @@ class HomeTab extends StatefulWidget {
 }
 
 class _HomeTabState extends State<HomeTab> {
+  final _apiService = ApiService();
+  final _history = DupeHistoryService();
   String? _userName;
   String? _userEmail;
   bool _guest = false;
+  List<Map<String, dynamic>> _trending = [];
+  bool _trendingLoading = true;
+  String? _trendingError;
 
   @override
   void initState() {
     super.initState();
     _load();
+    _loadTrendingDupes();
   }
 
   Future<void> _load() async {
@@ -231,33 +236,9 @@ class _HomeTabState extends State<HomeTab> {
             ),
           ),
           SliverPadding(
-            padding: const EdgeInsets.fromLTRB(20, 20, 20, 8),
+            padding: const EdgeInsets.fromLTRB(16, 4, 16, 28),
             sliver: SliverToBoxAdapter(
-              child: Text(
-                'Explore',
-                style: GoogleFonts.inter(
-                  fontSize: 17,
-                  fontWeight: FontWeight.bold,
-                  color: DupePalette.textPrimary,
-                ),
-              ),
-            ),
-          ),
-          SliverPadding(
-            padding: const EdgeInsets.fromLTRB(20, 0, 20, 28),
-            sliver: SliverGrid(
-              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                crossAxisCount: 2,
-                crossAxisSpacing: 14,
-                mainAxisSpacing: 14,
-                childAspectRatio: 1.05,
-              ),
-              delegate: SliverChildListDelegate([
-                _tile(Icons.photo_camera_front_rounded, 'Find similar', 'Image search', DupePalette.pink, widget.onOpenSearch),
-                _tile(Icons.compare_arrows_rounded, 'Compare', 'Side‑by‑side picks', DupePalette.blue, widget.onOpenCompare),
-                _tile(Icons.favorite_rounded, 'Wishlist', 'Saved items', DupePalette.pinkDeep, widget.onOpenWishlist),
-                _tile(Icons.insights_rounded, 'Insights', 'Trends & savings', DupePalette.teal, widget.onOpenInsights),
-              ]),
+              child: _trendingStrip(),
             ),
           ),
         ],
@@ -278,6 +259,292 @@ class _HomeTabState extends State<HomeTab> {
     Navigator.of(context).push<void>(
       MaterialPageRoute<void>(
         builder: (_) => CategoryBrowseScreen(slot: slot, title: title),
+      ),
+    );
+  }
+
+  Future<void> _loadTrendingDupes() async {
+    if (!mounted) return;
+    setState(() {
+      _trendingLoading = true;
+      _trendingError = null;
+    });
+    const slots = ['dresses', 'bags', 'accessories', 'jewelry'];
+    final seen = <String>{};
+    final merged = <Map<String, dynamic>>[];
+    try {
+      for (final slot in slots) {
+        final body = await _apiService.shopBrowse(slot: slot, limit: 4);
+        final raw = body['items'] as List<dynamic>? ?? [];
+        for (final e in raw) {
+          final m = Map<String, dynamic>.from(e as Map);
+          final id = (m['id'] ?? m['_id'] ?? '').toString();
+          if (id.isEmpty) continue;
+          if (seen.add(id)) merged.add(m);
+          if (merged.length >= 12) break;
+        }
+        if (merged.length >= 12) break;
+      }
+      if (!mounted) return;
+      setState(() {
+        _trending = merged;
+        _trendingLoading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _trendingError = e.toString().replaceFirst('Exception: ', '');
+        _trendingLoading = false;
+      });
+    }
+  }
+
+  String _apiOrigin() {
+    final base = ApiService.baseUrl;
+    return base.endsWith('/api') ? base.substring(0, base.length - 4) : base;
+  }
+
+  String? _resolveImageUrl(Map<String, dynamic> product) {
+    final origin = _apiOrigin();
+    final imageUrl = (product['image_url'] as String?)?.trim();
+    final imagePath = (product['image_path'] as String?)?.trim();
+
+    if (imagePath != null && imagePath.isNotEmpty) {
+      final path = imagePath.replaceAll('\\', '/');
+      if (!path.startsWith('http://') && !path.startsWith('https://')) {
+        return '$origin/data/$path';
+      }
+    }
+    if (imageUrl != null && imageUrl.isNotEmpty) {
+      if (imageUrl.startsWith('http://') || imageUrl.startsWith('https://')) {
+        return '$origin/api/products/image-proxy?url=${Uri.encodeComponent(imageUrl)}';
+      }
+      return imageUrl;
+    }
+    if (imagePath != null && imagePath.isNotEmpty) {
+      return imagePath;
+    }
+    return null;
+  }
+
+  String? _resolveProductUrl(Map<String, dynamic> product) {
+    final raw = ((product['product_url'] ??
+            product['product_link'] ??
+            product['url'] ??
+            '') as String?)
+        ?.trim();
+    if (raw == null || raw.isEmpty) return null;
+    if (raw.startsWith('http://') || raw.startsWith('https://')) return raw;
+    return 'https://$raw';
+  }
+
+  Future<void> _openTrendingProduct(Map<String, dynamic> product) async {
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    await _history.recordClick(product);
+    final raw = _resolveProductUrl(product);
+    if (raw == null || raw.isEmpty) {
+      messenger?.showSnackBar(
+        const SnackBar(
+          content: Text('No store link for this item.'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
+    final normalized = raw.startsWith('http://') || raw.startsWith('https://')
+        ? raw
+        : (raw.startsWith('//') ? 'https:$raw' : 'https://$raw');
+    final uri = Uri.tryParse(normalized);
+    if (uri == null) {
+      messenger?.showSnackBar(
+        const SnackBar(
+          content: Text('Invalid product link.'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
+    try {
+      var opened = await launchUrl(uri, mode: LaunchMode.externalApplication);
+      if (!opened) {
+        opened = await launchUrl(uri, mode: LaunchMode.platformDefault);
+      }
+      if (!opened && mounted) {
+        messenger?.showSnackBar(
+          SnackBar(
+            content: Text('Could not open link: ${uri.toString()}'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        messenger?.showSnackBar(
+          SnackBar(
+            content: Text('Could not open link: $e'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    }
+  }
+
+  Widget _trendingStrip() {
+    if (_trendingLoading) {
+      return const Padding(
+        padding: EdgeInsets.symmetric(vertical: 28),
+        child: Center(
+          child: CircularProgressIndicator(color: DupePalette.pink),
+        ),
+      );
+    }
+    if (_trendingError != null) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              _trendingError!,
+              style: GoogleFonts.inter(
+                fontSize: 13,
+                color: DupePalette.greySubtitle,
+              ),
+            ),
+            TextButton(
+              onPressed: () => _loadTrendingDupes(),
+              child: Text(
+                'Retry',
+                style: GoogleFonts.inter(
+                  fontWeight: FontWeight.w600,
+                  color: DupePalette.blue,
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+    if (_trending.isEmpty) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 12),
+        child: Text(
+          'No dupes to show yet.',
+          style: GoogleFonts.inter(
+            fontSize: 13,
+            color: DupePalette.greySubtitle,
+          ),
+        ),
+      );
+    }
+    return SizedBox(
+      height: 220,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.fromLTRB(4, 8, 4, 4),
+        itemCount: _trending.length,
+        separatorBuilder: (_, __) => const SizedBox(width: 12),
+        itemBuilder: (_, i) => _trendingCard(_trending[i]),
+      ),
+    );
+  }
+
+  Widget _trendingCard(Map<String, dynamic> product) {
+    final name = (product['name'] as String?)?.trim() ?? 'Product';
+    final brand = (product['brand'] as String?)?.trim() ?? '';
+    final price = (product['price'] as num?)?.toDouble() ?? 0;
+    final imgUrl = _resolveImageUrl(product);
+    return SizedBox(
+      width: 138,
+      height: 220,
+      child: Material(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(18),
+        clipBehavior: Clip.antiAlias,
+        elevation: 0,
+        shadowColor: DupePalette.pink.withValues(alpha: 0.12),
+        child: InkWell(
+          onTap: () => _openTrendingProduct(product),
+          borderRadius: BorderRadius.circular(18),
+          splashColor: DupePalette.pink.withValues(alpha: 0.12),
+          child: Padding(
+            padding: const EdgeInsets.all(8),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Expanded(
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(12),
+                    child: imgUrl == null
+                        ? ColoredBox(
+                            color: DupePalette.pink.withValues(alpha: 0.06),
+                            child: Icon(
+                              Icons.image_not_supported_outlined,
+                              color: DupePalette.greySubtitle,
+                            ),
+                          )
+                        : CachedNetworkImage(
+                            imageUrl: imgUrl,
+                            fit: BoxFit.cover,
+                            width: double.infinity,
+                            placeholder: (_, __) => const Center(
+                              child: SizedBox(
+                                width: 22,
+                                height: 22,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: DupePalette.pink,
+                                ),
+                              ),
+                            ),
+                            errorWidget: (_, __, ___) => ColoredBox(
+                              color: DupePalette.pink.withValues(alpha: 0.06),
+                              child: Icon(
+                                Icons.hide_image_outlined,
+                                color: DupePalette.greySubtitle,
+                              ),
+                            ),
+                          ),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                if (brand.isNotEmpty)
+                  Text(
+                    brand,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: GoogleFonts.inter(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                      color: DupePalette.blue,
+                    ),
+                  ),
+                Text(
+                  name,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: GoogleFonts.inter(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                    color: DupePalette.textPrimary,
+                    height: 1.2,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  price > 0
+                      ? 'Rs ${price.toStringAsFixed(0)}'
+                      : 'Price on store',
+                  style: GoogleFonts.inter(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: DupePalette.pinkDeep,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -413,44 +680,6 @@ class _HomeTabState extends State<HomeTab> {
                 ),
               ],
             ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _tile(IconData icon, String title, String subtitle, Color accent, VoidCallback onTap) {
-    return Material(
-      color: AppColors.cardSurface,
-      borderRadius: BorderRadius.circular(AppDecor.tileRadius),
-      elevation: 0,
-      shadowColor: DupePalette.pink.withValues(alpha: 0.12),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(AppDecor.tileRadius),
-        child: Container(
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(AppDecor.tileRadius),
-            border: Border.all(color: DupePalette.pink.withValues(alpha: 0.08)),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.04),
-                blurRadius: 12,
-                offset: const Offset(0, 4),
-              ),
-            ],
-          ),
-          padding: const EdgeInsets.all(14),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(icon, size: 36, color: accent),
-              const SizedBox(height: 10),
-              Text(title, style: GoogleFonts.inter(fontWeight: FontWeight.bold, fontSize: 15, color: DupePalette.textPrimary)),
-              const SizedBox(height: 4),
-              Text(subtitle, style: GoogleFonts.inter(fontSize: 12, color: DupePalette.greySubtitle)),
-            ],
           ),
         ),
       ),
