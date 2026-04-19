@@ -1,65 +1,112 @@
-/* Light Pastel Theme Variables - Professional Dashboard Palette */
-
+/**
+ * DupeFinder design tokens — aligned with mobile `DupePalette`
+ * (mobile/lib/theme/app_theme.dart). Legacy variable names map here so
+ * existing admin CSS keeps working with the mobile look.
+ */
 :root {
-  /* Primary Colors */
-  --primary-purple: #6B63CB;
-  --secondary-purple-light: #CEC7F7;
-  --secondary-purple-medium: #B5B0DA;
-  --accent-pink: #C98DB7;
-  
-  /* Background Colors */
-  --bg-primary: #FBFBFB;
-  --bg-secondary: #FFFFFF;
-  --bg-dark: #020202;
-  
-  /* Text Colors */
-  --text-primary: #020202;
-  --text-secondary: #6C757D;
-  --text-muted: #A0AEC0;
-  --text-light: #FFFFFF;
-  
-  /* Accent Colors */
-  --success-green: #82CE59;
-  --success-green-alt: #4CAF50;
-  --danger-red: #EF4444;
-  --chart-blue: #A7D9FF;
-  --chart-yellow: #F7C75C;
-  
-  /* Border Colors */
-  --border-light: #E0E0E0;
-  --border-medium: #D0D0D0;
-  --border-dark: #333333;
-  
-  /* Shadow Colors */
-  --shadow-sm: rgba(0, 0, 0, 0.05);
-  --shadow-md: rgba(0, 0, 0, 0.1);
-  --shadow-lg: rgba(0, 0, 0, 0.15);
-  --shadow-purple: rgba(107, 99, 203, 0.2);
-  
-  /* Status Colors */
-  --status-busy-bg: #FFE0EE;
-  --status-busy-text: #C98DB7;
-  --status-crowded-bg: #FCE7F6;
-  --status-crowded-text: #C98DB7;
-  
-  /* Chart Colors */
-  --chart-purple-light: #B5B0DA;
-  --chart-pink-solid: #C98DB7;
-  --chart-pink-light: #CEC7F7;
-  --chart-pink-faded: #B5B0DA;
-  
-  /* Notification Badge */
-  --notification-red: #EF4444;
-  --notification-red-alt: #E44A4A;
-  
-  /* Progress Bar */
-  --progress-fill: #6B63CB;
-  --progress-track: #F0F0F0;
-  
-  /* Legacy aliases for compatibility */
-  --secondary-pink: #C98DB7;
-  --light-purple: #B5B0DA;
-  --light-purple-bg: #CEC7F7;
+  --dupe-pink: #ff71a9;
+  --dupe-pink-deep: #e91e8c;
+  --dupe-teal: #3bd6b6;
+  --dupe-teal-wall: #37a8b9;
+  --dupe-welcome-hero-wall: #5cb4c4;
+  --dupe-blue: #5b8def;
+  --dupe-blue-soft: #8eb7ff;
+  --dupe-text-primary: #2d3748;
+  --dupe-grey-subtitle: #6b7280;
+  --dupe-grey-guest: #9ca3af;
+  --dupe-scaffold: #f7fafc;
+  --dupe-card: #ffffff;
+
+  --dupe-gradient-hero: linear-gradient(
+    135deg,
+    var(--dupe-pink) 0%,
+    var(--dupe-blue) 52%,
+    var(--dupe-teal) 100%
+  );
+  --dupe-gradient-nav: linear-gradient(
+    90deg,
+    rgba(255, 113, 169, 0.96) 0%,
+    rgba(91, 141, 239, 0.94) 45%,
+    rgba(59, 214, 182, 0.92) 100%
+  );
+  --dupe-gradient-cta: linear-gradient(
+    90deg,
+    var(--dupe-pink) 0%,
+    var(--dupe-teal) 100%
+  );
+
+  /* Legacy admin dashboard tokens → mobile palette */
+  --primary-purple: var(--dupe-blue);
+  --secondary-purple-light: var(--dupe-scaffold);
+  --secondary-purple-medium: var(--dupe-blue-soft);
+  --accent-pink: var(--dupe-pink-deep);
+
+  --bg-primary: var(--dupe-scaffold);
+  --bg-secondary: var(--dupe-card);
+  --bg-dark: var(--dupe-text-primary);
+
+  --text-primary: var(--dupe-text-primary);
+  --text-secondary: var(--dupe-grey-subtitle);
+  --text-muted: var(--dupe-grey-guest);
+  --text-light: #ffffff;
+
+  --success-green: var(--dupe-teal);
+  --success-green-alt: #2dd4bf;
+  --danger-red: #ef4444;
+  /* Admin / mobile-aligned “destructive” (delete, clear) — pink→violet, not fire-engine red */
+  --dupe-destructive-gradient: linear-gradient(90deg, var(--dupe-pink-deep) 0%, #a855f7 100%);
+  --dupe-destructive-gradient-hover: linear-gradient(90deg, #c026d3 0%, #7c3aed 100%);
+  --chart-blue: var(--dupe-blue-soft);
+  --chart-yellow: #fbbf24;
+
+  --border-light: rgba(45, 55, 72, 0.08);
+  --border-medium: rgba(45, 55, 72, 0.12);
+  --border-dark: var(--dupe-text-primary);
+
+  --shadow-sm: rgba(15, 23, 42, 0.06);
+  --shadow-md: rgba(15, 23, 42, 0.1);
+  --shadow-lg: rgba(15, 23, 42, 0.14);
+  --shadow-purple: rgba(255, 113, 169, 0.2);
+
+  --status-busy-bg: rgba(255, 113, 169, 0.12);
+  --status-busy-text: var(--dupe-pink-deep);
+  --status-crowded-bg: rgba(91, 141, 239, 0.1);
+  --status-crowded-text: var(--dupe-blue);
+
+  --chart-purple-light: var(--dupe-blue-soft);
+  --chart-pink-solid: var(--dupe-pink);
+  --chart-pink-light: rgba(255, 113, 169, 0.22);
+  --chart-pink-faded: rgba(91, 141, 239, 0.18);
+
+  --notification-red: #ef4444;
+  --notification-red-alt: #e11d48;
+
+  --progress-fill: var(--dupe-pink-deep);
+  --progress-track: var(--dupe-scaffold);
+
+  --secondary-pink: var(--dupe-pink-deep);
+  --light-purple: var(--dupe-blue-soft);
+  --light-purple-bg: var(--dupe-scaffold);
 }
 
+@keyframes dupeFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
 
+@keyframes dupeScaleIn {
+  from {
+    opacity: 0;
+    transform: scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}

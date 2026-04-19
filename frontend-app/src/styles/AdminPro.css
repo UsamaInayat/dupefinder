@@ -1,20 +1,22 @@
-/* Professional Admin Dashboard Styles - No Emojis, Corporate Look */
+/* Pro admin shell — colors aligned with mobile DupeFinder (see theme.css) */
+@import './theme.css';
 
 .admin-pro {
   min-height: 100vh;
-  background: #f0f2f5;
+  background: var(--dupe-scaffold);
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
+  color: var(--dupe-text-primary);
 }
 
 /* Header */
 .admin-pro-header {
-  background: #fff;
-  border-bottom: 1px solid #e4e6eb;
+  background: var(--dupe-gradient-nav);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.22);
   padding: 16px 32px;
   display: flex;
   justify-content: space-between;
   align-items: center;
-  box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+  box-shadow: 0 2px 12px var(--shadow-sm);
 }
 
 .admin-pro-brand {
@@ -25,14 +27,14 @@
 .admin-pro-brand h1 {
   font-size: 1.5rem;
   font-weight: 700;
-  color: #1c1e21;
+  color: #fff;
   margin: 0;
   letter-spacing: -0.5px;
 }
 
 .admin-pro-subtitle {
   font-size: 0.75rem;
-  color: #65676b;
+  color: rgba(255, 255, 255, 0.88);
   text-transform: uppercase;
   letter-spacing: 0.5px;
   font-weight: 600;
@@ -52,31 +54,31 @@
 
 .user-name {
   font-weight: 600;
-  color: #1c1e21;
+  color: #fff;
   font-size: 0.95rem;
 }
 
 .user-role {
   font-size: 0.75rem;
-  color: #65676b;
+  color: rgba(255, 255, 255, 0.85);
   text-transform: uppercase;
   letter-spacing: 0.3px;
 }
 
 .btn-logout-pro {
-  background: #f0f2f5;
-  border: 1px solid #ccd0d5;
-  color: #1c1e21;
+  background: rgba(255, 255, 255, 0.95);
+  border: none;
+  color: var(--dupe-text-primary);
   padding: 8px 20px;
-  border-radius: 6px;
+  border-radius: 10px;
   cursor: pointer;
   font-weight: 600;
   font-size: 0.9rem;
-  transition: all 0.2s ease;
+  transition: opacity 0.12s ease;
 }
 
 .btn-logout-pro:hover {
-  background: #e4e6eb;
+  opacity: 0.92;
 }
 
 /* Connection / auth alerts */
@@ -115,8 +117,8 @@
 /* Sidebar */
 .admin-pro-sidebar {
   width: 260px;
-  background: #fff;
-  border-right: 1px solid #e4e6eb;
+  background: var(--dupe-card);
+  border-right: 1px solid var(--border-light);
   padding: 24px 0;
 }
 
@@ -133,8 +135,8 @@
   text-align: left;
   font-size: 0.95rem;
   cursor: pointer;
-  transition: all 0.2s ease;
-  color: #65676b;
+  transition: background 0.12s ease, color 0.12s ease;
+  color: var(--dupe-grey-subtitle);
   font-weight: 500;
   display: flex;
   align-items: center;
@@ -142,24 +144,24 @@
 }
 
 .nav-icon {
-  color: #65676b;
+  color: var(--dupe-grey-subtitle);
   font-size: 0.7rem;
 }
 
 .admin-pro-sidebar button:hover {
-  background: #f0f2f5;
-  color: #1c1e21;
+  background: var(--dupe-scaffold);
+  color: var(--dupe-text-primary);
 }
 
 .admin-pro-sidebar button.active {
-  background: #e7f3ff;
-  color: #1877f2;
+  background: rgba(255, 113, 169, 0.12);
+  color: var(--dupe-pink-deep);
   font-weight: 600;
-  border-left: 3px solid #1877f2;
+  border-left: 3px solid var(--dupe-pink);
 }
 
 .admin-pro-sidebar button.active .nav-icon {
-  color: #1877f2;
+  color: var(--dupe-pink-deep);
 }
 
 /* Content */
@@ -183,13 +185,13 @@
 .section-title h2 {
   font-size: 1.75rem;
   font-weight: 700;
-  color: #1c1e21;
+  color: var(--dupe-text-primary);
   margin: 0 0 4px 0;
   letter-spacing: -0.5px;
 }
 
 .section-title p {
-  color: #65676b;
+  color: var(--dupe-grey-subtitle);
   margin: 0;
   font-size: 0.95rem;
 }
@@ -201,12 +203,12 @@
 }
 
 .count-badge {
-  background: #f0f2f5;
+  background: rgba(91, 141, 239, 0.12);
   padding: 6px 16px;
   border-radius: 20px;
   font-size: 0.85rem;
   font-weight: 600;
-  color: #65676b;
+  color: var(--dupe-blue);
 }
 
 /* Loading */

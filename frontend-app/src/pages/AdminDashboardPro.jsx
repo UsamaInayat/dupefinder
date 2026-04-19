@@ -12,6 +12,7 @@ function AdminDashboardPro({ admin, token, onLogout }) {
   const [users, setUsers] = useState([])
   const [products, setProducts] = useState([])
   const [loading, setLoading] = useState(true)
+  const [initialPingDone, setInitialPingDone] = useState(false)
   /** 'backend' = server unreachable, 'auth' = 401 need re-login, null = ok */
   const [connectionError, setConnectionError] = useState(null)
 
@@ -26,40 +27,46 @@ function AdminDashboardPro({ admin, token, onLogout }) {
 
   useEffect(() => {
     let cancelled = false
-    const run = async () => {
-      setConnectionError(null)
+    ;(async () => {
       try {
-        await axios.get(`${API_BASE}/ping`, { timeout: 5000 })
-        if (cancelled) return
-        await fetchStats()
-        if (activeTab === 'users') fetchUsers()
-        if (activeTab === 'products') fetchProducts()
-      } catch (err) {
-        if (cancelled) return
-        const isNetwork = !err.response && (err.code === 'ERR_NETWORK' || err.message?.includes('Network'))
-        if (isNetwork) {
-          setConnectionError('backend')
-          setLoading(false)
-        } else {
-          await fetchStats()
-          if (activeTab === 'users') fetchUsers()
-          if (activeTab === 'products') fetchProducts()
-        }
+        await axios.get(`${API_BASE}/ping`, { timeout: 4000 })
+        if (!cancelled) setConnectionError(null)
+      } catch {
+        if (!cancelled) setConnectionError('backend')
+      } finally {
+        if (!cancelled) setInitialPingDone(true)
       }
+    })()
+    return () => {
+      cancelled = true
     }
-    run()
-    return () => { cancelled = true }
-  }, [activeTab])
+  }, [])
+
+  useEffect(() => {
+    if (!initialPingDone || connectionError === 'backend') {
+      if (initialPingDone && connectionError === 'backend') setLoading(false)
+      return
+    }
+    let cancelled = false
+    setLoading(true)
+    const jobs = [fetchStats()]
+    if (activeTab === 'users') jobs.push(fetchUsers())
+    if (activeTab === 'products') jobs.push(fetchProducts())
+    Promise.all(jobs).finally(() => {
+      if (!cancelled) setLoading(false)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [activeTab, initialPingDone, connectionError])
 
   const fetchStats = async () => {
     try {
       const response = await axios.get(`${API_BASE}/api/admin/stats`, apiConfig)
       setStats(response.data)
       setConnectionError(null)
-      setLoading(false)
     } catch (error) {
       console.error('Failed to fetch stats:', error)
-      setLoading(false)
       if (error.response?.status === 401) setConnectionError('auth')
     }
   }

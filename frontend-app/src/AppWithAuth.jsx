@@ -1,8 +1,10 @@
 import { useState, useEffect } from 'react'
+import { QueryClientProvider } from '@tanstack/react-query'
+import { queryClient } from './queryClient'
 import AdminDashboard from './pages/AdminDashboard'
 import AdminLogin from './pages/AdminLogin'
 
-function MainApp() {
+function MainAppInner() {
   // Check for admin token on mount to maintain state on refresh
   const [view, setView] = useState(() => {
     const adminToken = localStorage.getItem('adminToken')
@@ -33,6 +35,8 @@ function MainApp() {
           // Store admin token
           localStorage.setItem('adminToken', token)
           localStorage.setItem('adminData', JSON.stringify(admin))
+          // Always land on Overview after a new login (do not restore last session tab)
+          localStorage.setItem('admin_active_module', 'overview')
           // Switch to admin dashboard view
           setView('adminDashboard')
         }}
@@ -47,9 +51,11 @@ function MainApp() {
   
     if (adminToken && adminData) {
     return <AdminDashboard onLogout={() => {
+      queryClient.clear()
       localStorage.removeItem('adminToken')
       localStorage.removeItem('adminData')
-        setView('adminLogin')
+      localStorage.removeItem('admin_active_module')
+      setView('adminLogin')
     }} />
   }
   }
@@ -60,9 +66,18 @@ function MainApp() {
       onLoginSuccess={(admin, token) => {
         localStorage.setItem('adminToken', token)
         localStorage.setItem('adminData', JSON.stringify(admin))
+        localStorage.setItem('admin_active_module', 'overview')
         setView('adminDashboard')
       }}
     />
+  )
+}
+
+function MainApp() {
+  return (
+    <QueryClientProvider client={queryClient}>
+      <MainAppInner />
+    </QueryClientProvider>
   )
 }
 

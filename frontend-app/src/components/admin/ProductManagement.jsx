@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import axios from 'axios'
 
 function ProductManagement() {
@@ -21,9 +21,14 @@ function ProductManagement() {
   const [showImportedData, setShowImportedData] = useState(false)
   const [failedImages, setFailedImages] = useState(new Set()) // Track products with failed image loads
   const [cleanupProgress, setCleanupProgress] = useState(null) // Track cleanup progress
+  const productsLoadedRef = useRef(false)
 
   useEffect(() => {
-    fetchProducts()
+    const silent = productsLoadedRef.current
+    ;(async () => {
+      await fetchProducts({ silent })
+      productsLoadedRef.current = true
+    })()
   }, [page, genderFilter, categoryFilter, brokenLinksOnly])
 
   // Fetch categories when gender changes (categories are per-gender for dropdown)
@@ -44,8 +49,9 @@ function ProductManagement() {
   // Strip "(70)" / "(81)" from category so "Women Short Kurti (70)" → "Women Short Kurti"
   const normalizeCategory = (cat) => (cat || '').replace(/\s*\(\d+\)\s*$/, '').trim()
 
-  const fetchProducts = async () => {
-    setLoading(true)
+  const fetchProducts = async (opts = {}) => {
+    const { silent = false } = opts
+    if (!silent) setLoading(true)
     const currentGender = genderFilter
     const rawCategory = categoryFilter
     const currentCategory = normalizeCategory(rawCategory)
@@ -54,7 +60,6 @@ function ProductManagement() {
     try {
       const token = localStorage.getItem('adminToken') || localStorage.getItem('token')
       if (!token) {
-        setLoading(false)
         return
       }
       const headers = { Authorization: `Bearer ${token}` }
@@ -67,7 +72,6 @@ function ProductManagement() {
         setProducts(res.data.products || [])
         setTotalProducts(res.data.total ?? 0)
         setTotalPages(res.data.total_pages ?? Math.ceil((res.data.total || 0) / 20))
-        setLoading(false)
         return
       }
 
@@ -83,12 +87,12 @@ function ProductManagement() {
       setProducts(res.data.products || [])
       setTotalProducts(res.data.total ?? 0)
       setTotalPages(res.data.total_pages ?? Math.ceil((res.data.total || 0) / 20))
-      setLoading(false)
     } catch (error) {
       console.error('Failed to fetch products:', error)
       console.error('Error response:', error.response?.data)
       console.error('Error status:', error.response?.status)
-      setLoading(false)
+    } finally {
+      if (!silent) setLoading(false)
     }
   }
 
@@ -193,7 +197,7 @@ function ProductManagement() {
         }
       }
       
-      fetchProducts()
+      fetchProducts({ silent: true })
       fetchCategories()
     } catch (error) {
       setUploadProgress(null)
@@ -262,7 +266,7 @@ function ProductManagement() {
         showNotification('All image URLs are working!', 'success')
       }
       
-      fetchProducts()
+      fetchProducts({ silent: true })
     } catch (error) {
       console.error('Failed to cleanup links:', error)
       showNotification('Failed to cleanup links', 'error')
@@ -296,7 +300,7 @@ function ProductManagement() {
           return newSet
         })
         // Refresh products to show the repaired product
-        fetchProducts()
+        fetchProducts({ silent: true })
         // Also refresh categories to update counts
         fetchCategories()
       } else {
@@ -337,10 +341,10 @@ function ProductManagement() {
       
       if (response.data.success) {
         showNotification(`Successfully cleared ${response.data.deleted_count} products from catalogue`, 'success')
-        // Refresh products list
         setPage(1)
-        fetchProducts()
+        productsLoadedRef.current = false
         fetchCategories()
+        await fetchProducts({ silent: false })
       } else {
         showNotification('Failed to clear products', 'error')
       }
@@ -360,23 +364,23 @@ function ProductManagement() {
   }
 
   const performDeleteLink = async (productId) => {
+    const snapshot = products
+    setProducts((prev) => prev.filter((p) => p._id !== productId))
+    setBrokenLinks((prev) => prev.filter((p) => p._id !== productId))
 
     try {
       const token = localStorage.getItem('adminToken') || localStorage.getItem('token')
       setDeletingId(productId)
-      
-      await axios.delete(
-        `http://localhost:8000/api/admin/products/${productId}`,
-        { headers: { Authorization: `Bearer ${token}` } }
-      )
 
-      // Remove from broken links list
-      setBrokenLinks(prev => prev.filter(p => p._id !== productId))
-      // Refresh products
-      fetchProducts()
+      await axios.delete(`http://localhost:8000/api/admin/products/${productId}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+
       showNotification('Product deleted successfully', 'success')
+      fetchProducts({ silent: true })
     } catch (error) {
       console.error('Failed to delete product:', error)
+      setProducts(snapshot)
       showNotification('Failed to delete product', 'error')
     } finally {
       setDeletingId(null)
@@ -393,9 +397,9 @@ function ProductManagement() {
       top: 20px;
       right: 20px;
       padding: 15px 20px;
-      background: ${type === 'success' ? '#10b981' : '#EF4444'};
+      background: ${type === 'success' ? '#10b981' : '#e91e8c'};
       color: #fff;
-      border: 2px solid ${type === 'success' ? '#059669' : '#EF4444'};
+      border: 2px solid ${type === 'success' ? '#059669' : '#c026d3'};
       border-radius: 6px;
       z-index: 10000;
       font-size: 14px;
@@ -487,16 +491,16 @@ function ProductManagement() {
     confirmBtn.textContent = 'Confirm'
     confirmBtn.style.cssText = `
       padding: 10px 20px;
-      background: #EF4444;
+      background: linear-gradient(90deg, #e91e8c, #a855f7);
       color: #fff;
-      border: 1px solid #EF4444;
+      border: 1px solid rgba(192, 38, 211, 0.5);
       border-radius: 6px;
       cursor: pointer;
       font-size: 14px;
       font-weight: 600;
     `
-    confirmBtn.onmouseover = () => confirmBtn.style.background = '#EF4444'
-    confirmBtn.onmouseout = () => confirmBtn.style.background = '#EF4444'
+    confirmBtn.onmouseover = () => { confirmBtn.style.background = 'linear-gradient(90deg, #c026d3, #7c3aed)' }
+    confirmBtn.onmouseout = () => { confirmBtn.style.background = 'linear-gradient(90deg, #e91e8c, #a855f7)' }
     
     // Event handlers
     const close = () => {
@@ -592,13 +596,16 @@ function ProductManagement() {
       <div className="section-card">
         <h3>Products</h3>
 
-        {loading ? (
+        {loading && products.length === 0 ? (
           <div className="loading">Loading products...</div>
         ) : products.length === 0 ? (
           <div className="no-products">No products found. Start scraping to add products!</div>
         ) : (
           <>
-            <div className="products-grid">
+            <div
+              className="products-grid"
+              style={{ opacity: loading ? 0.55 : 1, transition: 'opacity 0.12s ease', pointerEvents: loading ? 'none' : 'auto' }}
+            >
               {products
                 .filter(product => !failedImages.has(product._id)) // Hide only those whose image failed to load in this session
                 .map(product => {
@@ -629,6 +636,7 @@ function ProductManagement() {
                 return (
                   <div key={product._id} className="product-card-item" style={{ position: 'relative' }}>
                     <button
+                      type="button"
                       onClick={(e) => { e.stopPropagation(); handleDeleteLink(product._id); }}
                       className="product-delete-icon"
                       title="Delete product"
@@ -636,20 +644,8 @@ function ProductManagement() {
                         position: 'absolute',
                         top: '8px',
                         right: '8px',
-                        background: 'linear-gradient(135deg, #dc2626, #b91c1c)',
-                        border: 'none',
-                        borderRadius: '50%',
-                        width: '32px',
-                        height: '32px',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        cursor: 'pointer',
                         zIndex: 10,
-                        boxShadow: '0 2px 4px rgba(0,0,0,0.3)',
-                        color: '#fff',
-                        fontSize: '16px',
-                        fontWeight: 'bold'
+                        cursor: 'pointer',
                       }}
                     >
                       ×

@@ -3308,3 +3308,81 @@ Expected speedup: ~20s/batch → ~1-2s/batch → 23k images done in ~10 min inst
 ### Executor's Feedback or Assistance Requests — Apr 17, 2026 (Mobile UX batch)
 
 - Please hot-restart and verify: (1) welcome hero framing on a tall and a short phone, (2) after login you land on **Home**, (3) Community actions are under the post text, (4) Home shows horizontal **Trending Dupes** from the API when the backend is reachable. **Planner**: confirm whether task set is complete after user sign-off.
+
+### Current Status / Progress Tracking — Executor Update (Apr 17, 2026, Admin web theme + perf)
+
+- **Theme (`AdminDashboard.css`, `theme.css` tokens)**: Data tables use **white cards**, **nav gradient** headers, zebra rows (blue/teal tints), **Dupe CTA gradient** for primary/search/pagination/scrape/train/upload; **destructive** actions stay red. Auto Sync **brand cards** and **product grid** aligned to scaffold + card surfaces; **gender pills** new classes **`admin-gender-pill`**. **Community** page: added **`.section-title`** + **`.content-section`** in admin CSS; fixed **`.section-card *`** overriding CTA text via explicit button color overrides.
+- **Charts**: **`OverviewCharts.jsx`** lazy-loaded from **`Overview.jsx`** so **Recharts** (~112 kB gzip) is a separate chunk; chart colors/tooltips match light mobile-style UI.
+- **Speed**: **`AdminDashboard.jsx`** prefetches **all** admin route chunks via **`requestIdleCallback`** (fallback `setTimeout`); removed **per-render `console.log`** from **`ScrapingManagement.jsx`** brand list IIFE.
+- **Build**: `npm run build` in **`frontend-app`** — **exit 0**.
+
+### Executor's Feedback or Assistance Requests — Apr 17, 2026 (Admin web)
+
+- **Planner / user**: Hard-refresh the admin app (`npm run dev` → browser) and confirm tables, Auto Sync, Product Catalogue, and Community Moderation match the mobile palette. First visit to **Overview** may still briefly show “Loading charts…” while the **`OverviewCharts`** chunk loads (usually fast after idle prefetch). **Planner** to confirm task complete after sign-off.
+
+### Current Status / Progress Tracking — Executor Update (Apr 17, 2026, Admin login speed)
+
+- **`AdminLogin.jsx`**: Login POST now uses **`/api/admin/login`** (Vite dev proxy → same host as the UI) with optional **`VITE_API_BASE`** for production-style full-URL API; **25s axios timeout**; clearer message on timeout / unreachable API.
+- **`admin_new.py`**: **`admin_login`** changed from **`async def`** to **`def`** so PyMongo + bcrypt run on FastAPI’s **threadpool** instead of blocking the asyncio event loop (helps when other heavy work shares the worker).
+
+### Executor's Feedback or Assistance Requests — Apr 17, 2026 (Admin login speed)
+
+- **Planner / user**: Hard-refresh admin login; confirm login feels snappier and still succeeds. If you deploy the static build without a proxy, set **`VITE_API_BASE`** to your API origin (no trailing slash). If login is still slow, next suspect is **MongoDB network latency** (Atlas region) or **first `get_db()` reconnect** after a failed startup connect.
+
+### Current Status / Progress Tracking — Executor Update (Apr 17, 2026, Admin Auto Sync + Community perf)
+
+- **Auto Sync (`ScrapingManagement.jsx`)**: Removed **`requestIdleCallback`** delay for history on first paint; **brands** and **history** now load **in parallel**. All scraping admin calls use **`adminApiUrl()`** → **`/api/admin/...`** via Vite proxy when appropriate.
+- **Community (`CommunityModeration.jsx`)**: One **`GET /api/admin/community/moderation`** (bundle) replaces two sequential requests; **`adminApiUrl`**, loading line, silent refetch after actions unchanged pattern.
+- **Backend (`admin_new.py`)**: New **`GET /community/moderation`**; shared **`_format_community_*`** helpers; **`/community/reports`** and **`/community/posts`** refactored to **`def`** (threadpool). **`/scraping/brands`** and **`/scraping/history`** changed from **`async def`** to **`def`** (heavy sync CSV + PyMongo off event loop).
+- **Shared**: **`frontend-app/src/lib/adminApiUrl.js`**.
+
+### Executor's Feedback or Assistance Requests — Apr 17, 2026 (Admin Auto Sync + Community perf)
+
+- **Planner / user**: Hard-refresh admin app; open **Auto Sync** and **Community Moderation** and confirm faster first load. Mobile/other clients still use old separate report/post endpoints if needed.
+
+### Current Status / Progress Tracking — Executor Update (Apr 17, 2026, Admin perf checklist)
+
+- **Checklist analysis**: Route splitting + prefetch is valid; **TanStack Query** valid for cache/dedupe; **react-window** valid for long lists; **source-map-explorer** is bundle **audit only** (not runtime).
+- **Applied**: `React.lazy` + `Suspense` for all five admin modules in **`AdminDashboard.jsx`** with **hover/focus + staggered prefetch** + prefetch active tab; **`QueryClientProvider`** in **`AppWithAuth.jsx`**; **`Overview`** + **`CommunityModeration`** use **`useQuery`** (`staleTime` 60s / 20s); community mutations **`invalidateQueries`** for moderation + **overview**; **`react-window`** `FixedSizeList` for **community posts** when **> 24** rows; **`npm run analyze`** (`vite build --sourcemap` + source-map-explorer HTML report).
+
+### Lessons — Apr 17, 2026 (Admin community 405 + Recharts)
+
+- **`GET /api/admin/community/moderation` returned 405** in the browser while `app.routes` showed `GET` registered — likely **stale API process** or **non-repo server on :8000**; **CommunityModeration** was switched back to **parallel `GET /community/reports` + `GET /community/posts`** (always supported). Backend **`GET /community/moderation`** bundle kept for optional use.
+- **Admin posts list**: use **`$project` + `$size`** on `replies` so moderation does not transfer full reply arrays (cuts timeouts on large threads).
+- **Recharts `width(-1) height(-1)`**: parent needs **`minWidth: 0`** and **`ResponsiveContainer`** with explicit **`height={320}`** (not only `height="100%"`) in flex layouts.
+
+### Current Status / Progress Tracking — Executor Update (Apr 17, 2026, Admin web batch 2)
+
+- **No fire-engine red**: `--dupe-destructive-gradient` (pink→violet) for **`.action-btn.danger`**, **product delete**, **broken** badges, **history failed**; toasts/confirm dialogs in **Product** / **Scraping** use pink/fuchsia instead of `#EF4444`.
+- **Perf**: **`AdminDashboard.jsx`** now **static-imports** all five admin modules (no tab **Suspense** wait); removed **`key={activeModule}`** remount; still prefetches **`OverviewCharts`**. **`Overview`**: default zeros, **no full-page loading gate**. **`UserManagement`**: **submittedSearch** (no refetch per keystroke), **stale-while-revalidate** table opacity, **optimistic delete**. **`ProductManagement`**: **`fetchProducts({ silent })`** after first load; grid stays mounted with dim during refresh; **optimistic product delete**; **`await fetchProducts`** after clear-all. **`CommunityModeration`**: **optimistic** post delete / ban posts; resolve still **`load()`** sync.
+- **Build**: `npm run build` — admin UI in main **`index-*.js`** chunk (~72 kB gzip); charts chunk unchanged ~112 kB gzip.
+
+### Current Status / Progress Tracking — Executor Update (Apr 17, 2026, Admin login UI revert)
+
+- **User request**: Revert the recent “flat controls on full-screen art” admin login change.
+- **Restored**: **`AdminLogin.jsx`** again uses **`auth-box admin-login-card`**, **`auth-header`**, **`auth-form`**, **`form-group`**, **`auth-error`**, **`auth-button admin-login-submit`** on top of **`login.png`** (same **`@login-root`** import + **`.admin-login-bg`**).
+- **`Auth.css`**: Restored glass **`auth-box`** / **`.admin-login--fullbg`** rules (**`.admin-login-card`**, **`.admin-login-input-wrap`**, **`.admin-login-submit`**, responsive inner).
+- **Build**: `npm run build` in **`frontend-app`** — **exit 0**.
+
+### Executor's Feedback or Assistance Requests — Apr 17, 2026 (Admin login UI revert)
+
+- **Planner / user**: Hard-refresh **`/admin/login`** (or dev equivalent) and confirm the **frosted card** layout is back. **Planner** to mark task complete after sign-off.
+
+### Current Status / Progress Tracking — Executor Update (Apr 17, 2026, Admin login centered + readability)
+
+- **`Auth.css`**: **`admin-login--fullbg`** container uses **`align-items` / `justify-content: center`** with safe-area padding; **`.admin-login-full-inner`** uses **`justify-content: center`**, symmetric padding, **`flex: 0 1 auto`** so the card sits **middle of viewport** (not left-aligned).
+- **Readability**: **`.admin-login-card`** on fullbg gets **darker slate glass** (`rgba(15,23,42,0.52)`), **stronger blur**, deeper shadow; **title / subtitle / labels** with **text-shadow** and **heavier weights**; **inputs** darker fill + clearer borders; **focus ring** teal-tinted.
+
+### Executor's Feedback or Assistance Requests — Apr 17, 2026 (Admin login centered + readability)
+
+- **Planner / user**: Hard-refresh admin login; confirm card is **centered** and text/fields read clearly on bright background. **Planner** to confirm after sign-off.
+
+### Current Status / Progress Tracking — Executor Update (Apr 17, 2026, Admin Auto Sync + Community static bundle)
+
+- **`AdminDashboard.jsx`**: **`ScrapingManagement`** and **`CommunityModeration`** are **static-imported** (same chunk as dashboard) so opening **Auto Sync** / **Community Moderation** no longer waits on **lazy `Suspense`** chunk download; **`Suspense`** removed for those two panels only.
+- **Prefetch**: Idle stagger now only **`overview` / `users` / `products`** (starts **120ms** + **80ms** steps) since scraping/moderation ship with main admin JS.
+- **Build**: `npm run build` — **`index-*.js`** ~**260 kB** (~**84 kB gzip**); separate **`ScrapingManagement`** / **`CommunityModeration`** chunks removed from dist.
+
+### Executor's Feedback or Assistance Requests — Apr 17, 2026 (Admin Auto Sync + Community static bundle)
+
+- **Planner / user**: Hard-refresh admin; first open **Auto Sync** and **Community Moderation** — should show UI immediately (any delay is API/data only, not “Loading … split bundle”). **Planner** to confirm after sign-off.

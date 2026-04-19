@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import axios from 'axios'
+import { adminApiUrl } from '../../lib/adminApiUrl'
 
 function ScrapingManagement() {
   const [brands, setBrands] = useState([])
@@ -31,9 +32,9 @@ function ScrapingManagement() {
       top: 20px;
       right: 20px;
       padding: 15px 20px;
-      background: ${type === 'success' ? '#10b981' : '#EF4444'};
+      background: ${type === 'success' ? '#10b981' : '#e91e8c'};
       color: #fff;
-      border: 2px solid ${type === 'success' ? '#059669' : '#EF4444'};
+      border: 2px solid ${type === 'success' ? '#059669' : '#c026d3'};
       border-radius: 6px;
       z-index: 10000;
       font-size: 14px;
@@ -111,16 +112,16 @@ function ScrapingManagement() {
     confirmBtn.textContent = 'Confirm'
     confirmBtn.style.cssText = `
       padding: 10px 20px;
-      background: #EF4444;
+      background: linear-gradient(90deg, #e91e8c, #a855f7);
       color: #fff;
-      border: 1px solid #EF4444;
+      border: 1px solid rgba(192, 38, 211, 0.5);
       border-radius: 6px;
       cursor: pointer;
       font-size: 14px;
       font-weight: 600;
     `
-    confirmBtn.onmouseover = () => confirmBtn.style.background = '#EF4444'
-    confirmBtn.onmouseout = () => confirmBtn.style.background = '#EF4444'
+    confirmBtn.onmouseover = () => { confirmBtn.style.background = 'linear-gradient(90deg, #c026d3, #7c3aed)' }
+    confirmBtn.onmouseout = () => { confirmBtn.style.background = 'linear-gradient(90deg, #e91e8c, #a855f7)' }
     const close = () => {
       document.body.removeChild(overlay)
     }
@@ -158,13 +159,9 @@ function ScrapingManagement() {
         return
       }
       
-      const response = await axios.get(
-        `http://localhost:8000/api/admin/scraping/brands?brand_type=${brandType}`,
-        { 
-          headers: { Authorization: `Bearer ${token}` }
-          // Removed timeout to allow backend to take as long as needed
-        }
-      )
+      const response = await axios.get(adminApiUrl(`/scraping/brands?brand_type=${brandType}`), {
+        headers: { Authorization: `Bearer ${token}` },
+      })
       setBrands(response.data.brands || [])
     } catch (error) {
       console.error('Failed to fetch brands:', error)
@@ -189,31 +186,27 @@ function ScrapingManagement() {
     }
   }
 
-  const fetchHistory = useCallback(async () => {
-    setLoadingHistory(true)
+  const fetchHistory = useCallback(async (opts = {}) => {
+    const { silent = false } = opts
+    if (!silent) setLoadingHistory(true)
     try {
       const token = localStorage.getItem('adminToken') || localStorage.getItem('token')
-      
+
       if (!token) {
-        setLoadingHistory(false)
-        return // Don't show error for history, just skip
+        return
       }
-      
+
       const response = await axios.get(
-        `http://localhost:8000/api/admin/scraping/history?page=${historyPage}&page_size=10`,
-        { 
-          headers: { Authorization: `Bearer ${token}` }
-          // Removed timeout to allow backend to take as long as needed
-        }
+        adminApiUrl(`/scraping/history?page=${historyPage}&page_size=10`),
+        { headers: { Authorization: `Bearer ${token}` } },
       )
       setHistory(response.data.jobs || [])
       setHistoryTotalPages(response.data.total_pages || 1)
       setHistoryTotal(response.data.total || 0)
     } catch (error) {
       console.error('Failed to fetch history:', error)
-      // Don't show alert for history errors
     } finally {
-      setLoadingHistory(false)
+      if (!silent) setLoadingHistory(false)
     }
   }, [historyPage])
   
@@ -224,13 +217,11 @@ function ScrapingManagement() {
     try {
       const token = localStorage.getItem('adminToken') || localStorage.getItem('token')
       
-      await axios.delete(
-        `http://localhost:8000/api/admin/scraping/history/${jobId}`,
-        { headers: { Authorization: `Bearer ${token}` } }
+      await axios.delete(adminApiUrl(`/scraping/history/${jobId}`), {
+        headers: { Authorization: `Bearer ${token}` } },
       )
       
-      // Refresh history
-      fetchHistory()
+      fetchHistory({ silent: true })
       showNotification('Scraping history deleted successfully', 'success')
     } catch (error) {
       console.error('Failed to delete history:', error)
@@ -323,15 +314,15 @@ function ScrapingManagement() {
     try {
       const token = localStorage.getItem('adminToken') || localStorage.getItem('token')
       const response = await axios.post(
-        'http://localhost:8000/api/admin/scraping/start',
+        adminApiUrl('/scraping/start'),
         { brand_ids: selectedBrands },
-        { headers: { Authorization: `Bearer ${token}` } }
+        { headers: { Authorization: `Bearer ${token}` } },
       )
 
       setCurrentJob(response.data.job_id)
       setScraping(true)
       setJobStatus(null)
-      fetchHistory() // Refresh history only when starting new job
+      fetchHistory({ silent: true })
     } catch (error) {
       console.error('Failed to start scraping:', error)
       showNotification('Failed to start scraping: ' + (error.response?.data?.detail || error.message), 'error')
@@ -349,12 +340,8 @@ function ScrapingManagement() {
     
     try {
       const token = localStorage.getItem('adminToken') || localStorage.getItem('token')
-      const response = await axios.get(
-        `http://localhost:8000/api/admin/scraping/status/${currentJob}`,
-        { 
-          headers: { Authorization: `Bearer ${token}` }
-          // Removed timeout for status checks
-        }
+      const response = await axios.get(adminApiUrl(`/scraping/status/${currentJob}`), {
+        headers: { Authorization: `Bearer ${token}` } },
       )
 
       setJobStatus(response.data)
@@ -363,7 +350,7 @@ function ScrapingManagement() {
         setScraping(false)
         showNotification(`Scraping completed! ${response.data.products_added} products processed (new + updated)`, 'success')
         fetchBrands()
-        fetchHistory() // Refresh history only when job completes
+        fetchHistory({ silent: true })
         setSelectedBrands([])
         setCurrentJob(null)
         setJobStatus(null)
@@ -374,7 +361,7 @@ function ScrapingManagement() {
       } else if (response.data.status === 'failed') {
         setScraping(false)
         showNotification('Scraping failed: ' + (response.data.error || 'Unknown error'), 'error')
-        fetchHistory() // Refresh history only when job fails
+        fetchHistory({ silent: true })
         setCurrentJob(null)
         setJobStatus(null)
         isProcessingRef.current = false
@@ -404,9 +391,10 @@ function ScrapingManagement() {
   useEffect(() => {
     fetchBrands()
   }, [brandType])
-  
+
+  /* History loads in parallel with brands (no requestIdleCallback) so the tab feels responsive. */
   useEffect(() => {
-    fetchHistory()
+    fetchHistory({ silent: historyPage !== 1 })
   }, [historyPage, fetchHistory])
   
   // Load saved job status on mount
@@ -482,76 +470,24 @@ function ScrapingManagement() {
               margin: '30px 0'
             }}>
                 <button
+                  type="button"
                   onClick={() => {
                     setSelectedGender('women')
                     setBrandsPage(1)
                   }}
-                  onMouseEnter={(e) => {
-                    if (selectedGender === 'women') {
-                      e.target.style.background = '#EF4444'
-                    } else {
-                      e.target.style.background = '#D94848'
-                    }
-                  }}
-                  onMouseLeave={(e) => {
-                    if (selectedGender === 'women') {
-                      e.target.style.background = '#EF4444'
-                    } else {
-                      e.target.style.background = '#C74242'
-                    }
-                  }}
-                  style={{
-                    padding: '10px 30px',
-                    background: selectedGender === 'women' ? '#EF4444' : '#C74242',
-                    color: '#fff',
-                    border: 'none',
-                    cursor: 'pointer',
-                    fontSize: '1rem',
-                    fontWeight: '600',
-                    borderRadius: '50px',
-                    transition: 'all 0.2s ease',
-                    boxShadow: selectedGender === 'women' ? '0 2px 8px rgba(239, 68, 68, 0.5)' : 'none',
-                    transform: selectedGender === 'women' ? 'scale(1.05)' : 'scale(1)',
-                    opacity: selectedGender === 'women' ? '1' : '0.8'
-                  }}
+                  className={`admin-gender-pill ${selectedGender === 'women' ? 'admin-gender-pill--active' : 'admin-gender-pill--inactive'}`}
                   disabled={scraping}
                 >
                   Women
                 </button>
                 
                 <button
+                  type="button"
                   onClick={() => {
                     setSelectedGender('men')
                     setBrandsPage(1)
                   }}
-                  onMouseEnter={(e) => {
-                    if (selectedGender === 'men') {
-                      e.target.style.background = '#EF4444'
-                    } else {
-                      e.target.style.background = '#D94848'
-                    }
-                  }}
-                  onMouseLeave={(e) => {
-                    if (selectedGender === 'men') {
-                      e.target.style.background = '#EF4444'
-                    } else {
-                      e.target.style.background = '#C74242'
-                    }
-                  }}
-                  style={{
-                    padding: '10px 30px',
-                    background: selectedGender === 'men' ? '#EF4444' : '#C74242',
-                    color: '#fff',
-                    border: 'none',
-                    cursor: 'pointer',
-                    fontSize: '1rem',
-                    fontWeight: '600',
-                    borderRadius: '50px',
-                    transition: 'all 0.2s ease',
-                    boxShadow: selectedGender === 'men' ? '0 2px 8px rgba(239, 68, 68, 0.5)' : 'none',
-                    transform: selectedGender === 'men' ? 'scale(1.05)' : 'scale(1)',
-                    opacity: selectedGender === 'men' ? '1' : '0.8'
-                  }}
+                  className={`admin-gender-pill ${selectedGender === 'men' ? 'admin-gender-pill--active' : 'admin-gender-pill--inactive'}`}
                   disabled={scraping}
                 >
                   Men
@@ -578,17 +514,6 @@ function ScrapingManagement() {
               const endIdx = startIdx + brandsPerPage
               const displayBrands = allDisplayBrands.slice(startIdx, endIdx)
               
-              // Debug: log counts
-              console.log('Total brands:', brands.length)
-              console.log('Men\'s brands (gender="m"):', mensBrands.length)
-              console.log('Women\'s brands (gender="w"):', womensBrands.length)
-              if (mensBrands.length > 0) {
-                console.log('Sample men\'s brands:', mensBrands.slice(0, 3).map(b => ({ name: b.brand_name, gender: b.gender, category: b.category })))
-              }
-              if (womensBrands.length > 0) {
-                console.log('Sample women\'s brands:', womensBrands.slice(0, 3).map(b => ({ name: b.brand_name, gender: b.gender, category: b.category })))
-              }
-              
               return (
                 <>
                   {/* Display selected gender brands */}
@@ -603,8 +528,8 @@ function ScrapingManagement() {
                         <h4 style={{ 
                           fontSize: '1.2rem', 
                           fontWeight: '600', 
-                          color: '#fff', 
-                          borderBottom: '2px solid #C98DB7', 
+                          color: 'var(--dupe-text-primary)', 
+                          borderBottom: '2px solid rgba(91, 141, 239, 0.35)', 
                           paddingBottom: '8px',
                           margin: 0
                         }}>
@@ -625,14 +550,11 @@ function ScrapingManagement() {
                             }
                           }}
                           disabled={scraping}
-                          className="action-btn danger"
+                          className="action-btn"
                           style={{ 
                             padding: '6px 12px',
                             fontSize: '0.875rem',
                             marginLeft: '15px',
-                            background: '#EF4444 !important',
-                            borderColor: '#EF4444 !important',
-                            borderRadius: '50px !important'
                           }}
                         >
                           {allDisplayBrands.every(brand => 
@@ -693,7 +615,7 @@ function ScrapingManagement() {
                           >
                             Previous
                           </button>
-                          <span style={{ color: 'var(--text-light)', fontWeight: '500' }}>
+                          <span className="pagination-info" style={{ marginLeft: 0 }}>
                             Page {brandsPage} of {totalBrandsPages}
                           </span>
                           <button
@@ -722,12 +644,9 @@ function ScrapingManagement() {
               }
             }}
             disabled={scraping || selectedBrands.length === 0 || isProcessingRef.current}
-            className="action-btn danger"
+            className="scrape-btn"
             style={{ 
               pointerEvents: scraping || selectedBrands.length === 0 || isProcessingRef.current ? 'none' : 'auto',
-              background: '#EF4444 !important',
-              borderColor: '#EF4444 !important',
-              borderRadius: '50px !important' /* Round/Oval shape */
             }}
           >
             {scraping ? 'Scraping in Progress...' : isProcessingRef.current ? 'Starting...' : 'Start Scraping'}
@@ -809,7 +728,7 @@ function ScrapingManagement() {
                         <span className={`history-status ${job.status}`} style={{ 
                           padding: '4px 12px', 
                           borderRadius: '4px', 
-                          background: job.status === 'completed' ? '#82CE59' : job.status === 'failed' ? '#EF4444' : '#6B63CB',
+                          background: job.status === 'completed' ? 'var(--dupe-teal)' : job.status === 'failed' ? '#c026d3' : 'var(--dupe-blue)',
                           color: '#fff',
                           fontSize: '0.85rem',
                           fontWeight: '600'
@@ -817,7 +736,7 @@ function ScrapingManagement() {
                           {job.status?.toUpperCase() || 'UNKNOWN'}
                         </span>
                       </div>
-                      <div className="history-details" style={{ display: 'flex', gap: '15px', fontSize: '0.9rem', color: '#fff', opacity: 0.9 }}>
+                      <div className="history-details" style={{ display: 'flex', gap: '15px', fontSize: '0.9rem', color: 'var(--dupe-text-primary)', opacity: 0.92 }}>
                         <span>Brands: {brandNames}</span>
                         {job.products_added !== undefined && (
                           <span>Products (new + updated): {job.products_added}</span>
@@ -836,16 +755,8 @@ function ScrapingManagement() {
                       className="action-btn danger"
                       style={{
                         marginLeft: '15px',
-                        padding: '6px 12px !important',
-                        background: '#EF4444 !important',
-                        color: '#fff !important',
-                        border: '1px solid #EF4444 !important',
-                        borderRadius: '50px !important', /* Round/Oval shape */
                         cursor: deletingHistoryId === job.job_id || isProcessingRef.current ? 'not-allowed' : 'pointer',
                         opacity: deletingHistoryId === job.job_id || isProcessingRef.current ? 0.5 : 1,
-                        fontSize: '0.875rem !important',
-                        fontWeight: '600',
-                        transition: 'none',
                         pointerEvents: deletingHistoryId === job.job_id || isProcessingRef.current ? 'none' : 'auto'
                       }}
                     >

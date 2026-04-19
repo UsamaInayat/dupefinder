@@ -506,7 +506,7 @@ def _cleanup_user_related_data(db, user_id: str, email: Optional[str] = None):
 # ============================================
 
 @router.post("/login", response_model=AdminToken)
-async def admin_login(credentials: AdminLogin):
+def admin_login(credentials: AdminLogin):
     """
     Admin login endpoint
     
@@ -1998,7 +1998,7 @@ def _enrich_brands_for_scraping(brand_list: List[dict]) -> List[dict]:
 
 
 @router.get("/scraping/brands")
-async def get_available_brands(
+def get_available_brands(
     brand_type: str = Query("local", pattern="^(luxury|pakistani|local)$"),
     admin: dict = Depends(require_admin)
 ):
@@ -2805,7 +2805,7 @@ async def get_scraping_status(
 
 
 @router.get("/scraping/history")
-async def get_scraping_history(
+def get_scraping_history(
     page: int = Query(1, ge=1, description="Page number"),
     page_size: int = Query(10, ge=1, le=50, description="Items per page"),
     admin: dict = Depends(require_admin)
@@ -3003,17 +3003,7 @@ def _community_user_display_name_map(db, user_id_strs: set) -> dict:
     return name_map
 
 
-@router.get("/community/reports")
-async def get_community_reports(admin: dict = Depends(require_admin)):
-    db = get_db()
-    reports = db["community_reports"]
-    docs = list(reports.find({}).sort("created_at", -1).limit(300))
-    author_ids = set()
-    for d in docs:
-        uid = d.get("post_author_user_id")
-        if uid:
-            author_ids.add(str(uid))
-    name_map = _community_user_display_name_map(db, author_ids)
+def _format_community_report_docs(docs: list, name_map: dict) -> list:
     out = []
     for d in docs:
         uid = d.get("post_author_user_id")
@@ -3033,34 +3023,113 @@ async def get_community_reports(admin: dict = Depends(require_admin)):
             "handled_at": (d.get("handled_at") or "").isoformat() if d.get("handled_at") else None,
             "handled_action": d.get("handled_action"),
         })
-    return {"reports": out}
+    return out
 
 
-@router.get("/community/posts")
-async def get_community_posts_for_admin(admin: dict = Depends(require_admin)):
-    db = get_db()
-    posts_col = db["community_posts"]
-    posts = list(posts_col.find({}).sort("created_at", -1).limit(300))
-    author_ids = set()
-    for p in posts:
-        uid = p.get("author_user_id")
-        if uid:
-            author_ids.add(str(uid))
-    name_map = _community_user_display_name_map(db, author_ids)
+def _format_community_post_docs(docs: list, name_map: dict) -> list:
     out = []
-    for p in posts:
+    for p in docs:
         uid = p.get("author_user_id")
         stored = p.get("author", "Unknown")
         display_author = name_map.get(str(uid), stored) if uid else stored
+        rc = p.get("replies_count")
+        if rc is None:
+            rc = len(p.get("replies") or [])
         out.append({
             "id": str(p.get("_id")),
             "description": p.get("description", ""),
             "author": display_author,
             "author_user_id": p.get("author_user_id"),
             "created_at": (p.get("created_at") or datetime.utcnow()).isoformat(),
-            "replies_count": len(p.get("replies") or []),
+            "replies_count": int(rc),
         })
-    return {"posts": out}
+    return out
+
+
+def _community_posts_admin_light(posts_col, limit: int) -> list:
+    """Newest posts for admin tables without transferring full reply bodies (faster over slow links)."""
+    return list(
+        posts_col.aggregate(
+            [
+                {"$sort": {"created_at": -1}},
+                {"$limit": limit},
+                {
+                    "$project": {
+                        "_id": 1,
+                        "description": 1,
+                        "author": 1,
+                        "author_user_id": 1,
+                        "created_at": 1,
+                        "replies_count": {"$size": {"$ifNull": ["$replies", []]}},
+                    }
+                },
+            ]
+        )
+    )
+
+
+@router.get("/community/moderation")
+def get_community_moderation_bundle(
+    reports_limit: int = Query(80, ge=1, le=300),
+    posts_limit: int = Query(80, ge=1, le=300),
+    admin: dict = Depends(require_admin),
+):
+    """
+    Single round-trip for the Community Moderation tab (reports + posts + one user lookup).
+    """
+    db = get_db()
+    reports_col = db["community_reports"]
+    posts_col = db["community_posts"]
+    r_docs = list(reports_col.find({}).sort("created_at", -1).limit(reports_limit))
+    p_docs = _community_posts_admin_light(posts_col, posts_limit)
+    author_ids = set()
+    for d in r_docs:
+        uid = d.get("post_author_user_id")
+        if uid:
+            author_ids.add(str(uid))
+    for p in p_docs:
+        uid = p.get("author_user_id")
+        if uid:
+            author_ids.add(str(uid))
+    name_map = _community_user_display_name_map(db, author_ids)
+    return {
+        "reports": _format_community_report_docs(r_docs, name_map),
+        "posts": _format_community_post_docs(p_docs, name_map),
+    }
+
+
+@router.get("/community/reports")
+def get_community_reports(
+    limit: int = Query(80, ge=1, le=300, description="Max reports to return (newest first)"),
+    admin: dict = Depends(require_admin),
+):
+    db = get_db()
+    reports = db["community_reports"]
+    docs = list(reports.find({}).sort("created_at", -1).limit(limit))
+    author_ids = set()
+    for d in docs:
+        uid = d.get("post_author_user_id")
+        if uid:
+            author_ids.add(str(uid))
+    name_map = _community_user_display_name_map(db, author_ids)
+    return {"reports": _format_community_report_docs(docs, name_map)}
+
+
+@router.get("/community/posts")
+def get_community_posts_for_admin(
+    limit: int = Query(80, ge=1, le=300, description="Max posts to return (newest first)"),
+    admin: dict = Depends(require_admin),
+):
+    db = get_db()
+    posts_col = db["community_posts"]
+    posts = _community_posts_admin_light(posts_col, limit)
+    author_ids = set()
+    for p in posts:
+        uid = p.get("author_user_id")
+        if uid:
+            author_ids.add(str(uid))
+    name_map = _community_user_display_name_map(db, author_ids)
+    return {"posts": _format_community_post_docs(posts, name_map)}
 
 
 @router.delete("/community/posts/{post_id}")

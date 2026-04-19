@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import axios from 'axios'
 
 function UserManagement() {
@@ -6,59 +6,63 @@ function UserManagement() {
   const [loading, setLoading] = useState(true)
   const [page, setPage] = useState(1)
   const [totalPages, setTotalPages] = useState(1)
-  const [search, setSearch] = useState('')
+  const [searchInput, setSearchInput] = useState('')
+  const [submittedSearch, setSubmittedSearch] = useState('')
+  const hasLoadedOnce = useRef(false)
 
-  useEffect(() => {
-    fetchUsers()
-  }, [page])
-
-  const fetchUsers = async () => {
-    setLoading(true)
+  const fetchUsers = useCallback(async () => {
+    const silent = hasLoadedOnce.current
+    if (!silent) setLoading(true)
     try {
       const token = localStorage.getItem('adminToken') || localStorage.getItem('token')
       const params = new URLSearchParams({
         page: page.toString(),
-        page_size: '20'
+        page_size: '20',
       })
-      
-      if (search) params.append('search', search)
 
-      const response = await axios.get(
-        `http://localhost:8000/api/admin/users?${params}`,
-        { headers: { Authorization: `Bearer ${token}` } }
-      )
+      if (submittedSearch) params.append('search', submittedSearch)
+
+      const response = await axios.get(`http://localhost:8000/api/admin/users?${params}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
 
       setUsers(response.data.users)
       setTotalPages(response.data.total_pages)
-      setLoading(false)
     } catch (error) {
       console.error('Failed to fetch users:', error)
+    } finally {
+      hasLoadedOnce.current = true
       setLoading(false)
     }
-  }
+  }, [page, submittedSearch])
+
+  useEffect(() => {
+    fetchUsers()
+  }, [fetchUsers])
 
   const handleDelete = async (userId) => {
     if (!confirm('Are you sure you want to delete this user? This action cannot be undone.')) return
 
+    const previous = users
+    setUsers((u) => u.filter((x) => x._id !== userId))
+
     try {
       const token = localStorage.getItem('adminToken') || localStorage.getItem('token')
-      await axios.delete(
-        `http://localhost:8000/api/admin/users/${userId}`,
-        { headers: { Authorization: `Bearer ${token}` } }
-      )
-      
+      await axios.delete(`http://localhost:8000/api/admin/users/${userId}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
       alert('User deleted successfully')
-      fetchUsers()
     } catch (error) {
       console.error('Failed to delete user:', error)
+      setUsers(previous)
       alert(error.response?.data?.detail || 'Failed to delete user')
     }
   }
 
   const handleSearch = (e) => {
     e.preventDefault()
+    setSubmittedSearch(searchInput.trim())
     setPage(1)
-    fetchUsers()
   }
 
   return (
@@ -73,20 +77,21 @@ function UserManagement() {
           <input
             type="text"
             placeholder="Search by email..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            value={searchInput}
+            onChange={(e) => setSearchInput(e.target.value)}
             className="search-input"
           />
-          <button type="submit" className="search-btn">Search</button>
+          <button type="submit" className="search-btn">
+            Search
+          </button>
         </form>
-
       </div>
 
-      {loading ? (
+      {loading && users.length === 0 ? (
         <div className="loading">Loading users...</div>
       ) : (
         <>
-          <div className="table-container">
+          <div className="table-container" style={{ opacity: loading ? 0.65 : 1, transition: 'opacity 0.12s ease' }}>
             <table className="data-table">
               <thead>
                 <tr>
@@ -100,12 +105,15 @@ function UserManagement() {
               <tbody>
                 {users.length === 0 ? (
                   <tr>
-                    <td colSpan="5" style={{ textAlign: 'center', padding: '40px', color: '#fff', opacity: 0.9 }}>
+                    <td
+                      colSpan="5"
+                      style={{ textAlign: 'center', padding: '40px', color: 'var(--dupe-grey-subtitle)' }}
+                    >
                       No verified users found
                     </td>
                   </tr>
                 ) : (
-                  users.map(user => (
+                  users.map((user) => (
                     <tr key={user._id}>
                       <td>{user.email}</td>
                       <td>
@@ -116,10 +124,7 @@ function UserManagement() {
                       <td>{new Date(user.created_at).toLocaleDateString()}</td>
                       <td>{user.last_login ? new Date(user.last_login).toLocaleDateString() : 'Never'}</td>
                       <td>
-                        <button
-                          onClick={() => handleDelete(user._id)}
-                          className="action-btn danger"
-                        >
+                        <button type="button" onClick={() => handleDelete(user._id)} className="action-btn danger">
                           Delete
                         </button>
                       </td>
@@ -130,19 +135,19 @@ function UserManagement() {
             </table>
           </div>
 
-          <div className="pagination" style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '20px', marginTop: '30px' }}>
-            <button
-              onClick={() => setPage(p => Math.max(1, p - 1))}
-              disabled={page === 1}
-              className="pagination-btn"
-            >
+          <div
+            className="pagination"
+            style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '20px', marginTop: '30px' }}
+          >
+            <button type="button" onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page === 1} className="pagination-btn">
               Previous
             </button>
             <span className="pagination-info">
               Page {page} of {totalPages}
             </span>
             <button
-              onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+              type="button"
+              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
               disabled={page === totalPages}
               className="pagination-btn"
             >
@@ -156,7 +161,3 @@ function UserManagement() {
 }
 
 export default UserManagement
-
-
-
-
