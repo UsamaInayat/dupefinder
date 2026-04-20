@@ -3700,3 +3700,15 @@ Expected speedup: ~20s/batch → ~1-2s/batch → 23k images done in ~10 min inst
 
 - Please restart backend so updated MIME mapping is applied, then hot restart mobile and verify Home `Trending Dupes`.
 - If any specific card still fails after restart, share one product name from that card and executor will trace that exact record end-to-end.
+
+### Current Status / Progress Tracking — Executor Update (Apr 20, 2026, wishlist/compare stale UI fix)
+
+- User reported Saved/Compare did not update until full app restart after saving from image search.
+- Root cause: each screen constructed its own `WishlistService` / `CompareService` with a 60s in-memory TTL cache; writes from Search updated one instance while Saved/Compare read another stale cache.
+- Fix: added `invalidateAllMemoryCaches()` registry (weak refs) and call it after successful persistence so all instances drop memory cache and re-read prefs/server on next load.
+- Files: `mobile/lib/services/wishlist_service.dart`, `mobile/lib/services/compare_service.dart`.
+- Validation: `flutter analyze` on both files reports no issues.
+
+### Executor's Feedback or Assistance Requests — Apr 20, 2026 (wishlist/compare stale UI fix)
+
+- User confirmed behavior is fixed locally. Executor will commit + push to GitHub next.

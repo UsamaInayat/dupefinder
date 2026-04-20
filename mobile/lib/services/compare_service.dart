@@ -12,6 +12,23 @@ class CompareService {
   List<Map<String, dynamic>>? _memoryCache;
   DateTime? _cacheAt;
 
+  /// Clears in-memory cache on **all** service instances (see [WishlistService.invalidateAllMemoryCaches]).
+  static void invalidateAllMemoryCaches() {
+    _globalCompareCaches.removeWhere((ref) {
+      final svc = ref.target;
+      if (svc == null) return true;
+      svc._memoryCache = null;
+      svc._cacheAt = null;
+      return false;
+    });
+  }
+
+  static final List<WeakReference<CompareService>> _globalCompareCaches = [];
+
+  CompareService() {
+    _globalCompareCaches.add(WeakReference(this));
+  }
+
   /// Fast path for UI: memory TTL hit, else local disk only (no network). Pair with [getList] to sync server.
   Future<List<Map<String, dynamic>>> snapshotForUi() async {
     if (_memoryCache != null &&
@@ -78,6 +95,7 @@ class CompareService {
       await _api.putCompare(list);
     }
     await _saveLocal(list);
+    invalidateAllMemoryCaches();
     _setCache(list);
   }
 

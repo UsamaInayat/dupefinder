@@ -11,6 +11,27 @@ class WishlistService {
   List<Map<String, dynamic>>? _memoryCache;
   DateTime? _cacheAt;
 
+  /// Clears in-memory cache on **all** service instances.
+  ///
+  /// Multiple widgets each construct their own `WishlistService()`. Without this,
+  /// one screen can persist to disk while another still serves a stale 60s TTL
+  /// cache until app restart.
+  static void invalidateAllMemoryCaches() {
+    _globalWishlistCaches.removeWhere((ref) {
+      final svc = ref.target;
+      if (svc == null) return true;
+      svc._memoryCache = null;
+      svc._cacheAt = null;
+      return false;
+    });
+  }
+
+  static final List<WeakReference<WishlistService>> _globalWishlistCaches = [];
+
+  WishlistService() {
+    _globalWishlistCaches.add(WeakReference(this));
+  }
+
   /// Fast path for UI: memory TTL hit, else local disk only (no network). Pair with [getSavedProducts] to sync server.
   Future<List<Map<String, dynamic>>> snapshotForUi() async {
     if (_memoryCache != null &&
@@ -103,6 +124,7 @@ class WishlistService {
       await _api.putWishlist(list);
     }
     await _saveLocal(list);
+    invalidateAllMemoryCaches();
     _setCache(list);
   }
 
@@ -113,6 +135,7 @@ class WishlistService {
       await _api.putWishlist(list);
     }
     await _saveLocal(list);
+    invalidateAllMemoryCaches();
     _setCache(list);
   }
 
