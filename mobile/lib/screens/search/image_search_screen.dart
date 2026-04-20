@@ -270,6 +270,80 @@ class _ImageSearchScreenState extends State<ImageSearchScreen> {
     });
   }
 
+  Widget _uploadCard() {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(22),
+        gradient: LinearGradient(
+          colors: [
+            const Color(0xFF2D3A5A),
+            DupePalette.pinkDeep.withValues(alpha: 0.85),
+          ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+      ),
+      child: Column(
+        children: [
+          Icon(Icons.add_photo_alternate_outlined,
+              color: Colors.white.withValues(alpha: 0.95), size: 36),
+          const SizedBox(height: 10),
+          Text(
+            'Upload your item',
+            style: GoogleFonts.inter(
+              color: Colors.white,
+              fontWeight: FontWeight.bold,
+              fontSize: 17,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'Take a photo or choose from gallery',
+            textAlign: TextAlign.center,
+            style: GoogleFonts.inter(
+              color: Colors.white.withValues(alpha: 0.85),
+              fontSize: 13,
+            ),
+          ),
+          const SizedBox(height: 16),
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: _loading ? null : () => _pickImage(true),
+                  icon: const Icon(Icons.camera_alt, color: Colors.white, size: 20),
+                  label: Text('Camera',
+                      style: GoogleFonts.inter(
+                          color: Colors.white, fontWeight: FontWeight.w600)),
+                  style: OutlinedButton.styleFrom(
+                    side: BorderSide(color: Colors.white.withValues(alpha: 0.85)),
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: _loading ? null : () => _pickImage(false),
+                  icon:
+                      const Icon(Icons.photo_library, color: Colors.white, size: 20),
+                  label: Text('Gallery',
+                      style: GoogleFonts.inter(
+                          color: Colors.white, fontWeight: FontWeight.w600)),
+                  style: OutlinedButton.styleFrom(
+                    side: BorderSide(color: Colors.white.withValues(alpha: 0.85)),
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _scrollBody() {
     return SingleChildScrollView(
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
@@ -285,82 +359,9 @@ class _ImageSearchScreenState extends State<ImageSearchScreen> {
                 color: DupePalette.textPrimary,
               ),
             ),
-            const SizedBox(height: 6),
-            Text(
-              'Upload or take a photo to discover dupes',
-              style: GoogleFonts.inter(
-                fontSize: 14,
-                color: DupePalette.greySubtitle,
-                height: 1.35,
-              ),
-            ),
             const SizedBox(height: 18),
           ],
-          Container(
-            padding: const EdgeInsets.all(20),
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(22),
-              gradient: LinearGradient(
-                colors: [
-                  const Color(0xFF2D3A5A),
-                  DupePalette.pinkDeep.withValues(alpha: 0.85),
-                ],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-              ),
-            ),
-            child: Column(
-              children: [
-                Icon(Icons.add_photo_alternate_outlined, color: Colors.white.withValues(alpha: 0.95), size: 36),
-                const SizedBox(height: 10),
-                Text(
-                  'Upload your item',
-                  style: GoogleFonts.inter(
-                    color: Colors.white,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 17,
-                  ),
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  'Take a photo or choose from gallery',
-                  textAlign: TextAlign.center,
-                  style: GoogleFonts.inter(
-                    color: Colors.white.withValues(alpha: 0.85),
-                    fontSize: 13,
-                  ),
-                ),
-                const SizedBox(height: 16),
-                Row(
-                  children: [
-                    Expanded(
-                      child: OutlinedButton.icon(
-                        onPressed: _loading ? null : () => _pickImage(true),
-                        icon: const Icon(Icons.camera_alt, color: Colors.white, size: 20),
-                        label: Text('Camera', style: GoogleFonts.inter(color: Colors.white, fontWeight: FontWeight.w600)),
-                        style: OutlinedButton.styleFrom(
-                          side: BorderSide(color: Colors.white.withValues(alpha: 0.85)),
-                          padding: const EdgeInsets.symmetric(vertical: 12),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: OutlinedButton.icon(
-                        onPressed: _loading ? null : () => _pickImage(false),
-                        icon: const Icon(Icons.photo_library, color: Colors.white, size: 20),
-                        label: Text('Gallery', style: GoogleFonts.inter(color: Colors.white, fontWeight: FontWeight.w600)),
-                        style: OutlinedButton.styleFrom(
-                          side: BorderSide(color: Colors.white.withValues(alpha: 0.85)),
-                          padding: const EdgeInsets.symmetric(vertical: 12),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
+          _uploadCard(),
           const SizedBox(height: 16),
 
           // Preview
@@ -524,23 +525,27 @@ class _ImageSearchScreenState extends State<ImageSearchScreen> {
   @override
   Widget build(BuildContext context) {
     if (widget.embedded) {
-      return Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          if (_pickedImage != null)
-            Padding(
-              padding: const EdgeInsets.fromLTRB(8, 0, 8, 0),
-              child: Align(
-                alignment: Alignment.centerRight,
-                child: TextButton.icon(
-                  onPressed: _clearImage,
-                  icon: const Icon(Icons.clear_rounded, size: 20),
-                  label: const Text('Clear image'),
+      return SafeArea(
+        top: true,
+        bottom: false,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            if (_pickedImage != null)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(8, 0, 8, 0),
+                child: Align(
+                  alignment: Alignment.centerRight,
+                  child: TextButton.icon(
+                    onPressed: _clearImage,
+                    icon: const Icon(Icons.clear_rounded, size: 20),
+                    label: const Text('Clear image'),
+                  ),
                 ),
               ),
-            ),
-          Expanded(child: _scrollBody()),
-        ],
+            Expanded(child: _scrollBody()),
+          ],
+        ),
       );
     }
     return Scaffold(
@@ -558,7 +563,6 @@ class _ImageSearchScreenState extends State<ImageSearchScreen> {
       body: SafeArea(child: _scrollBody()),
     );
   }
-
   Widget _buildResults() {
     final results = _searchResult!['results'] as List<dynamic>? ?? [];
     final total = _searchResult!['total_results'] as int? ?? 0;

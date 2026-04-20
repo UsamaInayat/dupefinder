@@ -11,6 +11,7 @@ from fastapi.staticfiles import StaticFiles
 from contextlib import asynccontextmanager
 import sys
 import re
+import mimetypes
 from pathlib import Path
 
 # Add parent directory to path
@@ -131,6 +132,9 @@ app.include_router(community.router, prefix="/api/community", tags=["Community"]
 app.include_router(user_data.router, prefix="/api/user-data", tags=["User Data"])
 
 # Mount static files for product images
+# Ensure Windows serves modern image extensions with correct MIME type.
+mimetypes.add_type("image/webp", ".webp")
+mimetypes.add_type("image/avif", ".avif")
 data_dir = Path(__file__).parent.parent.parent / "data"
 app.mount("/data", StaticFiles(directory=str(data_dir)), name="data")
 

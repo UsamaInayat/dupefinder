@@ -25,6 +25,7 @@ class HomeTab extends StatefulWidget {
 class _HomeTabState extends State<HomeTab> {
   final _apiService = ApiService();
   final _history = DupeHistoryService();
+  final Set<String> _prefetchedImageUrls = <String>{};
   String? _userName;
   String? _userEmail;
   bool _guest = false;
@@ -57,88 +58,27 @@ class _HomeTabState extends State<HomeTab> {
         slivers: [
           SliverToBoxAdapter(
             child: Container(
-              padding: EdgeInsets.fromLTRB(20, topPad + 12, 20, 24),
+              padding: EdgeInsets.fromLTRB(20, topPad + 14, 20, 18),
               decoration: BoxDecoration(
                 gradient: LinearGradient(
                   colors: [
-                    DupePalette.pink.withValues(alpha: 0.85),
-                    DupePalette.blue.withValues(alpha: 0.65),
-                    DupePalette.teal.withValues(alpha: 0.75),
+                    DupePalette.pink.withValues(alpha: 0.82),
+                    DupePalette.blue.withValues(alpha: 0.68),
+                    DupePalette.teal.withValues(alpha: 0.78),
                   ],
                   begin: Alignment.topLeft,
                   end: Alignment.bottomRight,
                 ),
-                borderRadius: const BorderRadius.vertical(bottom: Radius.circular(28)),
+                borderRadius:
+                    const BorderRadius.vertical(bottom: Radius.circular(26)),
               ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'Discover',
-                              style: DupePalette.serifHeading(28, w: FontWeight.w700, color: Colors.white),
-                            ),
-                            const SizedBox(height: 6),
-                            Text(
-                              'Find your perfect luxury dupe',
-                              style: GoogleFonts.inter(
-                                fontSize: 14,
-                                color: Colors.white.withValues(alpha: 0.92),
-                                height: 1.3,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      Material(
-                        color: Colors.white.withValues(alpha: 0.25),
-                        shape: const CircleBorder(),
-                        child: IconButton(
-                          icon: Icon(Icons.tune_rounded, color: Colors.white.withValues(alpha: 0.95)),
-                          onPressed: widget.onOpenSearch,
-                          tooltip: 'Search & filters',
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 18),
-                  Material(
-                    color: Colors.transparent,
-                    child: InkWell(
-                      onTap: widget.onOpenSearch,
-                      borderRadius: BorderRadius.circular(22),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-                        decoration: BoxDecoration(
-                          color: Colors.white.withValues(alpha: 0.22),
-                          borderRadius: BorderRadius.circular(22),
-                          border: Border.all(color: Colors.white.withValues(alpha: 0.45)),
-                        ),
-                        child: Row(
-                          children: [
-                            Icon(Icons.search_rounded, color: Colors.white.withValues(alpha: 0.9)),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: Text(
-                                'Search luxury items…',
-                                style: GoogleFonts.inter(
-                                  fontSize: 15,
-                                  color: Colors.white.withValues(alpha: 0.88),
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
+              child: Text(
+                'DupeFinder',
+                style: DupePalette.serifHeading(
+                  32,
+                  w: FontWeight.w700,
+                  color: Colors.white,
+                ),
               ),
             ),
           ),
@@ -290,6 +230,7 @@ class _HomeTabState extends State<HomeTab> {
         _trending = merged;
         _trendingLoading = false;
       });
+      _prefetchTrendingImages(merged);
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -304,27 +245,83 @@ class _HomeTabState extends State<HomeTab> {
     return base.endsWith('/api') ? base.substring(0, base.length - 4) : base;
   }
 
+  bool _isLocalBackendHost(String host) {
+    final h = host.toLowerCase();
+    return h == 'localhost' || h == '127.0.0.1' || h == '10.0.2.2';
+  }
+
+  String _retargetToResolvedOrigin(String rawUrl, String origin) {
+    final raw = Uri.tryParse(rawUrl);
+    final o = Uri.tryParse(origin);
+    if (raw == null || o == null) return rawUrl;
+    if (!raw.hasScheme || raw.host.isEmpty) return rawUrl;
+    if (!_isLocalBackendHost(raw.host)) return rawUrl;
+    return raw
+        .replace(
+          scheme: o.scheme,
+          host: o.host,
+          port: o.hasPort ? o.port : null,
+        )
+        .toString();
+  }
+
   String? _resolveImageUrl(Map<String, dynamic> product) {
     final origin = _apiOrigin();
+    final imageSrc = (product['image_src'] as String?)?.trim();
     final imageUrl = (product['image_url'] as String?)?.trim();
     final imagePath = (product['image_path'] as String?)?.trim();
 
+    if (imageSrc != null && imageSrc.isNotEmpty) {
+      if (imageSrc.startsWith('http://') || imageSrc.startsWith('https://')) {
+        return _retargetToResolvedOrigin(imageSrc, origin);
+      }
+      if (imageSrc.startsWith('/')) return '$origin$imageSrc';
+      return imageSrc;
+    }
+
     if (imagePath != null && imagePath.isNotEmpty) {
       final path = imagePath.replaceAll('\\', '/');
+      if (path.startsWith('http://') || path.startsWith('https://')) {
+        return _retargetToResolvedOrigin(path, origin);
+      }
+      if (path.startsWith('/')) return '$origin$path';
       if (!path.startsWith('http://') && !path.startsWith('https://')) {
         return '$origin/data/$path';
       }
     }
     if (imageUrl != null && imageUrl.isNotEmpty) {
       if (imageUrl.startsWith('http://') || imageUrl.startsWith('https://')) {
+        final parsed = Uri.tryParse(imageUrl);
+        if (parsed != null && _isLocalBackendHost(parsed.host)) {
+          return _retargetToResolvedOrigin(imageUrl, origin);
+        }
         return '$origin/api/products/image-proxy?url=${Uri.encodeComponent(imageUrl)}';
       }
+      if (imageUrl.startsWith('/')) return '$origin$imageUrl';
       return imageUrl;
     }
     if (imagePath != null && imagePath.isNotEmpty) {
       return imagePath;
     }
     return null;
+  }
+
+  void _prefetchTrendingImages(List<Map<String, dynamic>> products) {
+    if (!mounted) return;
+    final urls = <String>{};
+    for (final p in products) {
+      final u = _resolveImageUrl(p);
+      if (u != null && u.isNotEmpty) urls.add(u);
+    }
+    urls.removeAll(_prefetchedImageUrls);
+    if (urls.isEmpty) return;
+    _prefetchedImageUrls.addAll(urls);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      for (final url in urls.take(16)) {
+        precacheImage(CachedNetworkImageProvider(url), context).catchError((_) {});
+      }
+    });
   }
 
   String? _resolveProductUrl(Map<String, dynamic> product) {

@@ -153,14 +153,6 @@ class _MainShellState extends State<MainShell> {
 
   @override
   Widget build(BuildContext context) {
-    final titles = [
-      'DupeFinder',
-      'Find similar',
-      'Wishlist',
-      'Compare',
-      'Community',
-      'Me'
-    ];
     Widget baseMeIcon(bool selected) {
       if (_navProfileImage != null) {
         return CircleAvatar(
@@ -200,15 +192,6 @@ class _MainShellState extends State<MainShell> {
     }
 
     return Scaffold(
-      appBar: _index == 0
-          ? null
-          : AppBar(
-              title: Text(titles[_index]),
-              backgroundColor: Colors.white,
-              foregroundColor: DupePalette.textPrimary,
-              elevation: 0,
-              surfaceTintColor: Colors.transparent,
-            ),
       body: IndexedStack(
         index: _index,
         children: [

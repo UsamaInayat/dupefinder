@@ -315,6 +315,7 @@ class _MeScreenState extends State<MeScreen> {
   @override
   Widget build(BuildContext context) {
     final pfpBytes = _decodeProfileImageBytes(_profileImageBase64);
+    final topInset = MediaQuery.paddingOf(context).top;
     return Container(
       decoration: BoxDecoration(
         gradient: LinearGradient(
@@ -327,7 +328,7 @@ class _MeScreenState extends State<MeScreen> {
         ),
       ),
       child: ListView(
-        padding: const EdgeInsets.fromLTRB(20, 12, 20, 28),
+        padding: EdgeInsets.fromLTRB(20, topInset + 12, 20, 28),
         children: [
           ShaderMask(
             blendMode: BlendMode.srcIn,
