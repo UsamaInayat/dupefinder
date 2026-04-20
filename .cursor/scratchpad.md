@@ -3711,4 +3711,4 @@ Expected speedup: ~20s/batch → ~1-2s/batch → 23k images done in ~10 min inst
 
 ### Executor's Feedback or Assistance Requests — Apr 20, 2026 (wishlist/compare stale UI fix)
 
-- User confirmed behavior is fixed locally. Executor will commit + push to GitHub next.
+- User confirmed behavior is fixed locally. Changes committed + pushed to GitHub (`8ae3ccb`).
