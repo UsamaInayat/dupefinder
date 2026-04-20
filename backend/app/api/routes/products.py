@@ -6,15 +6,59 @@ from typing import List, Optional
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import Response
 from bson import ObjectId
-from urllib.parse import urlparse
+from urllib.parse import quote, urlparse
 import httpx
 import logging
+from pathlib import Path
 
 from app.models.schemas import Product, ProductList, ProductFilter
 from app.core.database import get_products_collection
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent.parent
+_DATA_DIR = _PROJECT_ROOT / "data"
+
+
+def _looks_like_image_url(url: str) -> bool:
+    if not url:
+        return False
+    ul = url.lower()
+    if any(x in ul for x in ["loader", "lazyload", "placeholder.com", "via.placeholder"]):
+        return False
+    path_part = ul.split("?")[0]
+    if any(ext in path_part for ext in [".jpg", ".jpeg", ".png", ".webp", ".gif"]):
+        return True
+    if any(seg in path_part for seg in [
+        "/media/", "/cdn/", "/files/", "/upload", "/product/", "/shop/files/", "/uploads/",
+        "/catalog/", "/img/", "/images/", "/assets/", "/static/", "/mens/", "/women/", "/womens/"
+    ]):
+        return True
+    return False
+
+
+def _resolve_shop_image(doc: dict) -> tuple[str, str]:
+    """
+    Returns (image_src, image_kind):
+    - image_kind='local' when image_path points to an existing local file under /data
+    - image_kind='proxy' when a usable external image_url is available
+    - image_kind='missing' when no usable image can be resolved
+    """
+    image_path = (doc.get("image_path") or "").strip()
+    image_url = (doc.get("image_url") or "").strip()
+
+    if image_path:
+        rel = image_path.replace("\\", "/").lstrip("/")
+        if rel.startswith("data/"):
+            rel = rel[len("data/"):]
+        local_file = _DATA_DIR / rel
+        if local_file.exists():
+            return (f"/data/{rel}", "local")
+
+    if image_url and image_url.lower().startswith(("http://", "https://")) and _looks_like_image_url(image_url):
+        return (f"/api/products/image-proxy?url={quote(image_url, safe='')}", "proxy")
+
+    return ("", "missing")
 
 
 @router.get("", response_model=ProductList)
@@ -201,14 +245,28 @@ async def shop_browse(
     collection = get_products_collection()
     q = _shop_browse_query(slot)
     try:
-        cursor = (
-            collection.find(q).sort("created_at", -1).limit(int(limit))
-        )
+        # Fetch a wider candidate set, then keep only valid-image products.
+        # This avoids returning broken image rows to mobile.
+        scan_limit = max(int(limit) * 8, 80)
+        cursor = collection.find(q).sort("created_at", -1).limit(scan_limit)
         items = []
+        considered = 0
+        valid_local = 0
+        valid_proxy = 0
+        skipped_missing = 0
         for doc in cursor:
+            considered += 1
             if "embedding" in doc:
                 del doc["embedding"]
             doc["_id"] = str(doc["_id"])
+            image_src, image_kind = _resolve_shop_image(doc)
+            if image_kind == "missing":
+                skipped_missing += 1
+                continue
+            if image_kind == "local":
+                valid_local += 1
+            elif image_kind == "proxy":
+                valid_proxy += 1
             items.append(
                 {
                     "id": doc["_id"],
@@ -219,12 +277,26 @@ async def shop_browse(
                     "description": (doc.get("description") or "")[:800],
                     "image_path": doc.get("image_path") or doc.get("image_url") or "",
                     "image_url": doc.get("image_url") or "",
+                    "image_src": image_src,
                     "product_url": doc.get("product_url") or doc.get("product_link") or "",
                     "display_category": doc.get("display_category"),
                     "category": doc.get("category"),
                 }
             )
-        return {"slot": slot, "limit": limit, "count": len(items), "items": items}
+            if len(items) >= int(limit):
+                break
+        return {
+            "slot": slot,
+            "limit": limit,
+            "count": len(items),
+            "items": items,
+            "image_stats": {
+                "considered": considered,
+                "valid_with_local": valid_local,
+                "valid_with_proxy": valid_proxy,
+                "skipped_missing_image": skipped_missing,
+            },
+        }
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid slot")
     except Exception as e:

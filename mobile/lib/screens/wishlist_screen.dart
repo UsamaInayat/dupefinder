@@ -90,14 +90,26 @@ class _WishlistScreenState extends State<WishlistScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final topInset = MediaQuery.paddingOf(context).top;
+    final title = Padding(
+      padding: EdgeInsets.fromLTRB(20, topInset + 10, 20, 8),
+      child: Text(
+        'Wishlist',
+        style: GoogleFonts.playfairDisplay(
+          fontSize: 26,
+          fontWeight: FontWeight.w700,
+          color: DupePalette.textPrimary,
+        ),
+      ),
+    );
+
+    Widget content;
     if (_loading) {
-      return Container(
-        color: DupePalette.scaffoldLight,
-        child: const Center(child: CircularProgressIndicator(color: DupePalette.pink)),
+      content = const Center(
+        child: CircularProgressIndicator(color: DupePalette.pink),
       );
-    }
-    if (_items.isEmpty) {
-      return Container(
+    } else if (_items.isEmpty) {
+      content = Container(
         decoration: BoxDecoration(
           gradient: LinearGradient(
             colors: [
@@ -116,30 +128,20 @@ class _WishlistScreenState extends State<WishlistScreen> {
               children: [
                 Icon(Icons.favorite_border_rounded,
                     size: 72, color: DupePalette.pink.withValues(alpha: 0.65)),
-                const SizedBox(height: 20),
-                Text(
-                  'Wishlist',
-                  style: GoogleFonts.playfairDisplay(
-                    fontSize: 26,
-                    fontWeight: FontWeight.bold,
-                    color: DupePalette.pinkDeep,
-                  ),
-                ),
                 const SizedBox(height: 12),
                 Text(
                   'Save products from search results by tapping the heart on any result.',
                   textAlign: TextAlign.center,
-                  style: GoogleFonts.inter(color: DupePalette.greySubtitle, height: 1.45),
+                  style: GoogleFonts.inter(
+                      color: DupePalette.greySubtitle, height: 1.45),
                 ),
               ],
             ),
           ),
         ),
       );
-    }
-    return Container(
-      color: DupePalette.scaffoldLight,
-      child: RefreshIndicator(
+    } else {
+      content = RefreshIndicator(
         color: DupePalette.pink,
         onRefresh: () => _load(silent: false),
         child: GridView.builder(
@@ -283,6 +285,17 @@ class _WishlistScreenState extends State<WishlistScreen> {
             );
           },
         ),
+      );
+    }
+
+    return Container(
+      color: DupePalette.scaffoldLight,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          title,
+          Expanded(child: content),
+        ],
       ),
     );
   }

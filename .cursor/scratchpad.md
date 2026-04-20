@@ -1,3 +1,12 @@
+### Current Status / Progress Tracking — Executor Update (Apr 20, 2026, FYP report Markdown to Word conversion)
+
+- User requested converting `C:\Users\US\Desktop\FYP\DupeFinder_FYP_Report_Full_Template.md` to a Word document.
+- `pandoc` CLI was unavailable on PATH, so executor used Python package `pypandoc-binary` to perform conversion.
+- Output generated and verified: `C:\Users\US\Desktop\FYP\DupeFinder_FYP_Report_Full_Template.docx`.
+
+### Executor's Feedback or Assistance Requests — Apr 20, 2026 (FYP report Markdown to Word conversion)
+
+- Conversion milestone is complete. Please open the `.docx` and confirm formatting/content look correct; if needed, executor can run a style-tuned conversion pass.
 # DupeFinder Project - Scratchpad
 
 ## Background and Motivation
@@ -3547,3 +3556,147 @@ Expected speedup: ~20s/batch → ~1-2s/batch → 23k images done in ~10 min inst
 ### Executor's Feedback or Assistance Requests — Apr 20, 2026 (Admin scraping cancel/batch)
 
 - Planner/user: please run one full scrape (no cancel) to confirm behavior matches pre-change, then a cancel mid-save-batch and confirm DB has partial brand data and history shows `cancelled`.
+### Planner Update — Apr 20, 2026 (Mobile tab header dedup + Home top cleanup)
+
+- **Problem analysis**: duplicate tab wording is caused by `MainShell` top `AppBar` titles plus each tab’s own embedded heading. Home top section is visually busy (`Discover`, tagline, tune icon, and search bar) and does not match requested app-name-only style.
+- **Plan step 1 (Home header)**: simplify Home top to a compact branded strip with only `DupeFinder` in a suitable display font and theme-consistent gradient background.
+- **Plan step 2 (Tab dedup)**: remove `MainShell` app bar titles for tab pages so each tab has one clear heading source (its own body), eliminating repeated “Find similar / Wishlist / Compare / Community / Me/Profile”.
+- **Plan step 3 (Validation)**: run Flutter analyzer for touched files and manually verify each tab for single-title, cleaner presentation.
+
+### Current Status / Progress Tracking — Executor Update (Apr 20, 2026, tab header dedup cleanup)
+
+- Implemented Home top cleanup in `mobile/lib/screens/home_tab.dart`: removed `Discover` block, tagline, tune icon, and top search bar; replaced with a concise themed header showing only `DupeFinder` in a display font.
+- Implemented dedup in `mobile/lib/screens/main_shell.dart`: removed shell-level `AppBar` titles so tab pages do not repeat labels already shown in-tab (`Find Similar`, `Wishlist`, `Compare`, `Community`, `Profile`).
+- Validation run: `flutter analyze` over touched/related tab screens reported info-level hints only (no compile errors).
+
+### Executor's Feedback or Assistance Requests — Apr 20, 2026 (tab header dedup cleanup)
+
+- Please hot-restart and verify Home now shows only branded app name at the top, and Search/Saved/Compare/Community/Me no longer display duplicated tab wording.
+
+### Current Status / Progress Tracking — Executor Update (Apr 20, 2026, status-bar overlap fix)
+
+- User reported tab labels were overlapping with the mobile status bar after shell app-bar removal. Added explicit top safe-area handling to embedded tab screens:
+  - `search/image_search_screen.dart`: embedded mode now wrapped with `SafeArea(top: true, bottom: false)`.
+  - `community_screen.dart`: body wrapped with `SafeArea(top: widget.embedded, bottom: false)` so embedded header starts below status bar.
+  - `me_screen.dart`: top list padding now includes dynamic `MediaQuery.paddingOf(context).top`.
+- Validation: analyzer run on touched files completed with existing info-level hints only (no compile errors).
+
+### Executor's Feedback or Assistance Requests — Apr 20, 2026 (status-bar overlap fix)
+
+- Please hot-restart and verify `Find Similar`, `Community`, and `Profile` headings are now fully below the device status bar/notch with no overlap/smudging.
+
+### Current Status / Progress Tracking — Executor Update (Apr 20, 2026, wishlist/compare labels)
+
+- Added explicit top labels for tabs that were missing after shell app-bar removal:
+  - `wishlist_screen.dart`: top `Wishlist` heading with safe top inset spacing.
+  - `compare_screen.dart`: top `Compare` heading with safe top inset spacing.
+- Both screens now show heading first, then content below (loading / empty / populated states), matching the pattern of other tabs.
+- Removed duplicate in-body heading text in empty states so labels are not repeated.
+- Validation: analyzer run on both files returns info-level hints only (no compile errors).
+
+### Current Status / Progress Tracking — Executor Update (Apr 20, 2026, Find Similar top cleanup + center upload)
+
+- `search/image_search_screen.dart` updated per user request:
+  - removed the top tagline `Upload or take a photo to discover dupes`.
+  - in embedded initial state, moved upload card to center of available screen area.
+- Kept behavior unchanged once an image is selected or results/errors appear (normal scroll flow resumes).
+- Validation: analyzer reports only pre-existing info-level hint (`use_build_context_synchronously`), no compile errors.
+
+### Current Status / Progress Tracking — Executor Update (Apr 20, 2026, home/category image load + prefetch)
+
+- Investigated missing images in Home **Trending Dupes** and category browse lists. Root issue: image URLs can come back as localhost-like or relative paths that are invalid on physical phones.
+- Updated URL normalization in:
+  - `mobile/lib/screens/home_tab.dart`
+  - `mobile/lib/screens/category_browse_screen.dart`
+  to retarget localhost hosts (`localhost`, `127.0.0.1`, `10.0.2.2`) to the app’s currently resolved backend origin and correctly handle relative paths.
+- Added image warm prefetch in both screens for stable lists (`trending` and category browse items) via `precacheImage(CachedNetworkImageProvider(...))` to reduce empty/late-loading image placeholders.
+- Switched category item thumbnails from plain `Image.network` to `CachedNetworkImage` with loading/error widgets for consistent caching + fallback behavior.
+- Validation: analyzer on touched files reports info-level hints only (no compile errors).
+
+### Planner Update — Apr 20, 2026 (Home/Category image 404 root cause + fix plan)
+
+- **Observed runtime evidence**: mobile logs show repeated `404` for local static files like `/data/product_images/<hash>.webp` on LAN host. This confirms frontend URL formatting is no longer primary blocker; server cannot find files at requested static path.
+- **Root cause hypothesis**:
+  1. Mongo documents contain `image_path` values under `product_images/...` for many items.
+  2. Some corresponding files are missing on disk in served `data/product_images` (likely legacy/stale DB paths or incomplete historic downloads).
+  3. Home/Category API currently returns that missing `image_path` without server-side existence validation, so client tries dead URL and gets 404.
+
+- **Planned minimal backend-first fix**:
+  1. Add server-side image resolver in `products.py` used by `shop_browse`:
+     - if `image_path` exists on disk, return `/data/<image_path>`.
+     - else if external `image_url` exists, return proxied `/api/products/image-proxy?url=...`.
+     - else return empty and let client placeholder show.
+  2. Include explicit field like `image_src` (resolved URL) in `shop_browse` response so mobile no longer guesses.
+  3. Keep existing `image_path` and `image_url` in response for compatibility.
+  4. Optional fast repair path: background attempt to redownload missing local images for records where `image_path` file is missing but `image_url` exists.
+
+- **Extended plan (same fix scope): audit + replace broken-image dupes in Trending/Category**
+  5. Add an image-health filter in `shop_browse` query/selection flow:
+     - candidate is **valid** if:
+       - local `image_path` exists on disk, OR
+       - external `image_url` is present and passes URL sanity checks (non-loader/non-placeholder).
+     - candidate is **invalid** if neither condition is true.
+  6. When building response items for each slot (`dresses`, `bags`, `accessories`, `jewelry`):
+     - skip invalid candidates,
+     - continue scanning older/newer docs until reaching requested `limit`,
+     - return best available valid-image items instead of broken-image items.
+  7. Add lightweight diagnostics in response metadata for planning/debugging:
+     - counts such as `considered`, `valid_with_local`, `valid_with_proxy`, `skipped_missing_image`.
+     - do not expose internal filesystem paths in response.
+  8. Mobile behavior remains simple:
+     - prefer backend `image_src`,
+     - fallback to existing fields only for legacy responses.
+     - no client-side replacement heuristics once backend filtering is in place.
+
+- **Success criteria**:
+  - Home `Trending Dupes` and category browse show images without repeated 404 spam for missing `/data/product_images/...`.
+  - For products with broken local files but valid source URL, proxy image displays successfully.
+  - Analyzer/tests unchanged for mobile; backend route responds with stable fields.
+  - `shop_browse` returns full `limit` with valid-image products whenever enough valid candidates exist in DB.
+  - Broken-image products are automatically excluded from Trending/Category lists and replaced by valid-image alternatives in the same slot.
+  - Logs/metadata confirm how many items were skipped and replaced due to image issues.
+
+### Executor's Feedback or Assistance Requests — Apr 20, 2026 (plan approval: backend image resolver)
+
+- Planner recommends implementing backend `shop_browse` image existence check + proxy fallback + invalid-image replacement filtering next, then wiring mobile to prefer `image_src` from API. Please confirm to proceed with execution.
+
+
+### Current Status / Progress Tracking — Executor Update (Apr 20, 2026, Shop Browse Image Health)
+
+- Implemented backend image resolver in ackend/app/api/routes/products.py for /api/products/shop-browse to return only products with resolvable images.
+- Added image_src response field per item with precedence:
+  - local file /data/... when image_path exists on disk
+  - proxy endpoint /api/products/image-proxy?url=... when external image URL is valid
+  - candidate skipped if no usable image exists
+- Added debug-friendly response diagnostics in image_stats: considered, alid_with_local, alid_with_proxy, skipped_missing_image.
+- Updated mobile image URL resolvers in:
+  - mobile/lib/screens/home_tab.dart
+  - mobile/lib/screens/category_browse_screen.dart
+  to prefer backend-provided image_src first, then fallback to existing legacy fields.
+- Validation in progress: run Python compile check + Flutter analyze on changed screens.
+
+### Executor's Feedback or Assistance Requests — Apr 20, 2026 (Shop Browse Image Health)
+
+- Milestone implementation complete for backend + mobile wiring.
+- After validation commands pass, please test on device:
+  1. Home -> Trending Dupes images
+  2. Home -> Category chip -> category browse images
+  3. Confirm missing-image products are replaced by valid-image alternatives (list remains filled up to limit when available).
+
+### Lessons
+
+- For mixed local/remote product media, returning a single server-resolved image_src from backend reduces repeated mobile-side URL heuristics and makes debugging missing-image inventory easier.
+
+### Current Status / Progress Tracking — Executor Update (Apr 20, 2026, Trending Dupes MIME diagnosis)
+
+- Investigated Home Trending-only image failures by probing `/api/products/shop-browse` item-by-item.
+- Confirmed specific trending dress product IDs include local `.webp` files (examples: `69b0ad2b9a535081b9f34f10`, `69b0ad379a535081b9f34f40`).
+- Root cause identified on Windows backend host: `.webp` static files are served as `text/plain` instead of `image/webp`, which can break image rendering in mobile.
+- Implemented backend MIME registration fix in `backend/app/main.py` before static mounting:
+  - `mimetypes.add_type("image/webp", ".webp")`
+  - `mimetypes.add_type("image/avif", ".avif")`
+
+### Executor's Feedback or Assistance Requests — Apr 20, 2026 (Trending Dupes MIME fix)
+
+- Please restart backend so updated MIME mapping is applied, then hot restart mobile and verify Home `Trending Dupes`.
+- If any specific card still fails after restart, share one product name from that card and executor will trace that exact record end-to-end.

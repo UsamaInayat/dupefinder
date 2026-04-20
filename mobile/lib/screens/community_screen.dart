@@ -823,7 +823,10 @@ class _CommunityScreenState extends State<CommunityScreen> {
               foregroundColor: DupePalette.textPrimary,
               surfaceTintColor: Colors.transparent,
             ),
-      body: _loading
+      body: SafeArea(
+          top: widget.embedded,
+          bottom: false,
+          child: _loading
           ? const Center(child: CircularProgressIndicator(color: DupePalette.pink))
           : Container(
               decoration: BoxDecoration(
@@ -880,7 +883,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
                   ),
                 ],
               ),
-            ),
+            )),
       floatingActionButton: Container(
         decoration: BoxDecoration(
           gradient: LinearGradient(

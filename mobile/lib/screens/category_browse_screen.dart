@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -24,6 +25,7 @@ class CategoryBrowseScreen extends StatefulWidget {
 class _CategoryBrowseScreenState extends State<CategoryBrowseScreen> {
   final _api = ApiService();
   final _history = DupeHistoryService();
+  final Set<String> _prefetchedImageUrls = <String>{};
   List<Map<String, dynamic>> _items = [];
   String? _error;
   bool _loading = true;
@@ -47,6 +49,7 @@ class _CategoryBrowseScreenState extends State<CategoryBrowseScreen> {
         _items = raw.map((e) => Map<String, dynamic>.from(e as Map)).toList();
         _loading = false;
       });
+      _prefetchCategoryImages(_items);
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -61,16 +64,48 @@ class _CategoryBrowseScreenState extends State<CategoryBrowseScreen> {
     return base.endsWith('/api') ? base.substring(0, base.length - 4) : base;
   }
 
+  bool _isLocalBackendHost(String host) {
+    final h = host.toLowerCase();
+    return h == 'localhost' || h == '127.0.0.1' || h == '10.0.2.2';
+  }
+
+  String _retargetToResolvedOrigin(String rawUrl, String origin) {
+    final raw = Uri.tryParse(rawUrl);
+    final o = Uri.tryParse(origin);
+    if (raw == null || o == null) return rawUrl;
+    if (!raw.hasScheme || raw.host.isEmpty) return rawUrl;
+    if (!_isLocalBackendHost(raw.host)) return rawUrl;
+    return raw
+        .replace(
+          scheme: o.scheme,
+          host: o.host,
+          port: o.hasPort ? o.port : null,
+        )
+        .toString();
+  }
+
   String? _resolveImageUrl(Map<String, dynamic> product) {
     final origin = _apiOrigin();
+    final imageSrc = (product['image_src'] as String?)?.trim();
     final imageUrl = (product['image_url'] as String?)?.trim();
     final imagePath = (product['image_path'] as String?)?.trim();
 
-    // Prefer remote URL first because many records have stale/missing local image_path.
+    if (imageSrc != null && imageSrc.isNotEmpty) {
+      if (imageSrc.startsWith('http://') || imageSrc.startsWith('https://')) {
+        return _retargetToResolvedOrigin(imageSrc, origin);
+      }
+      if (imageSrc.startsWith('/')) return '$origin$imageSrc';
+      return imageSrc;
+    }
     if (imageUrl != null && imageUrl.isNotEmpty) {
       if (imageUrl.startsWith('http://') || imageUrl.startsWith('https://')) {
+        final parsed = Uri.tryParse(imageUrl);
+        if (parsed != null && _isLocalBackendHost(parsed.host)) {
+          return _retargetToResolvedOrigin(imageUrl, origin);
+        }
         return '$origin/api/products/image-proxy?url=${Uri.encodeComponent(imageUrl)}';
       }
+      if (imageUrl.startsWith('/')) return '$origin$imageUrl';
       return imageUrl;
     }
 
@@ -84,10 +119,25 @@ class _CategoryBrowseScreenState extends State<CategoryBrowseScreen> {
           .replaceFirst(RegExp(r'^data/+'), '');
       return '$origin/data/$normalized';
     }
-    if (imagePath != null && imagePath.isNotEmpty) {
-      return imagePath;
-    }
     return null;
+  }
+
+  void _prefetchCategoryImages(List<Map<String, dynamic>> products) {
+    if (!mounted) return;
+    final urls = <String>{};
+    for (final p in products) {
+      final u = _resolveImageUrl(p);
+      if (u != null && u.isNotEmpty) urls.add(u);
+    }
+    urls.removeAll(_prefetchedImageUrls);
+    if (urls.isEmpty) return;
+    _prefetchedImageUrls.addAll(urls);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      for (final url in urls.take(16)) {
+        precacheImage(CachedNetworkImageProvider(url), context).catchError((_) {});
+      }
+    });
   }
 
   String? _resolveProductUrl(Map<String, dynamic> product) {
@@ -251,10 +301,20 @@ class _CategoryBrowseScreenState extends State<CategoryBrowseScreen> {
                                         width: 88,
                                         height: 88,
                                         child: imgUrl != null
-                                            ? Image.network(
-                                                imgUrl,
+                                            ? CachedNetworkImage(
+                                                imageUrl: imgUrl,
                                                 fit: BoxFit.cover,
-                                                errorBuilder: (_, __, ___) =>
+                                                placeholder: (_, __) => const Center(
+                                                  child: SizedBox(
+                                                    width: 18,
+                                                    height: 18,
+                                                    child: CircularProgressIndicator(
+                                                      strokeWidth: 2,
+                                                      color: DupePalette.pink,
+                                                    ),
+                                                  ),
+                                                ),
+                                                errorWidget: (_, __, ___) =>
                                                     ColoredBox(
                                                   color: DupePalette.pink
                                                       .withValues(alpha: 0.08),
