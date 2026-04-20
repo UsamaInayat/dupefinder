@@ -2369,9 +2369,181 @@ async def test_scrape_one_brand():
     }
 
 
+def _scraping_cancel_requested(job_id: str) -> bool:
+    j = scraping_jobs.get(job_id)
+    return bool(j and j.get("cancel_requested"))
+
+
+def _flush_scraping_job_progress_mongo(job_id: str, scraping_history) -> None:
+    """Persist volatile progress fields so admin UI / history stay in sync."""
+    if job_id not in scraping_jobs:
+        return
+    j = scraping_jobs[job_id]
+    scraping_history.update_one(
+        {"job_id": job_id},
+        {"$set": {
+            "products_added": j.get("products_added", 0),
+            "brands_completed": j.get("brands_completed", 0),
+            "logs": j.get("logs", []),
+            "save_batch_index": j.get("save_batch_index", 0),
+            "save_batches_total": j.get("save_batches_total", 0),
+            "current_phase": j.get("current_phase", ""),
+            "current_brand_name": j.get("current_brand_name", ""),
+            "cancel_requested": j.get("cancel_requested", False),
+        }},
+    )
+
+
+async def _persist_product_batches_for_job(
+    job_id: str,
+    brand_name: str,
+    products: list,
+    batch_size: int,
+    scraping_history,
+) -> tuple[int, int, bool]:
+    """
+    Same Pass 1 (resolve images) → Pass 2 (downloads) → Pass 3 (Mongo upsert)
+    as the original single-brand path, but applied to each batch so we can
+    checkpoint progress and honor cancel between batches.
+
+    Returns (stored_total, updated_total, stopped_early_due_to_cancel).
+    """
+    products_collection = get_products_collection()
+    stored_total = 0
+    updated_total = 0
+
+    def _is_valid_image_url(u):
+        if not u or not u.lower().startswith(("http://", "https://")):
+            return False
+        ul = (u or "").lower()
+        if "loader" in ul or "lazyload" in ul or (u or "").rstrip("/").endswith(".gif"):
+            return False
+        if not _looks_like_image_url(u):
+            return False
+        return True
+
+    bs = max(5, min(int(batch_size or 50), 200))
+    n = len(products)
+    if n == 0:
+        scraping_jobs[job_id]["save_batches_total"] = 0
+        scraping_jobs[job_id]["save_batch_index"] = 0
+        scraping_jobs[job_id]["current_brand_name"] = brand_name
+        scraping_jobs[job_id]["current_phase"] = f"saving {brand_name} (no products)"
+        _flush_scraping_job_progress_mongo(job_id, scraping_history)
+        return 0, 0, False
+
+    num_batches = (n + bs - 1) // bs
+    scraping_jobs[job_id]["save_batches_total"] = num_batches
+    scraping_jobs[job_id]["current_brand_name"] = brand_name
+
+    img_dir = _get_product_images_dir()
+
+    for bi in range(0, n, bs):
+        if _scraping_cancel_requested(job_id):
+            return stored_total, updated_total, True
+
+        batch = products[bi : bi + bs]
+        batch_num = bi // bs + 1
+        scraping_jobs[job_id]["save_batch_index"] = batch_num
+        scraping_jobs[job_id]["current_phase"] = f"saving {brand_name} batch {batch_num}/{num_batches}"
+
+        to_download = []
+        for product in batch:
+            existing = products_collection.find_one({"product_url": product.get("product_url")})
+            image_url = (product.get("image_url") or "").strip()
+            if not _is_valid_image_url(image_url) and existing:
+                image_url = (existing.get("image_url") or "").strip()
+            if existing and (existing.get("image_path") or "").startswith("product_images/"):
+                rel = (existing["image_path"] or "").replace("\\", "/")
+                if (img_dir / rel.replace("product_images/", "")).exists():
+                    product["image_path"] = rel
+                    to_download.append((product, None))
+                    continue
+            if _is_valid_image_url(image_url):
+                to_download.append((product, image_url))
+            else:
+                to_download.append((product, None))
+
+        sem = asyncio.Semaphore(10)
+
+        async def _download_with_sem(p, url):
+            if not url:
+                return
+            async with sem:
+                path = await _download_product_image(url, p.get("product_url") or "")
+                if path:
+                    p["image_path"] = path
+
+        await asyncio.gather(*[_download_with_sem(p, url) for p, url in to_download])
+
+        batch_stored = 0
+        batch_updated = 0
+        for product in batch:
+            try:
+                existing = products_collection.find_one({"product_url": product.get("product_url")})
+                if not existing:
+                    product_id = product.get("product_id")
+                    if product_id:
+                        id_exists = products_collection.find_one({"product_id": product_id})
+                        if id_exists:
+                            url_hash = hashlib.md5(
+                                f"{product.get('product_url')}{datetime.utcnow().isoformat()}".encode("utf-8")
+                            ).hexdigest()
+                            product["product_id"] = int(url_hash[:8], 16)
+
+                    products_collection.insert_one(product)
+                    batch_stored += 1
+                else:
+                    update_data = product.copy()
+                    if "product_id" in update_data:
+                        del update_data["product_id"]
+                    if not update_data.get("image_path") and (existing.get("image_path") or "").startswith(
+                        "product_images/"
+                    ):
+                        update_data["image_path"] = existing["image_path"]
+                    products_collection.update_one(
+                        {"product_url": product.get("product_url")},
+                        {"$set": update_data},
+                    )
+                    batch_updated += 1
+            except Exception as e:
+                error_msg = str(e)
+                if "E11000" in error_msg or "duplicate key" in error_msg.lower():
+                    try:
+                        url_hash = hashlib.md5(
+                            f"{product.get('product_url')}{datetime.utcnow().isoformat()}".encode("utf-8")
+                        ).hexdigest()
+                        product["product_id"] = int(url_hash[:8], 16)
+                        products_collection.insert_one(product)
+                        batch_stored += 1
+                        logger.info(f"Retried insert with new product_id for {product.get('product_url')}")
+                    except Exception as retry_error:
+                        logger.error(f"Error storing product (retry failed): {retry_error}")
+                        scraping_jobs[job_id]["logs"].append(f"Error storing product: {str(retry_error)}")
+                else:
+                    logger.error(f"Error storing product: {e}")
+                    scraping_jobs[job_id]["logs"].append(f"Error storing product: {error_msg}")
+
+        stored_total += batch_stored
+        updated_total += batch_updated
+        with_local_img = sum(
+            1
+            for p in batch
+            if (p.get("image_path") or "").strip()
+            and "placeholder" not in (p.get("image_path") or "").lower()
+        )
+        scraping_jobs[job_id]["logs"].append(
+            f"Batch {batch_num}/{num_batches} ({brand_name}): {len(batch)} items, "
+            f"{with_local_img} with image path, +{batch_stored} new / +{batch_updated} updated"
+        )
+        _flush_scraping_job_progress_mongo(job_id, scraping_history)
+
+    return stored_total, updated_total, False
+
+
 @router.post("/scraping/start")
 async def start_rescraping(
-    request: dict,  # {brand_ids: [{"brand_name": "...", "brand_url": "...", "category": "..."}]}
+    request: dict,  # {brand_ids: [...], product_batch_size?: int}
     admin: dict = Depends(require_admin)
 ):
     """
@@ -2385,6 +2557,13 @@ async def start_rescraping(
     
     if not brand_list:
         raise HTTPException(status_code=400, detail="No brands selected")
+
+    raw_bs = request.get("product_batch_size", 50)
+    try:
+        product_batch_size = int(raw_bs)
+    except (TypeError, ValueError):
+        product_batch_size = 50
+    product_batch_size = max(5, min(product_batch_size, 200))
     
     job_id = str(uuid.uuid4())
     started_at = datetime.utcnow()
@@ -2398,7 +2577,13 @@ async def start_rescraping(
         "brands_total": len(brand_list),
         "products_added": 0,
         "started_at": started_at,
-        "logs": []
+        "logs": [],
+        "cancel_requested": False,
+        "product_batch_size": product_batch_size,
+        "current_phase": "pending",
+        "current_brand_name": "",
+        "save_batch_index": 0,
+        "save_batches_total": 0,
     }
     
     # Store job in memory for real-time status
@@ -2429,21 +2614,32 @@ async def run_scraping_job(job_id: str, brand_list: List[dict]):
     
     try:
         scraping_jobs[job_id]["status"] = "running"
+        scraping_jobs[job_id]["current_phase"] = "running"
         total_products = 0
+        job_stopped_cancelled = False
         
         # Update status in MongoDB
         scraping_history.update_one(
             {"job_id": job_id},
-            {"$set": {"status": "running"}}
+            {"$set": {"status": "running", "current_phase": "running"}}
         )
 
         brand_list = _enrich_brands_for_scraping(brand_list)
         scraping_jobs[job_id]["brands"] = brand_list
+        batch_sz = int(scraping_jobs[job_id].get("product_batch_size") or 50)
+        batch_sz = max(5, min(batch_sz, 200))
         
         scraper = ProductScraper()
         
         for idx, brand_info in enumerate(brand_list):
+            if _scraping_cancel_requested(job_id):
+                job_stopped_cancelled = True
+                scraping_jobs[job_id]["logs"].append("Cancelled before starting next brand.")
+                break
             brand_name = brand_info.get("brand_name", "Unknown")
+            scraping_jobs[job_id]["current_brand_name"] = brand_name
+            scraping_jobs[job_id]["current_phase"] = f"scraping {brand_name}"
+            _flush_scraping_job_progress_mongo(job_id, scraping_history)
             # Multiple URLs per brand: brand_urls (list) or single brand_url
             urls_to_scrape = brand_info.get("brand_urls") or []
             if not urls_to_scrape and brand_info.get("brand_url"):
@@ -2469,6 +2665,12 @@ async def run_scraping_job(job_id: str, brand_list: List[dict]):
                 seen_product_urls = set()
                 display_cats = brand_info.get("display_categories") or []
                 for url_idx, brand_url in enumerate(urls_to_scrape):
+                    if _scraping_cancel_requested(job_id):
+                        job_stopped_cancelled = True
+                        scraping_jobs[job_id]["logs"].append(
+                            f"Cancelled during scrape for {brand_name}; no DB write for this brand's in-memory list."
+                        )
+                        break
                     parsed = urlparse(brand_url or "")
                     path = (parsed.path or "").strip("/")
                     url_lower = (brand_url or "").lower()
@@ -2515,6 +2717,8 @@ async def run_scraping_job(job_id: str, brand_list: List[dict]):
                             seen_product_urls.add(purl)
                             all_products.append(p)
                 products = all_products
+                if job_stopped_cancelled:
+                    break
                 scraping_jobs[job_id]["logs"].append(
                     f"Found {len(products)} products from {brand_name} ({len(urls_to_scrape)} link(s))"
                 )
@@ -2523,107 +2727,34 @@ async def run_scraping_job(job_id: str, brand_list: List[dict]):
                         f"⚠ {brand_name}: 0 products extracted. Check URL(s) or site structure."
                     )
                 logger.info(f"Scrape done: {brand_name} | {len(urls_to_scrape)} URL(s) | products: {len(products)}")
-                
-                # Store products in MongoDB
-                products_collection = get_products_collection()
-                stored = 0
-                updated = 0
-                
-                def _is_valid_image_url(u):
-                    if not u or not u.lower().startswith(("http://", "https://")): return False
-                    ul = (u or "").lower()
-                    if "loader" in ul or "lazyload" in ul or (u or "").rstrip("/").endswith(".gif"): return False
-                    if not _looks_like_image_url(u): return False
-                    return True
-                
-                # Pass 1: resolve image_url per product, skip if existing already has local file
-                img_dir = _get_product_images_dir()
-                to_download = []  # list of (product, image_url)
-                for product in products:
-                    existing = products_collection.find_one({"product_url": product.get("product_url")})
-                    image_url = (product.get("image_url") or "").strip()
-                    if not _is_valid_image_url(image_url) and existing:
-                        image_url = (existing.get("image_url") or "").strip()
-                    if existing and (existing.get("image_path") or "").startswith("product_images/"):
-                        rel = (existing["image_path"] or "").replace("\\", "/")
-                        if (img_dir / rel.replace("product_images/", "")).exists():
-                            product["image_path"] = rel
-                            to_download.append((product, None))
-                            continue
-                    if _is_valid_image_url(image_url):
-                        to_download.append((product, image_url))
-                    else:
-                        to_download.append((product, None))
-                
-                # Pass 2: parallel image downloads (max 10 at a time)
-                sem = asyncio.Semaphore(10)
-                async def _download_with_sem(p, url):
-                    if not url:
-                        return
-                    async with sem:
-                        path = await _download_product_image(url, p.get("product_url") or "")
-                        if path:
-                            p["image_path"] = path
-                await asyncio.gather(*[_download_with_sem(p, url) for p, url in to_download])
-                
-                # Pass 3: insert or update
-                for product in products:
-                    try:
-                        existing = products_collection.find_one({"product_url": product.get("product_url")})
-                        if not existing:
-                            # Check if product_id already exists (handle hash collisions)
-                            product_id = product.get("product_id")
-                            if product_id:
-                                id_exists = products_collection.find_one({"product_id": product_id})
-                                if id_exists:
-                                    # Generate new product_id by appending timestamp hash
-                                    url_hash = hashlib.md5(
-                                        f"{product.get('product_url')}{datetime.utcnow().isoformat()}".encode('utf-8')
-                                    ).hexdigest()
-                                    product['product_id'] = int(url_hash[:8], 16)
-                            
-                            products_collection.insert_one(product)
-                            stored += 1
-                        else:
-                            # Update existing product (preserve existing product_id and existing image_path if we didn't get new one)
-                            update_data = product.copy()
-                            if 'product_id' in update_data:
-                                del update_data['product_id']
-                            if not update_data.get("image_path") and (existing.get("image_path") or "").startswith("product_images/"):
-                                update_data["image_path"] = existing["image_path"]
-                            products_collection.update_one(
-                                {"product_url": product.get("product_url")},
-                                {"$set": update_data}
-                            )
-                            updated += 1
-                    except Exception as e:
-                        error_msg = str(e)
-                        # If it's a duplicate key error, try with a new product_id
-                        if "E11000" in error_msg or "duplicate key" in error_msg.lower():
-                            try:
-                                url_hash = hashlib.md5(
-                                    f"{product.get('product_url')}{datetime.utcnow().isoformat()}".encode('utf-8')
-                                ).hexdigest()
-                                product['product_id'] = int(url_hash[:8], 16)
-                                products_collection.insert_one(product)
-                                stored += 1
-                                logger.info(f"Retried insert with new product_id for {product.get('product_url')}")
-                            except Exception as retry_error:
-                                logger.error(f"Error storing product (retry failed): {retry_error}")
-                                scraping_jobs[job_id]["logs"].append(f"Error storing product: {str(retry_error)}")
-                        else:
-                            logger.error(f"Error storing product: {e}")
-                            scraping_jobs[job_id]["logs"].append(f"Error storing product: {error_msg}")
-                
-                total_products += stored + updated  # show new + updated so user sees total processed (not 0 when only updates)
+
+                # Store products in MongoDB (batched; same pass logic as before; cancel between batches)
+                stored, updated, save_cancelled = await _persist_product_batches_for_job(
+                    job_id, brand_name, products, batch_sz, scraping_history
+                )
+                total_products += stored + updated
                 scraping_jobs[job_id]["products_added"] = total_products
+
+                if save_cancelled:
+                    job_stopped_cancelled = True
+                    scraping_jobs[job_id]["logs"].append(
+                        "Stop requested after the last finished save batch; reindex will not run for this job."
+                    )
+                    scraping_jobs[job_id]["current_phase"] = "cancelled"
+                    scraping_jobs[job_id]["save_batch_index"] = 0
+                    scraping_jobs[job_id]["save_batches_total"] = 0
+                    _flush_scraping_job_progress_mongo(job_id, scraping_history)
+                    break
+
                 scraping_jobs[job_id]["brands_completed"] = idx + 1
+                scraping_jobs[job_id]["save_batch_index"] = 0
+                scraping_jobs[job_id]["save_batches_total"] = 0
                 scraping_jobs[job_id]["logs"].append(
                     f"Completed {brand_name}: {stored} new, {updated} updated, {len(products)} total found"
                 )
-                # Log products without image (placeholder or empty)
                 without_image = [
-                    p for p in products
+                    p
+                    for p in products
                     if not (p.get("image_path") or "").strip()
                     or "placeholder" in (p.get("image_path") or "").lower()
                 ]
@@ -2638,18 +2769,22 @@ async def run_scraping_job(job_id: str, brand_list: List[dict]):
                     scraping_jobs[job_id]["logs"].append(
                         f"Images: all {len(products)} products have images"
                     )
-                
-                # Update progress in MongoDB
+
                 scraping_history.update_one(
                     {"job_id": job_id},
-                    {"$set": {
-                        "products_added": total_products,
-                        "brands_completed": idx + 1,
-                        "logs": scraping_jobs[job_id]["logs"]
-                    }}
+                    {
+                        "$set": {
+                            "products_added": total_products,
+                            "brands_completed": idx + 1,
+                            "logs": scraping_jobs[job_id]["logs"],
+                            "save_batch_index": 0,
+                            "save_batches_total": 0,
+                            "current_phase": scraping_jobs[job_id].get("current_phase", ""),
+                            "current_brand_name": scraping_jobs[job_id].get("current_brand_name", ""),
+                        }
+                    },
                 )
-                
-                # Small delay between brands
+
                 await asyncio.sleep(2)
             
             except Exception as e:
@@ -2658,28 +2793,56 @@ async def run_scraping_job(job_id: str, brand_list: List[dict]):
                 logger.error(error_msg, exc_info=True)
                 # Continue with next brand instead of failing completely
         
-        # Complete
-        completed_at = datetime.utcnow()
-        scraping_jobs[job_id]["status"] = "completed"
-        scraping_jobs[job_id]["completed_at"] = completed_at
-        scraping_jobs[job_id]["logs"].append(f"Scraping completed! Total: {total_products} products (new + updated)")
-        
-        # Update in MongoDB
         scraping_history = get_scraping_history_collection()
-        scraping_history.update_one(
-            {"job_id": job_id},
-            {"$set": {
-                "status": "completed",
-                "completed_at": completed_at,
-                "products_added": total_products,
-                "brands_completed": scraping_jobs[job_id]["brands_completed"],
-                "logs": scraping_jobs[job_id]["logs"]
-            }}
-        )
-
-        # Auto-trigger FashionCLIP reindex for newly scraped products
-        scraping_jobs[job_id]["logs"].append("Starting FashionCLIP reindex for new products...")
-        asyncio.create_task(_run_reindex_task(job_id))
+        if job_stopped_cancelled:
+            cancelled_at = datetime.utcnow()
+            scraping_jobs[job_id]["status"] = "cancelled"
+            scraping_jobs[job_id]["cancelled_at"] = cancelled_at
+            scraping_jobs[job_id]["current_phase"] = "cancelled"
+            scraping_jobs[job_id]["logs"].append(
+                f"Scraping cancelled. Total products (new + updated) saved: {total_products}."
+            )
+            scraping_history.update_one(
+                {"job_id": job_id},
+                {
+                    "$set": {
+                        "status": "cancelled",
+                        "cancelled_at": cancelled_at,
+                        "products_added": total_products,
+                        "brands_completed": scraping_jobs[job_id]["brands_completed"],
+                        "logs": scraping_jobs[job_id]["logs"],
+                        "current_phase": "cancelled",
+                        "current_brand_name": scraping_jobs[job_id].get("current_brand_name", ""),
+                        "save_batch_index": 0,
+                        "save_batches_total": 0,
+                    }
+                },
+            )
+        else:
+            completed_at = datetime.utcnow()
+            scraping_jobs[job_id]["status"] = "completed"
+            scraping_jobs[job_id]["completed_at"] = completed_at
+            scraping_jobs[job_id]["current_phase"] = "completed"
+            scraping_jobs[job_id]["logs"].append(
+                f"Scraping completed! Total: {total_products} products (new + updated)"
+            )
+            scraping_history.update_one(
+                {"job_id": job_id},
+                {
+                    "$set": {
+                        "status": "completed",
+                        "completed_at": completed_at,
+                        "products_added": total_products,
+                        "brands_completed": scraping_jobs[job_id]["brands_completed"],
+                        "logs": scraping_jobs[job_id]["logs"],
+                        "current_phase": "completed",
+                        "save_batch_index": 0,
+                        "save_batches_total": 0,
+                    }
+                },
+            )
+            scraping_jobs[job_id]["logs"].append("Starting FashionCLIP reindex for new products...")
+            asyncio.create_task(_run_reindex_task(job_id))
         
     except Exception as e:
         failed_at = datetime.utcnow()
@@ -2780,6 +2943,29 @@ def _sync_reindex() -> dict:
             logger.warning(f"[Reindex] Hot-reload failed (restart backend to apply): {e}")
 
     return summary
+
+
+@router.post("/scraping/cancel/{job_id}")
+async def cancel_scraping_job(job_id: str, admin: dict = Depends(require_admin)):
+    """Request cooperative cancel: finishes current scrape/download if in-flight, then stops before the next URL or DB batch."""
+    if job_id not in scraping_jobs:
+        raise HTTPException(status_code=404, detail="Scraping job not found")
+    job = scraping_jobs[job_id]
+    st = job.get("status")
+    if st != "running":
+        return {"success": False, "message": f"Job is not running (status={st})"}
+    scraping_jobs[job_id]["cancel_requested"] = True
+    scraping_jobs[job_id]["logs"].append(
+        "Cancel requested: will stop before the next listing URL or save batch (current batch is completed first)."
+    )
+    try:
+        get_scraping_history_collection().update_one(
+            {"job_id": job_id},
+            {"$set": {"cancel_requested": True, "logs": scraping_jobs[job_id]["logs"]}},
+        )
+    except Exception as e:
+        logger.warning("cancel_scraping_job mongo update failed: %s", e)
+    return {"success": True, "message": "Cancel scheduled"}
 
 
 @router.get("/scraping/status/{job_id}")

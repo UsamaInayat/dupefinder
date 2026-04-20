@@ -214,17 +214,23 @@ class _ImageSearchScreenState extends State<ImageSearchScreen> {
     final imageUrl = (product['image_url'] as String?)?.trim();
     final imagePath = (product['image_path'] as String?)?.trim();
 
-    if (imagePath != null && imagePath.isNotEmpty) {
-      final path = imagePath.replaceAll('\\', '/');
-      if (!path.startsWith('http://') && !path.startsWith('https://')) {
-        return '$origin/data/$path';
-      }
-    }
+    // Prefer remote URL first because many records have stale/missing local image_path.
     if (imageUrl != null && imageUrl.isNotEmpty) {
       if (imageUrl.startsWith('http://') || imageUrl.startsWith('https://')) {
         return '$origin/api/products/image-proxy?url=${Uri.encodeComponent(imageUrl)}';
       }
       return imageUrl;
+    }
+
+    if (imagePath != null && imagePath.isNotEmpty) {
+      final path = imagePath.replaceAll('\\', '/');
+      if (path.startsWith('http://') || path.startsWith('https://')) {
+        return '$origin/api/products/image-proxy?url=${Uri.encodeComponent(path)}';
+      }
+      final normalized = path
+          .replaceFirst(RegExp(r'^/+'), '')
+          .replaceFirst(RegExp(r'^data/+'), '');
+      return '$origin/data/$normalized';
     }
     if (imagePath != null && imagePath.isNotEmpty) {
       return imagePath;

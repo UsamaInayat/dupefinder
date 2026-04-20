@@ -28,16 +28,23 @@ class WishlistService {
       return _cloneList(_memoryCache!);
     }
     if (await _api.isLoggedIn()) {
+      final local = await _getLocal();
       try {
         await _migrateLocalIfNeeded();
         final data = await _api.getUserData();
         final list = data['wishlist'] as List<dynamic>? ?? [];
         final parsed =
             list.map((e) => Map<String, dynamic>.from(e as Map)).toList();
-        _setCache(parsed);
-        return _cloneList(parsed);
+        final merged = _mergeById(local, parsed);
+        if (merged.length != parsed.length) {
+          try {
+            await _api.putWishlist(merged);
+          } catch (_) {}
+        }
+        await _saveLocal(merged);
+        _setCache(merged);
+        return _cloneList(merged);
       } catch (_) {
-        final local = await _getLocal();
         _setCache(local);
         return _cloneList(local);
       }
@@ -94,9 +101,8 @@ class WishlistService {
     list.add(product);
     if (await _api.isLoggedIn()) {
       await _api.putWishlist(list);
-    } else {
-      await _saveLocal(list);
     }
+    await _saveLocal(list);
     _setCache(list);
   }
 
@@ -105,9 +111,8 @@ class WishlistService {
     list.removeWhere((p) => productId(p) == id);
     if (await _api.isLoggedIn()) {
       await _api.putWishlist(list);
-    } else {
-      await _saveLocal(list);
     }
+    await _saveLocal(list);
     _setCache(list);
   }
 
@@ -127,5 +132,18 @@ class WishlistService {
 
   List<Map<String, dynamic>> _cloneList(List<Map<String, dynamic>> list) {
     return list.map((e) => Map<String, dynamic>.from(e)).toList();
+  }
+
+  List<Map<String, dynamic>> _mergeById(
+    List<Map<String, dynamic>> local,
+    List<Map<String, dynamic>> remote,
+  ) {
+    final out = <Map<String, dynamic>>[];
+    final seen = <String>{};
+    for (final p in [...remote, ...local]) {
+      final id = productId(p);
+      if (seen.add(id)) out.add(Map<String, dynamic>.from(p));
+    }
+    return out;
   }
 }

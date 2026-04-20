@@ -501,15 +501,6 @@ class _MeScreenState extends State<MeScreen> {
             child: Column(
               children: [
                 _menuRow(
-                  icon: Icons.bookmark_outline_rounded,
-                  title: 'Saved Items',
-                  badge: _dupeHistoryCount > 0 ? '$_dupeHistoryCount' : null,
-                  onTap: () {
-                    Navigator.push(context, MaterialPageRoute(builder: (_) => const DupeHistoryScreen()));
-                  },
-                ),
-                _divider(),
-                _menuRow(
                   icon: Icons.shopping_bag_outlined,
                   title: 'Dupe history',
                   subtitle: '$_dupeHistoryCount items',

@@ -3445,3 +3445,105 @@ Expected speedup: ~20s/batch → ~1-2s/batch → 23k images done in ~10 min inst
 
 - User reported the `Log In` button text descender was clipped (`g` cut). Applied a minimal text-only fix in `mobile/lib/screens/welcome_screen.dart`: `TextStyle(height: 1.2)` for the `Log In` label to preserve descender space.
 - Validation: `flutter analyze lib/screens/welcome_screen.dart` passes with no issues.
+
+### Current Status / Progress Tracking — Executor Update (Apr 20, 2026, start backend + mobile app)
+
+- Executor started backend successfully from `backend` using `python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000`.
+- Backend runtime confirmed healthy (`Uvicorn running on http://0.0.0.0:8000`, startup complete).
+- Executor detected physical Android device via Flutter (`974cd4fd0506`) and attempted `flutter run -d 974cd4fd0506`.
+- Mobile launch is currently blocked by Windows symlink requirement: Flutter output says "Building with plugins requires symlink support" and requests enabling Developer Mode.
+
+### Executor's Feedback or Assistance Requests — Apr 20, 2026 (start backend + mobile app blocker)
+
+- Please enable Windows Developer Mode once: run `start ms-settings:developers` and turn on **Developer Mode**.
+- After you confirm it is enabled, I will immediately rerun `flutter run -d 974cd4fd0506` and keep it running on your phone.
+
+### Current Status / Progress Tracking — Executor Update (Apr 20, 2026, start backend + mobile app retry)
+
+- Retried mobile launch after blocker step: `flutter run -d 974cd4fd0506` now succeeds.
+- Flutter app built (`app-debug.apk`), installed on device `21061119AG`, and entered live debug session (hot reload/hot restart keys available).
+- Backend remains running on `http://0.0.0.0:8000`.
+- Runtime log confirms app is attempting backend usage from saved LAN URL: `http://192.168.10.8:8000/api`.
+
+### Executor's Feedback or Assistance Requests — Apr 20, 2026 (start backend + mobile app milestone)
+
+- Milestone complete for this step: backend + mobile app are both running.
+- Please do a quick manual check on phone (open app, try login or any API-backed screen) and confirm everything is working end-to-end; after your confirmation, Planner can mark this task complete.
+
+### Current Status / Progress Tracking — Executor Update (Apr 20, 2026, mobile UI/data fixes batch)
+
+- **Community feed photo first-paint fix** (`mobile/lib/screens/community_screen.dart`): added background hydration for posts that have `hasImage=true` but no inline bytes, so feed cards load uploaded images without requiring first tap.
+- **Community reply sheet overflow fix** (`mobile/lib/screens/community_screen.dart`): adjusted draggable sheet max size and composer bottom padding to include keyboard insets; this targets the `BOTTOM OVERFLOWED` issue while replying.
+- **Shop by Category image fix** (`mobile/lib/screens/category_browse_screen.dart`, `mobile/lib/screens/home_tab.dart`, `mobile/lib/screens/search/image_search_screen.dart`): normalized `image_path` values that already start with `data/` to avoid broken `.../data/data/...` URLs.
+- **Wishlist/Compare immediate visibility fix** (`mobile/lib/services/wishlist_service.dart`, `mobile/lib/services/compare_service.dart`, `mobile/lib/screens/main_shell.dart`): persist local copy even when logged-in, merge local+server lists on read, and force tab refresh keys when opening Saved/Compare tabs.
+- **Home header + bell notifications** (`mobile/lib/screens/home_tab.dart`): replaced top title `Discover` with `DupeFinder`; added bell icon that opens a recent notifications bottom sheet (with unread dot).
+- **Profile cleanup** (`mobile/lib/screens/me_screen.dart`): removed `Saved Items` row from profile menu.
+- **Validation**: `ReadLints` on edited files shows no new linter errors; `flutter analyze` reports only info-level warnings in project files (no compile errors introduced by this batch).
+
+### Executor's Feedback or Assistance Requests — Apr 20, 2026 (mobile UI/data fixes batch)
+
+- Please hot-restart and verify these exact flows on device:
+  1. Community post image appears on feed without tapping first.
+  2. Reply input in community sheet does not show bottom overflow stripe.
+  3. Category pages (Bags/Accessories/Dresses/Jewellery) show product images.
+  4. Add to Wishlist/Compare then open those tabs immediately (without app restart) and confirm items are visible.
+  5. Home top title shows `DupeFinder`, and bell opens recent notifications list.
+  6. `Saved Items` row is removed from Profile.
+
+### Current Status / Progress Tracking — Executor Update (Apr 20, 2026, follow-up fixes for remaining two issues)
+
+- **Shop-by-category images still missing**: strengthened URL resolver logic in `category_browse_screen.dart`, `home_tab.dart`, and `search/image_search_screen.dart`:
+  - if `image_path` is already absolute `http/https`, now always route through `/api/products/image-proxy`
+  - if `image_path` starts with `/` or `data/`, now normalize both safely to avoid malformed `/data/...` URLs
+- **Community reply overlay still occurring**: updated `_PostDetailSheet` layout in `community_screen.dart` so the top post block is in a `Flexible` + `SingleChildScrollView`; this lets content shrink/scroll under tight keyboard height instead of forcing RenderFlex overflow.
+- **Validation**: `ReadLints` on updated files shows no lint errors after this follow-up patch.
+
+### Executor's Feedback or Assistance Requests — Apr 20, 2026 (follow-up verification)
+
+- Please do one **hot restart** and re-test:
+  1. Open each Shop-by-Category page (`Dresses`, `Bags`, `Accessories`, `Jewellery`) and verify images now render.
+  2. Open a community post and type a reply with keyboard open; verify no yellow/black bottom overflow appears.
+
+### Current Status / Progress Tracking — Executor Update (Apr 20, 2026, category image root-cause patch)
+
+- Investigated live `/api/products/shop-browse` payload: records include both `image_path` and valid CDN `image_url`.
+- Root cause: mobile resolver still preferred `image_path` first; local files are often unavailable on device/backend storage, so cards showed placeholders.
+- Fix applied in `category_browse_screen.dart`, `home_tab.dart`, and `search/image_search_screen.dart`: now **prefer `image_url` first** (proxied via `/api/products/image-proxy`), fallback to normalized local `image_path`.
+- Community follow-up: reduced composer bottom inflation in `_PostDetailSheet` (`community_screen.dart`) so reply bar no longer over-expands with keyboard.
+- App restarted on device after patch; Flutter debug session is active and ready for manual verification.
+
+### Current Status / Progress Tracking — Executor Update (Apr 20, 2026, Home bell deep-link behavior)
+
+- Implemented Home bell functional flow with minimal-scope edits:
+  - `mobile/lib/screens/home_tab.dart`
+  - `mobile/lib/screens/main_shell.dart`
+- Home bell now:
+  - polls recent notifications every 20s (silent refresh),
+  - shows unread red dot based on `isRead == false`,
+  - opens notification list bottom sheet,
+  - on notification tap: closes sheet, marks notification read, and deep-links to Community post/reply via existing MainShell navigation callback.
+- Reused existing `MainShell._openCommunityFromNotification` flow to avoid changing Community navigation logic.
+- Validation:
+  - `ReadLints` reports no lint errors in edited files.
+  - `flutter analyze` on edited files shows only existing info-level const suggestions; no build-blocking issues.
+
+### Executor's Feedback or Assistance Requests — Apr 20, 2026 (Home bell deep-link verification)
+
+- Please verify this flow on device:
+  1. Trigger a new community notification (reply/interaction),
+  2. Open Home bell and tap that notification,
+  3. Confirm app navigates to Community and opens the related post/reply.
+
+### Current Status / Progress Tracking — Executor Update (Apr 20, 2026, Admin Auto Sync: cancel + batched DB save)
+
+- **Backend** (`backend/app/api/routes/admin_new.py`):
+  - `POST /scraping/start` accepts optional `product_batch_size` (clamped 5–200, default 50); job document includes `cancel_requested`, phase/batch fields.
+  - `POST /scraping/cancel/{job_id}` sets cooperative cancel (honored before next URL or before next save batch).
+  - Mongo persistence uses the same Pass 1→2→3 logic as before, applied per batch via `_persist_product_batches_for_job`; `_flush_scraping_job_progress_mongo` updates history after each batch.
+  - Cancelled jobs end with `status: cancelled`, no FashionCLIP reindex task started; full success path unchanged except extra progress fields.
+- **Frontend** (`frontend-app/src/components/admin/ScrapingManagement.jsx`): batch size control, Cancel job button, phase + dual progress (brands + save batches), `cancelled` status handling and history badge color.
+- **Validation**: `python -m py_compile` on `admin_new.py` OK; `ReadLints` clean on edited files.
+
+### Executor's Feedback or Assistance Requests — Apr 20, 2026 (Admin scraping cancel/batch)
+
+- Planner/user: please run one full scrape (no cancel) to confirm behavior matches pre-change, then a cancel mid-save-batch and confirm DB has partial brand data and history shows `cancelled`.

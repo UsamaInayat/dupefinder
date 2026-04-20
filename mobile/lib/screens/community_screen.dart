@@ -82,6 +82,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
   bool _openedFocusedPost = false;
   Timer? _feedTimeTicker;
   bool _loadBusy = false;
+  bool _hydratingFeedImages = false;
 
   @override
   void initState() {
@@ -117,6 +118,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
         _myEmailPrefix = emailPrefix.toLowerCase();
         _loading = false;
       });
+      unawaited(_hydrateFeedImages());
     }
     await _load(forceRefresh: true);
   }
@@ -166,6 +168,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
           _myEmailPrefix = emailPrefix.toLowerCase();
           _loading = false;
         });
+        unawaited(_hydrateFeedImages());
         if (list.isEmpty &&
             _service.lastPostsFetchError != null &&
             forceRefresh &&
@@ -190,6 +193,36 @@ class _CommunityScreenState extends State<CommunityScreen> {
       _openFocusedPostIfNeeded();
     } finally {
       _loadBusy = false;
+    }
+  }
+
+  Future<void> _hydrateFeedImages() async {
+    if (_hydratingFeedImages || !mounted) return;
+    _hydratingFeedImages = true;
+    try {
+      final targets = _posts
+          .where((p) =>
+              p.hasImage &&
+              (p.imageBase64 == null || p.imageBase64!.trim().isEmpty))
+          .take(6)
+          .toList();
+      for (final p in targets) {
+        if (!mounted) return;
+        try {
+          final full = await _service.fetchPostById(p.id);
+          final hasBytes =
+              full.imageBase64 != null && full.imageBase64!.trim().isNotEmpty;
+          if (!hasBytes || !mounted) continue;
+          setState(() {
+            final i = _posts.indexWhere((x) => x.id == p.id);
+            if (i >= 0) {
+              _posts[i] = full;
+            }
+          });
+        } catch (_) {}
+      }
+    } finally {
+      _hydratingFeedImages = false;
     }
   }
 
@@ -1186,17 +1219,12 @@ class _PostDetailSheetState extends State<_PostDetailSheet> {
 
   @override
   Widget build(BuildContext context) {
-    // Lift the whole sheet above the keyboard; insets are not always applied
-    // correctly to children of DraggableScrollableSheet alone.
-    final keyboardBottom = MediaQuery.of(context).viewInsets.bottom;
     final detailDecodeW = _decodeDetailImagePx(context);
     final detailDecodeH = _decodeDetailImageHeightPx(context);
-    return Padding(
-      padding: EdgeInsets.only(bottom: keyboardBottom),
-      child: DraggableScrollableSheet(
+    return DraggableScrollableSheet(
       initialChildSize: 0.58,
       minChildSize: 0.38,
-      maxChildSize: 0.86,
+      maxChildSize: 0.94,
       expand: false,
       builder: (_, scrollController) => Container(
         decoration: BoxDecoration(
@@ -1212,11 +1240,14 @@ class _PostDetailSheetState extends State<_PostDetailSheet> {
         ),
         child: Column(
           children: [
-            Padding(
-              padding: const EdgeInsets.all(20),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
+            Flexible(
+              fit: FlexFit.loose,
+              child: Padding(
+                padding: const EdgeInsets.all(20),
+                child: SingleChildScrollView(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
                   Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
@@ -1413,7 +1444,9 @@ class _PostDetailSheetState extends State<_PostDetailSheet> {
                         color: DupePalette.textPrimary,
                         height: 1.4),
                   ),
-                ],
+                    ],
+                  ),
+                ),
               ),
             ),
             Divider(
@@ -1845,7 +1878,6 @@ class _PostDetailSheetState extends State<_PostDetailSheet> {
           ],
         ),
       ),
-    ),
     );
   }
 }

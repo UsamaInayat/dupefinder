@@ -1,8 +1,10 @@
 import 'package:cached_network_image/cached_network_image.dart';
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
+import '../services/community_service.dart';
 
 import '../services/api_service.dart';
 import '../services/dupe_history_service.dart';
@@ -12,10 +14,15 @@ import 'category_browse_screen.dart';
 /// Home: Discover header, hero, shop-by-category, and DB-backed trending dupes strip.
 class HomeTab extends StatefulWidget {
   final VoidCallback onOpenSearch;
+  final Future<void> Function(String postId, String replyId, String notificationId)?
+      onOpenCommunityFromNotification;
+  final VoidCallback? onNotificationStateChanged;
 
   const HomeTab({
     super.key,
     required this.onOpenSearch,
+    this.onOpenCommunityFromNotification,
+    this.onNotificationStateChanged,
   });
 
   @override
@@ -25,19 +32,34 @@ class HomeTab extends StatefulWidget {
 class _HomeTabState extends State<HomeTab> {
   final _apiService = ApiService();
   final _history = DupeHistoryService();
+  final _communityService = CommunityService();
   String? _userName;
   String? _userEmail;
   bool _guest = false;
   List<Map<String, dynamic>> _trending = [];
   bool _trendingLoading = true;
   String? _trendingError;
+  List<CommunityNotification> _recentNotifications = [];
+  Timer? _notificationTicker;
 
   @override
   void initState() {
     super.initState();
     _load();
     _loadTrendingDupes();
+    _loadRecentNotifications();
+    _notificationTicker = Timer.periodic(const Duration(seconds: 20), (_) {
+      unawaited(_loadRecentNotifications(silent: true));
+    });
   }
+
+  @override
+  void dispose() {
+    _notificationTicker?.cancel();
+    super.dispose();
+  }
+  int get _unreadCount => _recentNotifications.where((n) => !n.isRead).length;
+
 
   Future<void> _load() async {
     final p = await SharedPreferences.getInstance();
@@ -81,7 +103,7 @@ class _HomeTabState extends State<HomeTab> {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              'Discover',
+                              'DupeFinder',
                               style: DupePalette.serifHeading(28, w: FontWeight.w700, color: Colors.white),
                             ),
                             const SizedBox(height: 6),
@@ -96,14 +118,47 @@ class _HomeTabState extends State<HomeTab> {
                           ],
                         ),
                       ),
-                      Material(
-                        color: Colors.white.withValues(alpha: 0.25),
-                        shape: const CircleBorder(),
-                        child: IconButton(
-                          icon: Icon(Icons.tune_rounded, color: Colors.white.withValues(alpha: 0.95)),
-                          onPressed: widget.onOpenSearch,
-                          tooltip: 'Search & filters',
-                        ),
+                      Row(
+                        children: [
+                          Material(
+                            color: Colors.white.withValues(alpha: 0.25),
+                            shape: const CircleBorder(),
+                            child: IconButton(
+                              icon: Stack(
+                                clipBehavior: Clip.none,
+                                children: [
+                                  Icon(Icons.notifications_none_rounded,
+                                      color: Colors.white.withValues(alpha: 0.95)),
+                                  if (_unreadCount > 0)
+                                    Positioned(
+                                      right: -2,
+                                      top: -2,
+                                      child: Container(
+                                        width: 8,
+                                        height: 8,
+                                        decoration: const BoxDecoration(
+                                          color: Colors.redAccent,
+                                          shape: BoxShape.circle,
+                                        ),
+                                      ),
+                                    ),
+                                ],
+                              ),
+                              onPressed: _showNotificationsSheet,
+                              tooltip: 'Recent notifications',
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Material(
+                            color: Colors.white.withValues(alpha: 0.25),
+                            shape: const CircleBorder(),
+                            child: IconButton(
+                              icon: Icon(Icons.tune_rounded, color: Colors.white.withValues(alpha: 0.95)),
+                              onPressed: widget.onOpenSearch,
+                              tooltip: 'Search & filters',
+                            ),
+                          ),
+                        ],
                       ),
                     ],
                   ),
@@ -309,17 +364,23 @@ class _HomeTabState extends State<HomeTab> {
     final imageUrl = (product['image_url'] as String?)?.trim();
     final imagePath = (product['image_path'] as String?)?.trim();
 
-    if (imagePath != null && imagePath.isNotEmpty) {
-      final path = imagePath.replaceAll('\\', '/');
-      if (!path.startsWith('http://') && !path.startsWith('https://')) {
-        return '$origin/data/$path';
-      }
-    }
+    // Prefer remote URL first because many records have stale/missing local image_path.
     if (imageUrl != null && imageUrl.isNotEmpty) {
       if (imageUrl.startsWith('http://') || imageUrl.startsWith('https://')) {
         return '$origin/api/products/image-proxy?url=${Uri.encodeComponent(imageUrl)}';
       }
       return imageUrl;
+    }
+
+    if (imagePath != null && imagePath.isNotEmpty) {
+      final path = imagePath.replaceAll('\\', '/');
+      if (path.startsWith('http://') || path.startsWith('https://')) {
+        return '$origin/api/products/image-proxy?url=${Uri.encodeComponent(path)}';
+      }
+      final normalized = path
+          .replaceFirst(RegExp(r'^/+'), '')
+          .replaceFirst(RegExp(r'^data/+'), '');
+      return '$origin/data/$normalized';
     }
     if (imagePath != null && imagePath.isNotEmpty) {
       return imagePath;
@@ -387,6 +448,118 @@ class _HomeTabState extends State<HomeTab> {
         );
       }
     }
+  }
+
+  Future<void> _loadRecentNotifications({bool silent = false}) async {
+    final prefs = await SharedPreferences.getInstance();
+    final guest = prefs.getBool('guest_mode') == true;
+    if (guest) {
+      if (!silent && mounted && _recentNotifications.isNotEmpty) {
+        setState(() => _recentNotifications = []);
+      }
+      return;
+    }
+    try {
+      final list = await _communityService.getNotifications(limit: 8, unreadOnly: false);
+      if (!mounted) return;
+      setState(() => _recentNotifications = list);
+      widget.onNotificationStateChanged?.call();
+    } catch (_) {}
+  }
+
+  Future<void> _openNotification(CommunityNotification n) async {
+    if (mounted) {
+      setState(() {
+        final idx = _recentNotifications.indexWhere((x) => x.id == n.id);
+        if (idx >= 0) {
+          final curr = _recentNotifications[idx];
+          _recentNotifications[idx] = CommunityNotification(
+            id: curr.id,
+            postId: curr.postId,
+            replyId: curr.replyId,
+            message: curr.message,
+            isRead: true,
+            createdAt: curr.createdAt,
+            actorName: curr.actorName,
+            replyPreview: curr.replyPreview,
+          );
+        }
+      });
+    }
+    widget.onNotificationStateChanged?.call();
+
+    final open = widget.onOpenCommunityFromNotification;
+    if (open != null) {
+      await open(n.postId, n.replyId, n.id);
+    }
+
+    try {
+      await _communityService.markNotificationRead(n.id);
+      widget.onNotificationStateChanged?.call();
+      unawaited(_loadRecentNotifications(silent: true));
+    } catch (_) {}
+  }
+
+  void _showNotificationsSheet() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      builder: (ctx) => SizedBox(
+        height: MediaQuery.sizeOf(ctx).height * 0.58,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 14, 16, 10),
+              child: Text(
+                'Recent notifications',
+                style: GoogleFonts.inter(
+                  fontSize: 17,
+                  fontWeight: FontWeight.w700,
+                  color: DupePalette.textPrimary,
+                ),
+              ),
+            ),
+            const Divider(height: 1),
+            Expanded(
+              child: _recentNotifications.isEmpty
+                  ? Center(
+                      child: Text(
+                        'No recent notifications.',
+                        style: GoogleFonts.inter(
+                          color: DupePalette.greySubtitle,
+                        ),
+                      ),
+                    )
+                  : ListView.separated(
+                      itemCount: _recentNotifications.length,
+                      separatorBuilder: (_, __) => const Divider(height: 1),
+                      itemBuilder: (_, i) {
+                        final n = _recentNotifications[i];
+                        return ListTile(
+                          title: Text(
+                            n.message,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          subtitle: Text(
+                            n.replyPreview.isEmpty ? 'Community update' : n.replyPreview,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          onTap: () async {
+                            Navigator.of(ctx).pop();
+                            await _openNotification(n);
+                          },
+                        );
+                      },
+                    ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   Widget _trendingStrip() {

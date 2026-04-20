@@ -19,6 +19,7 @@ function ScrapingManagement() {
   const [selectedGender, setSelectedGender] = useState('women') // 'women' or 'men'
   const [brandsPage, setBrandsPage] = useState(1)
   const brandsPerPage = 20
+  const [productBatchSize, setProductBatchSize] = useState(50)
   // Prevent multiple clicks
   const isProcessingRef = useRef(false)
   const lastClickTimeRef = useRef(0)
@@ -313,9 +314,10 @@ function ScrapingManagement() {
     
     try {
       const token = localStorage.getItem('adminToken') || localStorage.getItem('token')
+      const bs = Math.min(200, Math.max(5, parseInt(String(productBatchSize), 10) || 50))
       const response = await axios.post(
         adminApiUrl('/scraping/start'),
-        { brand_ids: selectedBrands },
+        { brand_ids: selectedBrands, product_batch_size: bs },
         { headers: { Authorization: `Bearer ${token}` } },
       )
 
@@ -333,7 +335,26 @@ function ScrapingManagement() {
         isProcessingRef.current = false
       }, 500)
     }
-  }, [selectedBrands, scraping, fetchHistory])
+  }, [selectedBrands, scraping, fetchHistory, productBatchSize])
+
+  const cancelScraping = useCallback(async () => {
+    if (!currentJob || isProcessingRef.current) return
+    try {
+      const token = localStorage.getItem('adminToken') || localStorage.getItem('token')
+      const response = await axios.post(
+        adminApiUrl(`/scraping/cancel/${currentJob}`),
+        {},
+        { headers: { Authorization: `Bearer ${token}` } },
+      )
+      if (response.data?.success) {
+        showNotification('Cancel requested — job will stop after the current URL or save batch.', 'success')
+      } else {
+        showNotification(response.data?.message || 'Could not cancel this job.', 'error')
+      }
+    } catch (error) {
+      showNotification('Cancel failed: ' + (error.response?.data?.detail || error.message), 'error')
+    }
+  }, [currentJob])
 
   const checkScrapingStatus = useCallback(async () => {
     if (!currentJob || isProcessingRef.current) return
@@ -366,6 +387,17 @@ function ScrapingManagement() {
         setJobStatus(null)
         isProcessingRef.current = false
         // Clear localStorage
+        localStorage.removeItem('scrapingJob')
+        localStorage.removeItem('scrapingStatus')
+      } else if (response.data.status === 'cancelled') {
+        setScraping(false)
+        const n = response.data.products_added ?? 0
+        showNotification(`Scraping cancelled. ${n} products (new + updated) were saved before stop. Reindex was not started.`, 'success')
+        fetchBrands()
+        fetchHistory({ silent: true })
+        setCurrentJob(null)
+        setJobStatus(null)
+        isProcessingRef.current = false
         localStorage.removeItem('scrapingJob')
         localStorage.removeItem('scrapingStatus')
       }
@@ -409,6 +441,9 @@ function ScrapingManagement() {
       if (status.status === 'running') {
         setScraping(true)
       }
+      if (status.status === 'cancelled' || status.status === 'completed' || status.status === 'failed') {
+        setScraping(false)
+      }
     }
   }, [])
   
@@ -420,7 +455,7 @@ function ScrapingManagement() {
     if (jobStatus) {
       localStorage.setItem('scrapingStatus', JSON.stringify(jobStatus))
       // Clear if completed
-      if (jobStatus.status === 'completed') {
+      if (jobStatus.status === 'completed' || jobStatus.status === 'cancelled') {
         setTimeout(() => {
           localStorage.removeItem('scrapingJob')
           localStorage.removeItem('scrapingStatus')
@@ -635,22 +670,57 @@ function ScrapingManagement() {
 
             <div className="selection-actions">
           <p>{selectedBrands.length} brand(s) selected</p>
-          <button
-            onClick={(e) => {
-              e.preventDefault()
-              e.stopPropagation()
-              if (!isProcessingRef.current && !scraping && selectedBrands.length > 0) {
-                startScraping()
-              }
-            }}
-            disabled={scraping || selectedBrands.length === 0 || isProcessingRef.current}
-            className="scrape-btn"
-            style={{ 
-              pointerEvents: scraping || selectedBrands.length === 0 || isProcessingRef.current ? 'none' : 'auto',
-            }}
-          >
-            {scraping ? 'Scraping in Progress...' : isProcessingRef.current ? 'Starting...' : 'Start Scraping'}
-          </button>
+          <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '12px' }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.9rem', color: 'var(--dupe-text-primary)' }}>
+              Save batch size
+              <input
+                type="number"
+                min={5}
+                max={200}
+                value={productBatchSize}
+                onChange={(e) => setProductBatchSize(parseInt(e.target.value, 10) || 50)}
+                disabled={scraping}
+                style={{ width: '72px', padding: '6px 8px', borderRadius: '6px', border: '1px solid #d1d5db' }}
+                title="Products per DB save batch (5–200). Smaller batches = more frequent progress updates and safer cancel points."
+              />
+            </label>
+            <button
+              onClick={(e) => {
+                e.preventDefault()
+                e.stopPropagation()
+                if (!isProcessingRef.current && !scraping && selectedBrands.length > 0) {
+                  startScraping()
+                }
+              }}
+              disabled={scraping || selectedBrands.length === 0 || isProcessingRef.current}
+              className="scrape-btn"
+              style={{
+                pointerEvents: scraping || selectedBrands.length === 0 || isProcessingRef.current ? 'none' : 'auto',
+              }}
+            >
+              {scraping ? 'Scraping in Progress...' : isProcessingRef.current ? 'Starting...' : 'Start Scraping'}
+            </button>
+            {scraping && currentJob && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.preventDefault()
+                  cancelScraping()
+                }}
+                className="action-btn"
+                style={{
+                  padding: '10px 18px',
+                  background: '#f3f4f6',
+                  color: '#111',
+                  border: '1px solid #d1d5db',
+                  borderRadius: '6px',
+                  fontWeight: 600,
+                }}
+              >
+                Cancel job
+              </button>
+            )}
+          </div>
         </div>
           </>
         )}
@@ -660,6 +730,12 @@ function ScrapingManagement() {
       {jobStatus && (scraping || jobStatus.status === 'running') && (
         <div className="section-card">
           <h3>Scraping Progress</h3>
+          {jobStatus.current_phase && (
+            <p style={{ marginBottom: '12px', fontSize: '0.95rem', color: 'var(--dupe-text-primary)', opacity: 0.9 }}>
+              <strong>Phase:</strong> {jobStatus.current_phase}
+              {jobStatus.current_brand_name ? ` — ${jobStatus.current_brand_name}` : ''}
+            </p>
+          )}
           
           <div className="progress-info">
             <div className="progress-stats">
@@ -673,16 +749,35 @@ function ScrapingManagement() {
                 <span className="stat-label">Products (new + updated)</span>
                 <span className="stat-value">{jobStatus.products_added}</span>
               </div>
+              {jobStatus.save_batches_total > 0 && (
+                <div className="stat">
+                  <span className="stat-label">Save batch</span>
+                  <span className="stat-value">
+                    {jobStatus.save_batch_index} / {jobStatus.save_batches_total}
+                  </span>
+                </div>
+              )}
             </div>
 
             <div className="progress-bar">
               <div 
                 className="progress-fill" 
                 style={{ 
-                  width: `${(jobStatus.brands_completed / jobStatus.brands_total) * 100}%` 
+                  width: `${jobStatus.brands_total ? (jobStatus.brands_completed / jobStatus.brands_total) * 100 : 0}%` 
                 }}
               />
             </div>
+            {jobStatus.save_batches_total > 0 && (
+              <div className="progress-bar" style={{ marginTop: '10px' }}>
+                <div
+                  className="progress-fill"
+                  style={{
+                    width: `${(jobStatus.save_batch_index / jobStatus.save_batches_total) * 100}%`,
+                    opacity: 0.85,
+                  }}
+                />
+              </div>
+            )}
           </div>
 
           {jobStatus.logs && jobStatus.logs.length > 0 && (
@@ -728,7 +823,7 @@ function ScrapingManagement() {
                         <span className={`history-status ${job.status}`} style={{ 
                           padding: '4px 12px', 
                           borderRadius: '4px', 
-                          background: job.status === 'completed' ? 'var(--dupe-teal)' : job.status === 'failed' ? '#c026d3' : 'var(--dupe-blue)',
+                          background: job.status === 'completed' ? 'var(--dupe-teal)' : job.status === 'failed' ? '#c026d3' : job.status === 'cancelled' ? '#d97706' : 'var(--dupe-blue)',
                           color: '#fff',
                           fontSize: '0.85rem',
                           fontWeight: '600'

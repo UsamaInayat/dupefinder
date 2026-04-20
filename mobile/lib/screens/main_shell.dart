@@ -33,6 +33,8 @@ class _MainShellState extends State<MainShell> {
   int _unreadCommunityNotifications = 0;
   String? _focusCommunityPostId;
   String? _focusCommunityReplyId;
+  int _wishlistRefreshKey = 0;
+  int _compareRefreshKey = 0;
 
   @override
   void initState() {
@@ -121,6 +123,8 @@ class _MainShellState extends State<MainShell> {
     setState(() {
       _index = targetIndex;
       _loadedTabs.add(targetIndex);
+      if (targetIndex == 2) _wishlistRefreshKey++;
+      if (targetIndex == 3) _compareRefreshKey++;
     });
     _saveCurrentTab();
     if (targetIndex == 5) {
@@ -216,11 +220,13 @@ class _MainShellState extends State<MainShell> {
             0,
             HomeTab(
               onOpenSearch: () => _openTab(1),
+              onOpenCommunityFromNotification: _openCommunityFromNotification,
+              onNotificationStateChanged: _refreshCommunityNotificationCount,
             ),
           ),
           lazyTab(1, const ImageSearchScreen(embedded: true)),
-          lazyTab(2, const WishlistScreen()),
-          lazyTab(3, const CompareScreen()),
+          lazyTab(2, WishlistScreen(refreshKey: _wishlistRefreshKey)),
+          lazyTab(3, CompareScreen(refreshKey: _compareRefreshKey)),
           lazyTab(
             4,
             CommunityScreen(
