@@ -1,0 +1,379 @@
+﻿[OK] Connected to MongoDB
+[INFO] Found 3079 unindexed products
+[INFO] Downloading images to C:\Users\US\AppData\Local\Temp\dupefinder_reindex_zal6rezh ...
+  50/3079 downloaded ...
+  100/3079 downloaded ...
+  150/3079 downloaded ...
+  200/3079 downloaded ...
+  250/3079 downloaded ...
+  300/3079 downloaded ...
+  350/3079 downloaded ...
+  400/3079 downloaded ...
+  450/3079 downloaded ...
+  500/3079 downloaded ...
+  550/3079 downloaded ...
+  600/3079 downloaded ...
+  650/3079 downloaded ...
+  700/3079 downloaded ...
+  750/3079 downloaded ...
+  800/3079 downloaded ...
+  850/3079 downloaded ...
+  900/3079 downloaded ...
+  950/3079 downloaded ...
+  1000/3079 downloaded ...
+  1050/3079 downloaded ...
+  1100/3079 downloaded ...
+  1150/3079 downloaded ...
+  1200/3079 downloaded ...
+  1250/3079 downloaded ...
+  1300/3079 downloaded ...
+  1350/3079 downloaded ...
+  1400/3079 downloaded ...
+  1450/3079 downloaded ...
+  1500/3079 downloaded ...
+  1550/3079 downloaded ...
+  1600/3079 downloaded ...
+  1650/3079 downloaded ...
+  1700/3079 downloaded ...
+  1750/3079 downloaded ...
+  1800/3079 downloaded ...
+  1850/3079 downloaded ...
+  1900/3079 downloaded ...
+  1950/3079 downloaded ...
+  2000/3079 downloaded ...
+  2050/3079 downloaded ...
+  2100/3079 downloaded ...
+  2150/3079 downloaded ...
+  2200/3079 downloaded ...
+  2250/3079 downloaded ...
+  2300/3079 downloaded ...
+  2350/3079 downloaded ...
+  2400/3079 downloaded ...
+  2450/3079 downloaded ...
+  2500/3079 downloaded ...
+  2550/3079 downloaded ...
+  2600/3079 downloaded ...
+  2650/3079 downloaded ...
+  2700/3079 downloaded ...
+  2750/3079 downloaded ...
+  2800/3079 downloaded ...
+  2850/3079 downloaded ...
+  2900/3079 downloaded ...
+  2950/3079 downloaded ...
+  3000/3079 downloaded ...
+  3050/3079 downloaded ...
+[OK] Downloaded 2916/3079 images in 651.7s
+[INFO] Loading FashionCLIP extractor ...
+[INFO] Using CPU
+[INFO] Loading FashionCLIP 'patrickjohncyh/fashion-clip' on cpu ...
+python : Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate 
+limits and faster downloads.
+At C:\Users\US\AppData\Local\Temp\ps-script-48d39b6e-547f-42a3-884d-c998354701bc.ps1:79 char:63
++ ... BUFFERED=1; python -u ml-engine/scripts/reindex_new_products.py 2>&1  ...
++                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (Warning: You ar...ster downloads.:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+The image processor of type `CLIPImageProcessor` is now loaded as a fast processor by default, even if the model 
+checkpoint was saved with a slow processor. This is a breaking change and may produce slightly different outputs. To 
+continue using the slow processor, instantiate this class with `use_fast=False`. 
+
+Loading weights:   0%|          | 0/398 [00:00<?, ?it/s]
+Loading weights: 100%|##########| 398/398 [00:00<00:00, 5429.10it/s]
+[1mCLIPModel LOAD REPORT[0m from: patrickjohncyh/fashion-clip
+Key                                  | Status     |  | 
+-------------------------------------+------------+--+-
+text_model.embeddings.position_ids   | UNEXPECTED |  | 
+vision_model.embeddings.position_ids | UNEXPECTED |  | 
+
+[3mNotes:
+- UNEXPECTED[3m	:can be ignored when loading from different task/architecture; not ok if you expect identical 
+arch.[0m
+[OK]  FashionCLIP loaded in 8.3s  | embedding_dim=512  | device=cpu
+[INFO] Extracting embeddings for 2916 images ...
+
+FashionCLIP embeddings:   0%|          | 0/92 [00:00<?, ?it/s]
+FashionCLIP embeddings:   1%|1         | 1/92 [00:17<26:18, 17.35s/it]
+FashionCLIP embeddings:   2%|2         | 2/92 [00:33<24:32, 16.36s/it]
+FashionCLIP embeddings:   3%|3         | 3/92 [00:44<20:44, 13.99s/it]
+FashionCLIP embeddings:   4%|4         | 4/92 [00:54<18:17, 12.47s/it]
+FashionCLIP embeddings:   5%|5         | 5/92 [01:01<15:22, 10.60s/it]
+FashionCLIP embeddings:   7%|6         | 6/92 [01:06<12:35,  8.79s/it]
+FashionCLIP embeddings:   8%|7         | 7/92 [01:14<11:57,  8.44s/it]
+FashionCLIP embeddings:   9%|8         | 8/92 [01:18<09:58,  7.13s/it]
+FashionCLIP embeddings:  10%|9         | 9/92 [01:25<09:45,  7.06s/it]
+FashionCLIP embeddings:  11%|#         | 10/92 [01:29<08:24,  6.15s/it]
+FashionCLIP embeddings:  12%|#1        | 11/92 [01:33<07:15,  5.38s/it]
+FashionCLIP embeddings:  13%|#3        | 12/92 [01:38<06:53,  5.17s/it]
+FashionCLIP embeddings:  14%|#4        | 13/92 [01:43<06:52,  5.22s/it]
+FashionCLIP embeddings:  15%|#5        | 14/92 [01:49<06:59,  5.38s/it]
+FashionCLIP embeddings:  16%|#6        | 15/92 [01:55<07:13,  5.63s/it]
+FashionCLIP embeddings:  17%|#7        | 16/92 [02:02<07:45,  6.13s/it]
+FashionCLIP embeddings:  18%|#8        | 17/92 [02:11<08:27,  6.77s/it]
+FashionCLIP embeddings:  20%|#9        | 18/92 [02:16<07:54,  6.42s/it]
+FashionCLIP embeddings:  21%|##        | 19/92 [02:24<08:20,  6.85s/it]
+FashionCLIP embeddings:  22%|##1       | 20/92 [02:40<11:38,  9.71s/it]
+FashionCLIP embeddings:  23%|##2       | 21/92 [02:53<12:21, 10.44s/it]
+FashionCLIP embeddings:  24%|##3       | 22/92 [03:02<11:43, 10.05s/it]
+FashionCLIP embeddings:  25%|##5       | 23/92 [03:11<11:17,  9.82s/it]
+FashionCLIP embeddings:  26%|##6       | 24/92 [03:30<14:08, 12.48s/it]
+FashionCLIP embeddings:  27%|##7       | 25/92 [03:42<13:56, 12.49s/it]
+FashionCLIP embeddings:  28%|##8       | 26/92 [03:49<11:49, 10.74s/it]
+FashionCLIP embeddings:  29%|##9       | 27/92 [03:55<10:04,  9.30s/it]
+FashionCLIP embeddings:  30%|###       | 28/92 [03:59<08:25,  7.90s/it]
+FashionCLIP embeddings:  32%|###1      | 29/92 [04:05<07:33,  7.19s/it]
+FashionCLIP embeddings:  33%|###2      | 30/92 [04:09<06:35,  6.38s/it]
+FashionCLIP embeddings:  34%|###3      | 31/92 [04:16<06:23,  6.28s/it]
+FashionCLIP embeddings:  35%|###4      | 32/92 [04:20<05:47,  5.79s/it]
+FashionCLIP embeddings:  36%|###5      | 33/92 [04:25<05:27,  5.56s/it]
+FashionCLIP embeddings:  37%|###6      | 34/92 [04:36<06:51,  7.09s/it]
+FashionCLIP embeddings:  38%|###8      | 35/92 [04:53<09:40, 10.18s/it]
+FashionCLIP embeddings:  39%|###9      | 36/92 [05:09<11:04, 11.87s/it]
+FashionCLIP embeddings:  40%|####      | 37/92 [05:24<11:47, 12.87s/it]
+FashionCLIP embeddings:  41%|####1     | 38/92 [05:40<12:18, 13.68s/it]
+FashionCLIP embeddings:  42%|####2     | 39/92 [05:56<12:46, 14.46s/it]
+FashionCLIP embeddings:  43%|####3     | 40/92 [06:10<12:30, 14.44s/it]
+FashionCLIP embeddings:  45%|####4     | 41/92 [06:26<12:39, 14.89s/it]
+FashionCLIP embeddings:  46%|####5     | 42/92 [06:42<12:27, 14.95s/it]
+FashionCLIP embeddings:  47%|####6     | 43/92 [06:57<12:13, 14.97s/it]
+FashionCLIP embeddings:  48%|####7     | 44/92 [07:12<12:06, 15.13s/it]
+FashionCLIP embeddings:  49%|####8     | 45/92 [07:27<11:54, 15.20s/it]
+FashionCLIP embeddings:  50%|#####     | 46/92 [07:42<11:27, 14.94s/it]
+FashionCLIP embeddings:  51%|#####1    | 47/92 [07:59<11:43, 15.63s/it]
+FashionCLIP embeddings:  52%|#####2    | 48/92 [08:16<11:46, 16.07s/it]
+FashionCLIP embeddings:  53%|#####3    | 49/92 [08:32<11:33, 16.13s/it]
+FashionCLIP embeddings:  54%|#####4    | 50/92 [08:49<11:18, 16.16s/it]
+FashionCLIP embeddings:  55%|#####5    | 51/92 [09:05<11:04, 16.22s/it]
+FashionCLIP embeddings:  57%|#####6    | 52/92 [09:23<11:09, 16.75s/it]
+FashionCLIP embeddings:  58%|#####7    | 53/92 [09:32<09:26, 14.53s/it]
+FashionCLIP embeddings:  59%|#####8    | 54/92 [09:36<07:10, 11.32s/it]
+FashionCLIP embeddings:  60%|#####9    | 55/92 [09:40<05:36,  9.11s/it]
+FashionCLIP embeddings:  61%|######    | 56/92 [09:46<04:48,  8.01s/it]
+FashionCLIP embeddings:  62%|######1   | 57/92 [09:50<04:05,  7.01s/it]
+FashionCLIP embeddings:  63%|######3   | 58/92 [09:54<03:27,  6.10s/it]
+FashionCLIP embeddings:  64%|######4   | 59/92 [09:58<02:59,  5.42s/it]
+FashionCLIP embeddings:  65%|######5   | 60/92 [10:03<02:46,  5.21s/it]
+FashionCLIP embeddings:  66%|######6   | 61/92 [10:07<02:33,  4.94s/it]
+FashionCLIP embeddings:  67%|######7   | 62/92 [10:11<02:16,  4.54s/it]
+FashionCLIP embeddings:  68%|######8   | 63/92 [10:15<02:05,  4.34s/it]
+FashionCLIP embeddings:  70%|######9   | 64/92 [10:19<02:01,  4.34s/it]
+FashionCLIP embeddings:  71%|#######   | 65/92 [10:23<01:55,  4.29s/it]
+FashionCLIP embeddings:  72%|#######1  | 66/92 [10:27<01:46,  4.09s/it]
+FashionCLIP embeddings:  73%|#######2  | 67/92 [10:31<01:46,  4.25s/it]
+FashionCLIP embeddings:  74%|#######3  | 68/92 [10:37<01:50,  4.59s/it]
+FashionCLIP embeddings:  75%|#######5  | 69/92 [10:41<01:40,  4.37s/it]
+FashionCLIP embeddings:  76%|#######6  | 70/92 [10:44<01:32,  4.21s/it]
+FashionCLIP embeddings:  77%|#######7  | 71/92 [10:49<01:30,  4.32s/it]
+FashionCLIP embeddings:  78%|#######8  | 72/92 [10:53<01:27,  4.39s/it]
+FashionCLIP embeddings:  79%|#######9  | 73/92 [10:58<01:26,  4.54s/it]
+FashionCLIP embeddings:  80%|########  | 74/92 [11:03<01:24,  4.70s/it]
+FashionCLIP embeddings:  82%|########1 | 75/92 [11:08<01:21,  4.78s/it]
+FashionCLIP embeddings:  83%|########2 | 76/92 [11:13<01:15,  4.73s/it]
+FashionCLIP embeddings:  84%|########3 | 77/92 [11:19<01:15,  5.02s/it]
+FashionCLIP embeddings:  85%|########4 | 78/92 [11:24<01:11,  5.12s/it]
+FashionCLIP embeddings:  86%|########5 | 79/92 [11:36<01:31,  7.07s/it]
+FashionCLIP embeddings:  87%|########6 | 80/92 [11:46<01:36,  8.03s/it]
+FashionCLIP embeddings:  88%|########8 | 81/92 [11:56<01:36,  8.78s/it]
+FashionCLIP embeddings:  89%|########9 | 82/92 [12:05<01:28,  8.86s/it]
+FashionCLIP embeddings:  90%|######### | 83/92 [12:10<01:07,  7.53s/it]
+FashionCLIP embeddings:  91%|#########1| 84/92 [12:16<00:56,  7.01s/it]
+FashionCLIP embeddings:  92%|#########2| 85/92 [12:21<00:45,  6.53s/it]
+FashionCLIP embeddings:  93%|#########3| 86/92 [12:27<00:37,  6.28s/it]
+FashionCLIP embeddings:  95%|#########4| 87/92 [12:31<00:28,  5.79s/it]
+FashionCLIP embeddings:  96%|#########5| 88/92 [12:35<00:20,  5.21s/it]
+FashionCLIP embeddings:  97%|#########6| 89/92 [12:42<00:16,  5.50s/it]
+FashionCLIP embeddings:  98%|#########7| 90/92 [12:45<00:10,  5.05s/it]
+FashionCLIP embeddings:  99%|#########8| 91/92 [12:49<00:04,  4.65s/it]
+FashionCLIP embeddings: 100%|##########| 92/92 [12:50<00:00,  3.44s/it]
+FashionCLIP embeddings: 100%|##########| 92/92 [12:50<00:00,  8.37s/it]
+[OK] Embeddings extracted in 770.4s  shape=(2916, 512)
+[OK] 'Women Kurta': appended 182 vectors  (index now has 5959)
+[OK] 'Women Unstitched': appended 77 vectors  (index now has 2235)
+[OK] 'Women Lawn': appended 437 vectors  (index now has 1440)
+[OK] 'Men Standard Suit': appended 609 vectors  (index now has 7647)
+[OK] 'Men Traditional Suit': appended 2 vectors  (index now has 4438)
+[OK] 'Women Luxe': appended 57 vectors  (index now has 138)
+[OK] 'Women Anarkali Frock': appended 51 vectors  (index now has 68)
+[OK] 'Women Short Kurti': appended 102 vectors  (index now has 172)
+[OK] 'Women Bags': appended 1311 vectors  (index now has 1419)
+[OK] 'Women Jewelry': appended 88 vectors  (index now has 367)
+[INFO] Marking 2916 products as fashionclip_indexed=True ...
+Traceback (most recent call last):
+  File "C:\Users\US\AppData\Roaming\Python\Python313\site-packages\pymongo\synchronous\mongo_client.py", line 2765, in 
+run
+    return self._read() if self._is_read else self._write()
+                                              ~~~~~~~~~~~^^
+  File "C:\Users\US\AppData\Roaming\Python\Python313\site-packages\pymongo\synchronous\mongo_client.py", line 2875, in 
+_write
+    self._server = self._get_server()
+                   ~~~~~~~~~~~~~~~~^^
+  File "C:\Users\US\AppData\Roaming\Python\Python313\site-packages\pymongo\synchronous\mongo_client.py", line 2858, in 
+_get_server
+    return self._client._select_server(
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        self._server_selector,
+        ^^^^^^^^^^^^^^^^^^^^^^
+    ...<4 lines>...
+        operation_id=self._operation_id,
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "C:\Users\US\AppData\Roaming\Python\Python313\site-packages\pymongo\synchronous\mongo_client.py", line 1833, in 
+_select_server
+    server = topology.select_server(
+        server_selector,
+    ...<2 lines>...
+        operation_id=operation_id,
+    )
+  File "C:\Users\US\AppData\Roaming\Python\Python313\site-packages\pymongo\synchronous\topology.py", line 409, in 
+select_server
+    server = self._select_server(
+        selector,
+    ...<4 lines>...
+        operation_id=operation_id,
+    )
+  File "C:\Users\US\AppData\Roaming\Python\Python313\site-packages\pymongo\synchronous\topology.py", line 387, in 
+_select_server
+    servers = self.select_servers(
+        selector, operation, server_selection_timeout, address, operation_id
+    )
+  File "C:\Users\US\AppData\Roaming\Python\Python313\site-packages\pymongo\synchronous\topology.py", line 294, in 
+select_servers
+    server_descriptions = self._select_servers_loop(
+        selector, server_timeout, operation, operation_id, address
+    )
+  File "C:\Users\US\AppData\Roaming\Python\Python313\site-packages\pymongo\synchronous\topology.py", line 344, in 
+_select_servers_loop
+    raise ServerSelectionTimeoutError(
+        f"{self._error_message(selector)}, Timeout: {timeout}s, Topology Description: {self.description!r}"
+    )
+pymongo.errors.ServerSelectionTimeoutError: ac-l1f5hpm-shard-00-02.u30xrsm.mongodb.net:27017: [Errno 11001] 
+getaddrinfo failed (configured timeouts: socketTimeoutMS: 20000.0ms, connectTimeoutMS: 
+20000.0ms),ac-l1f5hpm-shard-00-01.u30xrsm.mongodb.net:27017: [Errno 11001] getaddrinfo failed (configured timeouts: 
+socketTimeoutMS: 20000.0ms, connectTimeoutMS: 20000.0ms),ac-l1f5hpm-shard-00-00.u30xrsm.mongodb.net:27017: [Errno 
+11001] getaddrinfo failed (configured timeouts: socketTimeoutMS: 20000.0ms, connectTimeoutMS: 20000.0ms), Timeout: 
+15.0s, Topology Description: <TopologyDescription id: 69de4290c2bd8e470ed9157c, topology_type: ReplicaSetNoPrimary, 
+servers: [<ServerDescription ('ac-l1f5hpm-shard-00-00.u30xrsm.mongodb.net', 27017) server_type: Unknown, rtt: None, 
+error=AutoReconnect('ac-l1f5hpm-shard-00-00.u30xrsm.mongodb.net:27017: [Errno 11001] getaddrinfo failed (configured 
+timeouts: socketTimeoutMS: 20000.0ms, connectTimeoutMS: 20000.0ms)')>, <ServerDescription 
+('ac-l1f5hpm-shard-00-01.u30xrsm.mongodb.net', 27017) server_type: Unknown, rtt: None, 
+error=AutoReconnect('ac-l1f5hpm-shard-00-01.u30xrsm.mongodb.net:27017: [Errno 11001] getaddrinfo failed (configured 
+timeouts: socketTimeoutMS: 20000.0ms, connectTimeoutMS: 20000.0ms)')>, <ServerDescription 
+('ac-l1f5hpm-shard-00-02.u30xrsm.mongodb.net', 27017) server_type: Unknown, rtt: None, 
+error=AutoReconnect('ac-l1f5hpm-shard-00-02.u30xrsm.mongodb.net:27017: [Errno 11001] getaddrinfo failed (configured 
+timeouts: socketTimeoutMS: 20000.0ms, connectTimeoutMS: 20000.0ms)')>]>
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "C:\Users\US\Desktop\dupefinder\ml-engine\scripts\reindex_new_products.py", line 339, in <module>
+    main()
+    ~~~~^^
+  File "C:\Users\US\Desktop\dupefinder\ml-engine\scripts\reindex_new_products.py", line 331, in main
+    run_reindex(
+    ~~~~~~~~~~~^
+        category_filter = args.category,
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        limit           = args.limit,
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        dry_run         = args.dry_run,
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "C:\Users\US\Desktop\dupefinder\ml-engine\scripts\reindex_new_products.py", line 282, in run_reindex
+    result = col.bulk_write(ops, ordered=False)
+  File "C:\Users\US\AppData\Roaming\Python\Python313\site-packages\pymongo\_csot.py", line 125, in csot_wrapper
+    return func(self, *args, **kwargs)
+  File "C:\Users\US\AppData\Roaming\Python\Python313\site-packages\pymongo\synchronous\collection.py", line 791, in 
+bulk_write
+    bulk_api_result = blk.execute(write_concern, session, _Op.INSERT)
+  File "C:\Users\US\AppData\Roaming\Python\Python313\site-packages\pymongo\synchronous\bulk.py", line 751, in execute
+    return self.execute_command(generator, write_concern, session, operation)
+           ~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\US\AppData\Roaming\Python\Python313\site-packages\pymongo\synchronous\bulk.py", line 604, in 
+execute_command
+    _ = client._retryable_write(
+        self.is_retryable,
+    ...<4 lines>...
+        operation_id=op_id,
+    )
+  File "C:\Users\US\AppData\Roaming\Python\Python313\site-packages\pymongo\synchronous\mongo_client.py", line 2082, in 
+_retryable_write
+    return self._retry_with_session(retryable, func, s, bulk, operation, operation_id)
+           ~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\US\AppData\Roaming\Python\Python313\site-packages\pymongo\synchronous\mongo_client.py", line 1968, in 
+_retry_with_session
+    return self._retry_internal(
+           ~~~~~~~~~~~~~~~~~~~~^
+        func=func,
+        ^^^^^^^^^^
+    ...<4 lines>...
+        operation_id=operation_id,
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "C:\Users\US\AppData\Roaming\Python\Python313\site-packages\pymongo\_csot.py", line 125, in csot_wrapper
+    return func(self, *args, **kwargs)
+  File "C:\Users\US\AppData\Roaming\Python\Python313\site-packages\pymongo\synchronous\mongo_client.py", line 2014, in 
+_retry_internal
+    ).run()
+      ~~~^^
+  File "C:\Users\US\AppData\Roaming\Python\Python313\site-packages\pymongo\synchronous\mongo_client.py", line 2770, in 
+run
+    self._check_last_error()
+    ~~~~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\US\AppData\Roaming\Python\Python313\site-packages\pymongo\synchronous\mongo_client.py", line 2851, in 
+_check_last_error
+    raise self._last_error
+  File "C:\Users\US\AppData\Roaming\Python\Python313\site-packages\pymongo\synchronous\mongo_client.py", line 2765, in 
+run
+    return self._read() if self._is_read else self._write()
+                                              ~~~~~~~~~~~^^
+  File "C:\Users\US\AppData\Roaming\Python\Python313\site-packages\pymongo\synchronous\mongo_client.py", line 2897, in 
+_write
+    return self._func(self._session, conn, self._retryable)  # type: ignore
+           ~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\US\AppData\Roaming\Python\Python313\site-packages\pymongo\synchronous\bulk.py", line 593, in 
+retryable_bulk
+    self._execute_command(
+    ~~~~~~~~~~~~~~~~~~~~~^
+        generator,
+        ^^^^^^^^^^
+    ...<5 lines>...
+        full_result,
+        ^^^^^^^^^^^^
+    )
+    ^
+  File "C:\Users\US\AppData\Roaming\Python\Python313\site-packages\pymongo\synchronous\bulk.py", line 538, in 
+_execute_command
+    result, to_send = self._execute_batch(bwc, cmd, ops, client)
+                      ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\US\AppData\Roaming\Python\Python313\site-packages\pymongo\synchronous\bulk.py", line 462, in 
+_execute_batch
+    result = self.write_command(bwc, cmd, request_id, msg, to_send, client)  # type: ignore[arg-type]
+  File "C:\Users\US\AppData\Roaming\Python\Python313\site-packages\pymongo\synchronous\helpers.py", line 47, in inner
+    return func(*args, **kwargs)
+  File "C:\Users\US\AppData\Roaming\Python\Python313\site-packages\pymongo\synchronous\bulk.py", line 274, in 
+write_command
+    reply = bwc.conn.write_command(request_id, msg, bwc.codec)  # type: ignore[misc]
+  File "C:\Users\US\AppData\Roaming\Python\Python313\site-packages\pymongo\synchronous\pool.py", line 501, in 
+write_command
+    reply = self.receive_message(request_id)
+  File "C:\Users\US\AppData\Roaming\Python\Python313\site-packages\pymongo\synchronous\pool.py", line 469, in 
+receive_message
+    self._raise_connection_failure(error)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^
+  File "C:\Users\US\AppData\Roaming\Python\Python313\site-packages\pymongo\synchronous\pool.py", line 466, in 
+receive_message
+    return receive_message(self, request_id, self.max_message_size)
+  File "C:\Users\US\AppData\Roaming\Python\Python313\site-packages\pymongo\network_layer.py", line 759, in 
+receive_message
+    length, _, response_to, op_code = _UNPACK_HEADER(receive_data(conn, 16, deadline))
+                                                     ~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\US\AppData\Roaming\Python\Python313\site-packages\pymongo\network_layer.py", line 343, in receive_data
+    wait_for_read(conn, deadline)
+    ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^
+  File "C:\Users\US\AppData\Roaming\Python\Python313\site-packages\pymongo\network_layer.py", line 318, in 
+wait_for_read
+    raise _OperationCancelled("operation cancelled")
+pymongo.errors._OperationCancelled: operation cancelled

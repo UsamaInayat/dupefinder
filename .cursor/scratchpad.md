@@ -3386,3 +3386,17 @@ Expected speedup: ~20s/batch → ~1-2s/batch → 23k images done in ~10 min inst
 ### Executor's Feedback or Assistance Requests — Apr 17, 2026 (Admin Auto Sync + Community static bundle)
 
 - **Planner / user**: Hard-refresh admin; first open **Auto Sync** and **Community Moderation** — should show UI immediately (any delay is API/data only, not “Loading … split bundle”). **Planner** to confirm after sign-off.
+### Executor — Apr 3, 2026: `git pull` + stash pop conflict in `api_service.dart`
+
+- **Resolved** remaining `<<<<<<<` / `>>>>>>>` blocks: **`baseUrl`** uses upstream null/empty/`unresolvable.invalid` check; **`_postAuthWithRetry`** keeps upstream **`resolveBaseUrl(fullLanScan: false)`** then forced **`fullLanScan: true`** when still no base, with **`postOnce(String api)`** + **`_requireBaseUrl()`** on both attempts; **`shopBrowse`** restored with **`await _requireBaseUrl()`** and **`$api/products/shop-browse`**.
+- **`flutter analyze lib/services/api_service.dart`**: no errors (info: `avoid_print` only).
+- **Git**: file was still **unmerged** until staged; run **`git add mobile/lib/services/api_service.dart`** to mark resolved. **`pubspec.lock`** / **`windows/flutter/generated_*`** changed from `flutter pub get` — include or **`git restore`** those if you do not want them in the commit. **`git stash list`**: drop the stash entry after you confirm the working tree.
+
+### Current Status / Progress Tracking — Executor Update (Apr 20, 2026, pull cleanup + commit request)
+
+- User requested to discard `mobile/lib/services/api_service.dart` local changes and keep them out of GitHub. Executor ran `git restore --staged` + `git restore` on that file; it is now removed from local/staged diffs.
+- Remaining changes prepared for commit/push are non-`api_service.dart` artifacts: `.cursor/scratchpad.md`, `mobile/pubspec.lock`, windows generated plugin files, index files, and run logs.
+
+### Executor's Feedback or Assistance Requests — Apr 20, 2026 (pull cleanup + push)
+
+- Executor is proceeding to commit and push remaining files per user instruction. Planner can review post-push state if needed.
