@@ -3400,3 +3400,48 @@ Expected speedup: ~20s/batch → ~1-2s/batch → 23k images done in ~10 min inst
 ### Executor's Feedback or Assistance Requests — Apr 20, 2026 (pull cleanup + push)
 
 - Executor is proceeding to commit and push remaining files per user instruction. Planner can review post-push state if needed.
+
+### Current Status / Progress Tracking — Executor Update (Apr 20, 2026, frontend missing deps fix)
+
+- User reported Vite import-analysis failures in `frontend-app` for `@tanstack/react-query` and `react-window` (`AppWithAuth.jsx`, `queryClient.js`, `CommunityModeration.jsx` imports).
+- Installed missing packages: `npm install @tanstack/react-query react-window`.
+- Per project lesson, ran `npm audit` after install (4 moderate vulnerabilities reported; non-blocking for current fix, with `npm audit fix` / `npm audit fix --force` suggestions).
+- Verification: `npm run build` in `frontend-app` now succeeds (Vite build completes with transformed modules and output assets), confirming the import errors are resolved.
+
+### Lessons — Apr 20, 2026 (Frontend dependency/import failures)
+
+- If Vite reports unresolved imports for new libraries (e.g., `@tanstack/react-query`, `react-window`), install them in `frontend-app` first, then re-run build/dev.
+- When terminal shows vulnerabilities after `npm install`, run `npm audit` before proceeding and record findings/suggested remediation.
+
+### Current Status / Progress Tracking — Executor Update (Apr 20, 2026, mobile splash movement)
+
+- Updated `mobile/lib/screens/welcome_screen.dart` so the hero image now pans horizontally across the screen (right to left, then back) using `AnimationController` + `AnimatedBuilder` with alignment tween.
+- Validation: `flutter analyze lib/screens/welcome_screen.dart` reports no issues.
+
+### Executor's Feedback or Assistance Requests — Apr 20, 2026 (mobile splash movement)
+
+- Please hot-restart the app and confirm the welcome/splash hero now moves smoothly across the mobile screen and no longer looks static/awkward. If needed, I can tune speed and travel distance.
+
+### Current Status / Progress Tracking — Executor Update (Apr 20, 2026, splash full-screen fix)
+
+- User reported splash still not filling the full mobile screen. Updated `mobile/lib/screens/welcome_screen.dart` hero image from `BoxFit.contain` to `BoxFit.cover` so it is full-bleed on portrait phones.
+- Kept right-to-left movement but tuned pan range/speed for a more natural look on `cover` (`begin: 0.3`, `end: -0.3`, 10s loop).
+- Validation: `flutter analyze lib/screens/welcome_screen.dart` passes with no issues.
+
+### Executor's Feedback or Assistance Requests — Apr 20, 2026 (splash full-screen fix)
+
+- Please hot-restart and verify the splash now fills the whole screen without teal empty bands. If framing still feels off, share one screenshot and I will tune vertical alignment/pan range quickly.
+
+### Current Status / Progress Tracking — Executor Update (Apr 20, 2026, splash pan tweak)
+
+- User reported the animation still drifts too far and clips part of the girl’s face. Adjusted the right-side starting alignment in `welcome_screen.dart` from `begin: 0.3` to `begin: 0.42` so the hero starts further right and keeps her face in frame longer.
+- Validation: `flutter analyze lib/screens/welcome_screen.dart` passes with no issues.
+
+### Executor's Feedback or Assistance Requests — Apr 20, 2026 (splash pan tweak)
+
+- Please hot-restart once and check framing again. If needed, I can do one more micro-adjustment (e.g., `begin: 0.46` or slightly reduce left travel).
+
+### Current Status / Progress Tracking — Executor Update (Apr 20, 2026, login label clipping fix)
+
+- User reported the `Log In` button text descender was clipped (`g` cut). Applied a minimal text-only fix in `mobile/lib/screens/welcome_screen.dart`: `TextStyle(height: 1.2)` for the `Log In` label to preserve descender space.
+- Validation: `flutter analyze lib/screens/welcome_screen.dart` passes with no issues.

@@ -2,9 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../theme/app_theme.dart';
 
-/// Welcome: full-screen hero — same idea as CSS `background-size: contain` +
-/// `background-position: center`: the asset scales to fit the viewport without cropping,
-/// centered on the wall color. CTAs sit at the bottom in a floating card.
+/// Welcome: full-bleed hero with horizontal motion.
+/// We use `BoxFit.cover` so the image fills the full phone viewport.
 class WelcomeScreen extends StatefulWidget {
   const WelcomeScreen({super.key});
 
@@ -26,7 +25,35 @@ class WelcomeScreen extends StatefulWidget {
   State<WelcomeScreen> createState() => _WelcomeScreenState();
 }
 
-class _WelcomeScreenState extends State<WelcomeScreen> {
+class _WelcomeScreenState extends State<WelcomeScreen>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _heroPanController;
+  late final Animation<double> _heroPanX;
+
+  @override
+  void initState() {
+    super.initState();
+    _heroPanController = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 10),
+    )..repeat(reverse: true);
+    _heroPanX = Tween<double>(
+      begin: 0.42, // Start further right so the face stays fully visible.
+      end: -0.3, // Pan to left.
+    ).animate(
+      CurvedAnimation(
+        parent: _heroPanController,
+        curve: Curves.easeInOut,
+      ),
+    );
+  }
+
+  @override
+  void dispose() {
+    _heroPanController.dispose();
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -39,17 +66,20 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
               decoration: const BoxDecoration(
                 color: DupePalette.welcomeHeroWall,
               ),
-              child: Image.asset(
-                'assets/splash_hero.png',
-                fit: BoxFit.contain,
-                alignment: Alignment.center,
-                width: double.infinity,
-                height: double.infinity,
-                filterQuality: FilterQuality.high,
-                errorBuilder: (_, __, ___) => Icon(
-                  Icons.image_not_supported_rounded,
-                  size: 80,
-                  color: Colors.white.withValues(alpha: 0.5),
+              child: AnimatedBuilder(
+                animation: _heroPanX,
+                builder: (context, _) => Image.asset(
+                  'assets/splash_hero.png',
+                  fit: BoxFit.cover,
+                  alignment: Alignment(_heroPanX.value, 0.06),
+                  width: double.infinity,
+                  height: double.infinity,
+                  filterQuality: FilterQuality.high,
+                  errorBuilder: (_, __, ___) => Icon(
+                    Icons.image_not_supported_rounded,
+                    size: 80,
+                    color: Colors.white.withValues(alpha: 0.5),
+                  ),
                 ),
               ),
             ),
@@ -153,6 +183,7 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
                                         color: DupePalette.textPrimary,
                                         fontSize: 16,
                                         fontWeight: FontWeight.bold,
+                                        height: 1.2, // Prevent descender clipping (e.g., "g").
                                       ),
                                     ),
                                   ),
