@@ -31,10 +31,9 @@ email-validator>=2.1.0
 Pillow>=10.1.0
 
 # ML & AI (for embedding extraction; search route loads ml-engine)
-torch>=2.2.0
+# torch: installed in Dockerfile.railway-api from PyTorch *CPU* wheel index (much smaller than default CUDA wheels).
 transformers>=4.35.0
 numpy>=1.26.0
-scipy>=1.10.0
 tqdm>=4.65.0
 faiss-cpu>=1.7.0
 
@@ -57,5 +56,4 @@ pandas>=2.1.0
 # Utilities
 python-slugify>=8.0.0
 
-# CORS
-fastapi-cors>=0.0.6
+# CORS: use FastAPI's built-in CORSMiddleware (see app/main.py) — avoid extra package.

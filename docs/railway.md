@@ -16,7 +16,7 @@ The admin scraping → reindex flow imports `ml-engine` (see `backend/app/api/ro
 
 ### Dependency install note (image size)
 
-The production API image installs Python dependencies from **`backend/requirements-railway-api.txt`** (this intentionally omits Playwright/Chromium; those live in the scraper worker image).
+The production API image installs Python dependencies from **`backend/requirements-railway-api.txt`** (this intentionally omits Playwright/Chromium; those live in the scraper worker image). **`Dockerfile.railway-api`** installs **CPU-only PyTorch** from `download.pytorch.org` so the image stays under Railway’s **~4 GB** cap (default PyPI `torch` wheels are often CUDA and very large).
 
 The `ml-engine/` directory is still copied into the image for imports/scripts.
 

@@ -7,46 +7,53 @@
 # Why not only `backend/` as build context?
 # - Scraping/reindex flows import `ml-engine` (see `backend/app/api/routes/admin_new.py`).
 # - `ml-engine/scripts/reindex_new_products.py` expects `PROJECT_ROOT/backend/...` layout.
+#
+# Image size: Railway caps images at ~4 GB. Default `pip install torch` often pulls a **CUDA**
+# wheel (multi‑GB). We install **CPU-only** PyTorch from download.pytorch.org, then copy
+# site-packages into a slim final stage (no compilers / no X11 / no OpenGL stack).
 
-FROM python:3.11-slim
+FROM python:3.11-slim AS builder
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
+
+WORKDIR /app
+
+COPY backend/requirements-railway-api.txt /app/backend/requirements-railway-api.txt
+
+# Compilers live only in the builder stage (not copied into the final image).
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    ca-certificates \
+  && rm -rf /var/lib/apt/lists/* \
+  && python -m pip install --upgrade pip setuptools wheel \
+  && pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cpu "torch==2.2.2" \
+  && pip install --no-cache-dir -r /app/backend/requirements-railway-api.txt
+
+# ── Slim runtime (no build tools; no ML GUI stack) ───────────────────────────
+FROM python:3.11-slim AS runtime
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
     PORT=8000 \
-    # Monorepo layout inside the container (matches local repo structure)
     PROJECT_ROOT=/app
 
 WORKDIR /app
 
-# System deps: build tools + common scientific/python wheel helpers
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential \
-    curl \
-    git \
-    libglib2.0-0 \
-    libsm6 \
-    libxext6 \
-    libxrender1 \
-    libgomp1 \
-    libgl1 \
     ca-certificates \
+    libgomp1 \
   && rm -rf /var/lib/apt/lists/*
 
-# Copy dependency manifests first (better Docker layer caching)
-COPY backend/requirements-railway-api.txt /app/backend/requirements-railway-api.txt
+COPY --from=builder /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
+COPY --from=builder /usr/local/bin /usr/local/bin
 
-RUN python -m pip install --upgrade pip setuptools wheel \
-  && pip install --no-cache-dir -r /app/backend/requirements-railway-api.txt
-
-# Copy application sources
 COPY backend /app/backend
 COPY ml-engine /app/ml-engine
 
-# Default working directory matches local `uvicorn app.main:app` usage from `backend/`
 WORKDIR /app/backend
 
 EXPOSE 8000
 
-# Railway provides $PORT
 CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
