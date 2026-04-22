@@ -1,0 +1,57 @@
+# DupeFinder API — production image for Railway (monorepo-aware)
+#
+# Railway should use:
+# - Root Directory: .  (repo root)
+# - Dockerfile path: Dockerfile.railway-api
+#
+# Why not only `backend/` as build context?
+# - Scraping/reindex flows import `ml-engine` (see `backend/app/api/routes/admin_new.py`).
+# - `ml-engine/scripts/reindex_new_products.py` expects `PROJECT_ROOT/backend/...` layout.
+
+FROM python:3.11-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PORT=8000 \
+    # Monorepo layout inside the container (matches local repo structure)
+    PROJECT_ROOT=/app
+
+WORKDIR /app
+
+# System deps: build tools + OpenCV + Playwright/Chromium runtime libs
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    curl \
+    git \
+    libglib2.0-0 \
+    libsm6 \
+    libxext6 \
+    libxrender1 \
+    libgomp1 \
+    libgl1 \
+    ca-certificates \
+  && rm -rf /var/lib/apt/lists/*
+
+# Copy dependency manifests first (better Docker layer caching)
+COPY backend/requirements.txt /app/backend/requirements.txt
+COPY ml-engine/requirements.txt /app/ml-engine/requirements.txt
+
+RUN python -m pip install --upgrade pip setuptools wheel \
+  && pip install --no-cache-dir -r /app/backend/requirements.txt \
+  && pip install --no-cache-dir -r /app/ml-engine/requirements.txt
+
+# Playwright browsers (scraping / admin flows)
+RUN python -m playwright install --with-deps chromium
+
+# Copy application sources
+COPY backend /app/backend
+COPY ml-engine /app/ml-engine
+
+# Default working directory matches local `uvicorn app.main:app` usage from `backend/`
+WORKDIR /app/backend
+
+EXPOSE 8000
+
+# Railway provides $PORT
+CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"]

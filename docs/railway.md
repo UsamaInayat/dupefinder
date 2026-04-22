@@ -1,0 +1,60 @@
+# Railway deployment notes (DupeFinder)
+
+This repo is a **monorepo** (`backend/`, `ml-engine/`, `frontend-app/`, `mobile/`, …). Railway builds work best when the Docker build context includes everything the backend imports at runtime.
+
+## Service A — API (FastAPI)
+
+### Recommended Railway settings
+
+- **Root Directory**: `.` (repo root)
+- **Dockerfile path**: `Dockerfile.railway-api`
+- **Start command**: leave empty (Dockerfile `CMD` runs uvicorn on `$PORT`)
+
+### Why repo-root context?
+
+The admin scraping → reindex flow imports `ml-engine` (see `backend/app/api/routes/admin_new.py`). If Railway builds only `backend/` as the context, `ml-engine/` is not present in the image.
+
+### Persistent volume (indices/maps/images; not Mongo)
+
+Mount a Railway volume and point the backend to it with env vars:
+
+- **`DATA_DIR`**: directory served at `/data` (product images)
+- **`FAISS_INDEX_DIR`**: directory containing `*.index` files
+- **`FAISS_ID_MAP_DIR`**: directory containing `*.pkl` id maps
+- Optional override:
+  - **`BACKEND_APP_ML_DIR`**: if you want a single parent directory for both indices + maps
+
+The API also uses:
+
+- **`SEARCH_UPLOAD_DIR`**: temp uploads for image search (defaults to `<repo>/data/uploads`)
+
+### Mongo settings
+
+The backend reads Mongo settings from `backend/app/core/config.py` / environment variables (Pydantic settings).
+
+The incremental reindex script (`ml-engine/scripts/reindex_new_products.py`) prefers these env vars when present:
+
+- `MONGO_URI` (or `MONGODB_URI` / `MONGODB_URL`)
+- `MONGO_DB_NAME` (or `MONGODB_DATABASE` / `DATABASE_NAME`)
+- `MONGO_COLLECTION` (optional; falls back to `ml-engine/config.yaml`)
+
+## Service B — Web (Vite)
+
+### Recommended Railway settings
+
+- **Root Directory**: `frontend-app`
+- **Dockerfile path**: `Dockerfile`
+
+### Build-time API URL
+
+Vite embeds `import.meta.env.VITE_*` at **build time**.
+
+Set **`VITE_API_BASE_URL`** in Railway for the frontend service (same value you want compiled into the bundle), e.g. your public API `https://...`.
+
+## Service C — Admin dashboard (optional)
+
+If you deploy `admin-dashboard/` similarly, create a Dockerfile there using the same Node pattern as `frontend-app/`.
+
+## Mobile (Flutter)
+
+Docker does not package Flutter. For “dev build points to Railway”, set the mobile client’s API base URL to the public Railway API domain.

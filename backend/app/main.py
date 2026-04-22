@@ -13,6 +13,7 @@ import sys
 import re
 import mimetypes
 from pathlib import Path
+import os
 
 # Add parent directory to path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
@@ -135,7 +136,16 @@ app.include_router(user_data.router, prefix="/api/user-data", tags=["User Data"]
 # Ensure Windows serves modern image extensions with correct MIME type.
 mimetypes.add_type("image/webp", ".webp")
 mimetypes.add_type("image/avif", ".avif")
-data_dir = Path(__file__).parent.parent.parent / "data"
+# Product images and other static assets live under `/data` by default:
+#   <repo>/data
+# In deployed environments (Railway volume), override with DATA_DIR=/data (or any mount path).
+_data_dir_env = os.getenv("DATA_DIR", "").strip()
+if _data_dir_env:
+    data_dir = Path(_data_dir_env)
+else:
+    data_dir = Path(__file__).parent.parent.parent / "data"
+
+data_dir.mkdir(parents=True, exist_ok=True)
 app.mount("/data", StaticFiles(directory=str(data_dir)), name="data")
 
 # ============================================
