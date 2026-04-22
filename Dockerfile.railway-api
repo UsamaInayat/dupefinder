@@ -27,7 +27,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
   && rm -rf /var/lib/apt/lists/* \
   && python -m pip install --upgrade pip setuptools wheel \
-  && pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cpu "torch==2.2.2" \
+  # torch>=2.4: newer `transformers` requires it; 2.2.2 is treated as "missing PyTorch" for many models.
+  # Install torch first from the CPU index, then the rest of requirements (see numpy<2 in requirements file).
+  && pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cpu "torch==2.4.1" \
   && pip install --no-cache-dir -r /app/backend/requirements-railway-api.txt
 
 # ── Slim runtime (no build tools; no ML GUI stack) ───────────────────────────
