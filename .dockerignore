@@ -13,10 +13,6 @@ mobile/
 frontend-app/node_modules/
 frontend-app/dist/
 
-# Admin dashboard (separate service if deployed)
-admin-dashboard/node_modules/
-admin-dashboard/build/
-
 # Local datasets / logs (should be mounted at runtime, not baked into image)
 data/
 **/logs/

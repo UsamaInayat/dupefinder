@@ -5,8 +5,10 @@
 # - Dockerfile path: Dockerfile
 #
 # Build-time API base URL:
-# - Pass VITE_API_BASE_URL as a Railway Variable (recommended), OR
-# - pass --build-arg VITE_API_BASE_URL=... during docker build.
+# - Pass VITE_API_BASE as a Railway Variable (recommended), OR
+# - pass --build-arg VITE_API_BASE=... during docker build.
+#
+# NOTE: the admin UI uses `import.meta.env.VITE_API_BASE` (see `src/lib/adminApiUrl.js`).
 
 FROM node:20-alpine AS build
 
@@ -17,8 +19,8 @@ RUN npm ci
 
 COPY . .
 
-ARG VITE_API_BASE_URL=""
-ENV VITE_API_BASE_URL=${VITE_API_BASE_URL}
+ARG VITE_API_BASE=""
+ENV VITE_API_BASE=${VITE_API_BASE}
 
 RUN npm run build
 

@@ -49,11 +49,13 @@ The incremental reindex script (`ml-engine/scripts/reindex_new_products.py`) pre
 
 Vite embeds `import.meta.env.VITE_*` at **build time**.
 
-Set **`VITE_API_BASE_URL`** in Railway for the frontend service (same value you want compiled into the bundle), e.g. your public API `https://...`.
+Set **`VITE_API_BASE`** in Railway for the frontend service (same value you want compiled into the bundle), e.g. your public API `https://...` (**no trailing slash**).
 
-## Service C — Admin dashboard (optional)
+### Admin dashboard note
 
-If you deploy `admin-dashboard/` similarly, create a Dockerfile there using the same Node pattern as `frontend-app/`.
+There is **no separate** `admin-dashboard/` app in this repository snapshot.
+
+The admin UI is part of **`frontend-app/`** (see `frontend-app/src/pages/AdminDashboard*.jsx` and `frontend-app/src/lib/adminApiUrl.js`), so **one** deployed web service covers user + admin routes.
 
 ## Mobile (Flutter)
 
