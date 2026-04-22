@@ -14,6 +14,7 @@ FROM node:20-alpine AS build
 
 WORKDIR /app
 
+# `package-lock.json` must be in the repo (see root .gitignore: `!frontend-app/package-lock.json`) so `npm ci` works in CI/Railway.
 COPY package.json package-lock.json ./
 RUN npm ci
 

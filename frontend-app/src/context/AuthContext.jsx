@@ -1,11 +1,12 @@
 import { createContext, useState, useContext, useEffect, useRef } from 'react'
 import axios from 'axios'
+import { getApiBase } from '../lib/apiBase'
 
 const AuthContext = createContext(null)
 
-// Create axios instance with interceptors
+// Same-origin in dev (Vite proxies /api). In prod, VITE_API_BASE must point at the API.
 const api = axios.create({
-  baseURL: 'http://localhost:8000',
+  baseURL: getApiBase() || undefined,
 })
 
 export const AuthProvider = ({ children }) => {
@@ -64,7 +65,7 @@ export const AuthProvider = ({ children }) => {
             }
 
             // Try to refresh the token
-            const response = await axios.post('http://localhost:8000/api/auth/refresh', {
+            const response = await api.post('/api/auth/refresh', {
               refresh_token: refreshToken
             })
 
@@ -116,7 +117,7 @@ export const AuthProvider = ({ children }) => {
 
   const login = async (email, password) => {
     try {
-      const response = await axios.post('http://localhost:8000/api/auth/login', {
+      const response = await api.post('/api/auth/login', {
         email,
         password
       })
@@ -140,7 +141,7 @@ export const AuthProvider = ({ children }) => {
 
   const signup = async (email, password) => {
     try {
-      const response = await axios.post('http://localhost:8000/api/auth/signup', {
+      const response = await api.post('/api/auth/signup', {
         email,
         password
       })
@@ -160,7 +161,7 @@ export const AuthProvider = ({ children }) => {
 
   const verifyOTP = async (email, otp_code) => {
     try {
-      const response = await axios.post('http://localhost:8000/api/auth/verify-otp', {
+      const response = await api.post('/api/auth/verify-otp', {
         email,
         otp_code
       })
@@ -179,7 +180,7 @@ export const AuthProvider = ({ children }) => {
 
   const resendOTP = async (email) => {
     try {
-      const response = await axios.post(`http://localhost:8000/api/auth/resend-otp?email=${email}`)
+      const response = await api.post(`/api/auth/resend-otp?email=${encodeURIComponent(email)}`)
       
       return { 
         success: true,
@@ -200,7 +201,7 @@ export const AuthProvider = ({ children }) => {
         throw new Error('No refresh token available')
       }
 
-      const response = await axios.post('http://localhost:8000/api/auth/refresh', {
+      const response = await api.post('/api/auth/refresh', {
         refresh_token: refresh_token
       })
 
@@ -221,7 +222,7 @@ export const AuthProvider = ({ children }) => {
       const refresh_token = localStorage.getItem('refresh_token')
       if (refresh_token) {
         // Call logout endpoint to invalidate refresh token
-        await axios.post('http://localhost:8000/api/auth/logout', {
+        await api.post('/api/auth/logout', {
           refresh_token: refresh_token
         }).catch(() => {
           // Ignore errors on logout

@@ -1,9 +1,11 @@
+import { getApiBase } from './apiBase'
+
 /**
- * Admin API base path. In Vite dev, use relative `/api/admin` so requests go through the proxy.
- * For static builds against a remote API, set `VITE_API_BASE` (no trailing slash).
+ * Admin API path. In Vite dev, use relative `/api/admin` so requests go through the proxy.
+ * For static builds, set `VITE_API_BASE` (no trailing slash) to your API origin.
  */
 export function adminApiUrl(subpath) {
-  const trimmed = (import.meta.env.VITE_API_BASE || '').replace(/\/$/, '')
   const path = subpath.startsWith('/') ? subpath : `/${subpath}`
-  return trimmed ? `${trimmed}/api/admin${path}` : `/api/admin${path}`
+  const b = getApiBase()
+  return b ? `${b}/api/admin${path}` : `/api/admin${path}`
 }

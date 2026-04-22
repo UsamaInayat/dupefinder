@@ -1,8 +1,10 @@
 import { useState, useEffect } from 'react'
 import axios from 'axios'
+import { adminApiUrl } from '../lib/adminApiUrl'
+import { apiUrl, getApiBase, publicDataUrl } from '../lib/apiBase'
 import '../styles/AdminPro.css'
 
-const API_BASE = 'http://localhost:8000'
+const API_BASE = getApiBase() || 'Vite dev (same-origin /api proxy to backend)'
 
 function AdminDashboardPro({ admin, token, onLogout }) {
   const [activeTab, setActiveTab] = useState(() => {
@@ -29,7 +31,7 @@ function AdminDashboardPro({ admin, token, onLogout }) {
     let cancelled = false
     ;(async () => {
       try {
-        await axios.get(`${API_BASE}/ping`, { timeout: 4000 })
+        await axios.get(apiUrl('/ping'), { timeout: 4000 })
         if (!cancelled) setConnectionError(null)
       } catch {
         if (!cancelled) setConnectionError('backend')
@@ -62,7 +64,7 @@ function AdminDashboardPro({ admin, token, onLogout }) {
 
   const fetchStats = async () => {
     try {
-      const response = await axios.get(`${API_BASE}/api/admin/stats`, apiConfig)
+      const response = await axios.get(adminApiUrl('/stats'), apiConfig)
       setStats(response.data)
       setConnectionError(null)
     } catch (error) {
@@ -73,7 +75,7 @@ function AdminDashboardPro({ admin, token, onLogout }) {
 
   const fetchUsers = async () => {
     try {
-      const response = await axios.get(`${API_BASE}/api/admin/users`, apiConfig)
+      const response = await axios.get(adminApiUrl('/users'), apiConfig)
       setUsers(response.data.users)
     } catch (error) {
       console.error('Failed to fetch users:', error)
@@ -82,7 +84,7 @@ function AdminDashboardPro({ admin, token, onLogout }) {
 
   const fetchProducts = async () => {
     try {
-      const response = await axios.get(`${API_BASE}/api/products`)
+      const response = await axios.get(apiUrl('/api/products'))
       setProducts(response.data.products)
     } catch (error) {
       console.error('Failed to fetch products:', error)
@@ -91,7 +93,7 @@ function AdminDashboardPro({ admin, token, onLogout }) {
 
   const toggleUserStatus = async (userId) => {
     try {
-      await axios.put(`${API_BASE}/api/admin/users/${userId}/status`, {}, apiConfig)
+      await axios.put(adminApiUrl(`/users/${userId}/status`), {}, apiConfig)
       fetchUsers()
       fetchStats()
     } catch (error) {
@@ -103,7 +105,7 @@ function AdminDashboardPro({ admin, token, onLogout }) {
   const deleteUser = async (userId) => {
     if (window.confirm('Are you sure you want to delete this user? This action cannot be undone.')) {
       try {
-        await axios.delete(`${API_BASE}/api/admin/users/${userId}`, apiConfig)
+        await axios.delete(adminApiUrl(`/users/${userId}`), apiConfig)
         fetchUsers()
         fetchStats()
         alert('User deleted successfully')
@@ -117,7 +119,7 @@ function AdminDashboardPro({ admin, token, onLogout }) {
   const deleteProduct = async (productId) => {
     if (window.confirm('Are you sure you want to delete this product?')) {
       try {
-        await axios.delete(`${API_BASE}/api/admin/products/${productId}`, apiConfig)
+        await axios.delete(adminApiUrl(`/products/${productId}`), apiConfig)
         fetchProducts()
         fetchStats()
         alert('Product deleted successfully')
@@ -378,7 +380,7 @@ function AdminDashboardPro({ admin, token, onLogout }) {
                       <div key={product._id} className="product-pro-card">
                         <div className="product-pro-image">
                           <img
-                            src={`http://localhost:8000/${product.image_path}`}
+                            src={publicDataUrl(product.image_path) || product.image_path}
                             alt={product.name}
                             onError={(e) => {
                               e.target.src = 'https://via.placeholder.com/200?text=No+Image'

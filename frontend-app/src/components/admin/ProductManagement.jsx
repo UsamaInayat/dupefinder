@@ -1,5 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import axios from 'axios'
+import { adminApiUrl } from '../../lib/adminApiUrl'
+import { apiUrl, publicDataUrl, isOurApiAbsoluteUrl } from '../../lib/apiBase'
 
 function ProductManagement() {
   const [products, setProducts] = useState([])
@@ -67,7 +69,9 @@ function ProductManagement() {
       // Women Luxe & Women Short Kurti: only merged endpoint (guarantees correct total)
       if (isMergedLuxe || isMergedShortKurti) {
         const merged = isMergedLuxe ? 'women_luxe' : 'women_short_kurti'
-        const url = `http://localhost:8000/api/admin/products/merged?merged_category=${merged}&page=${page}&page_size=20`
+        const url = adminApiUrl(
+          `/products/merged?merged_category=${encodeURIComponent(merged)}&page=${page}&page_size=20`
+        )
         const res = await axios.get(url, { headers })
         setProducts(res.data.products || [])
         setTotalProducts(res.data.total ?? 0)
@@ -81,7 +85,7 @@ function ProductManagement() {
       if (brokenLinksOnly) params.append('broken_links_only', 'true')
 
       const res = await axios.get(
-        `http://localhost:8000/api/admin/products?${params}`,
+        adminApiUrl(`/products?${params}`),
         { headers }
       )
       setProducts(res.data.products || [])
@@ -128,8 +132,8 @@ function ProductManagement() {
       const token = localStorage.getItem('adminToken') || localStorage.getItem('token')
       if (!token) return
       const url = genderFilter
-        ? `http://localhost:8000/api/admin/categories?gender=${genderFilter}`
-        : 'http://localhost:8000/api/admin/categories'
+        ? adminApiUrl(`/categories?gender=${encodeURIComponent(genderFilter)}`)
+        : adminApiUrl('/categories')
       const response = await axios.get(url, { headers: { Authorization: `Bearer ${token}` } })
       const raw = response.data.categories || []
       setCategories(normalizeCategoriesForDropdown(raw))
@@ -154,7 +158,7 @@ function ProductManagement() {
       setUploadProgress('Uploading...')
       
       const response = await axios.post(
-        'http://localhost:8000/api/admin/products/import-csv',
+        adminApiUrl('/products/import-csv'),
         formData,
         {
           headers: {
@@ -185,7 +189,7 @@ function ProductManagement() {
         // Fetch the latest products (recently imported)
         try {
           const productsResponse = await axios.get(
-            `http://localhost:8000/api/admin/products?page=1&page_size=${response.data.imported}`,
+            adminApiUrl(`/products?page=1&page_size=${response.data.imported}`),
             { headers: { Authorization: `Bearer ${token}` } }
           )
           // Get the most recent products (assuming they're sorted by created_at desc)
@@ -225,7 +229,7 @@ function ProductManagement() {
       setCleanupProgress({ status: 'checking', message: 'Checking all product image URLs...' })
       
       const response = await axios.post(
-        'http://localhost:8000/api/admin/products/cleanup-links',
+        adminApiUrl('/products/cleanup-links'),
         {},
         { headers: { Authorization: `Bearer ${token}` } }
       )
@@ -238,7 +242,7 @@ function ProductManagement() {
         try {
           // Fetch broken links with retry
           const brokenProductsResponse = await axios.get(
-            `http://localhost:8000/api/admin/products?broken_links_only=true&page_size=1000`,
+            adminApiUrl('/products?broken_links_only=true&page_size=1000'),
             { headers: { Authorization: `Bearer ${token}` } }
           )
           console.log('Broken links fetched:', brokenProductsResponse.data.products?.length || 0)
@@ -283,7 +287,7 @@ function ProductManagement() {
       setRepairingId(productId)
       
       const response = await axios.post(
-        `http://localhost:8000/api/admin/products/${productId}/repair-link`,
+        adminApiUrl(`/products/${productId}/repair-link`),
         {},
         { headers: { Authorization: `Bearer ${token}` } }
       )
@@ -335,7 +339,7 @@ function ProductManagement() {
       }
       
       const response = await axios.delete(
-        'http://localhost:8000/api/admin/products/clear-all',
+        adminApiUrl('/products/clear-all'),
         { headers: { Authorization: `Bearer ${token}` } }
       )
       
@@ -372,7 +376,7 @@ function ProductManagement() {
       const token = localStorage.getItem('adminToken') || localStorage.getItem('token')
       setDeletingId(productId)
 
-      await axios.delete(`http://localhost:8000/api/admin/products/${productId}`, {
+      await axios.delete(adminApiUrl(`/products/${productId}`), {
         headers: { Authorization: `Bearer ${token}` },
       })
 
@@ -613,18 +617,23 @@ function ProductManagement() {
                 const NO_IMAGE_DATA_URI = 'data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200" viewBox="0 0 200 200"><rect fill="#374151" width="200" height="200"/><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" fill="#9ca3af" font-size="14" font-family="sans-serif">No image</text></svg>')
                 // Prefer local downloaded image; then image_url + proxy; never use external placeholder URL (causes proxy/DNS errors)
                 const localPath = product.image_path && (product.image_path.startsWith('product_images/') || product.image_path.includes('product_images'))
-                const localUrl = localPath ? `http://localhost:8000/data/${product.image_path.replace(/\\/g, '/')}` : null
-                let rawUrl = localUrl || product.image_url || (product.image_path && !product.image_path.startsWith('http') ? `http://localhost:8000/data/${product.image_path.replace(/\\/g, '/')}` : product.image_path) || null
+                const normPath = product.image_path.replace(/\\/g, '/')
+                const localUrl = localPath ? publicDataUrl(normPath) : null
+                let rawUrl =
+                  localUrl ||
+                  product.image_url ||
+                  (product.image_path && !product.image_path.startsWith('http') ? publicDataUrl(normPath) : product.image_path) ||
+                  null
                 if (rawUrl && (rawUrl.toLowerCase().includes('loader') || rawUrl.toLowerCase().includes('lazyload') || rawUrl.endsWith('.gif'))) rawUrl = null
                 if (rawUrl && (rawUrl.includes('via.placeholder.com') || rawUrl.includes('placeholder'))) rawUrl = null
-                const isExternal = rawUrl && /^https?:\/\//i.test(rawUrl) && !rawUrl.includes('localhost:8000')
+                const isExternal = rawUrl && /^https?:\/\//i.test(rawUrl) && !isOurApiAbsoluteUrl(rawUrl)
                 const imageUrl = isExternal
-                  ? `http://localhost:8000/api/products/image-proxy?url=${encodeURIComponent(rawUrl)}`
+                  ? apiUrl(`/api/products/image-proxy?url=${encodeURIComponent(rawUrl)}`)
                   : (rawUrl || NO_IMAGE_DATA_URI)
                 // Fallback: if primary image fails, try product.image_url via proxy (when not placeholder/loader)
                 const fallbackRaw = product.image_url && !/loader|lazyload|\.gif|via\.placeholder|placeholder/i.test(product.image_url)
                 const fallbackProxyUrl = fallbackRaw && /^https?:\/\//i.test(product.image_url)
-                  ? `http://localhost:8000/api/products/image-proxy?url=${encodeURIComponent(product.image_url)}`
+                  ? apiUrl(`/api/products/image-proxy?url=${encodeURIComponent(product.image_url)}`)
                   : null
                 
                 const productPageUrl = (product.product_url || product.product_link || '').trim()
