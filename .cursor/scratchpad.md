@@ -1,3 +1,20 @@
+### Current Status / Progress Tracking — Executor Update (Apr 22, 2026, Railway: split Docker + API↔scraper wiring)
+
+- Implemented **two-container split** for Railway size limits:
+  - `Dockerfile.railway-api` installs `backend/requirements-railway-api.txt` (no Playwright layer).
+  - Added `Dockerfile.railway-scraper` + `backend/app/scraper_worker_app.py` (FastAPI worker; Playwright Chromium install).
+- Wired admin scraping (`backend/app/api/routes/admin_new.py`) to call scraper worker via **`POST {SCRAPER_SERVICE_URL}/scrape/url`** with **`X-Scraper-Token`** when `SCRAPER_SERVICE_URL` + `SCRAPER_SERVICE_TOKEN` are set; otherwise falls back to in-process `ProductScraper` (local parity).
+- Fixed accidental invalid first line in `backend/app/core/config.py` (`image.png"""` → proper module docstring) which would break imports.
+- Updated `docs/railway.md` with env var matrix + behavior notes (Mongo writes + reindex remain on API).
+
+### Executor's Feedback or Assistance Requests — Apr 22, 2026 (Railway split)
+
+- Please deploy **two Railway services** from repo root:
+  - API: `Dockerfile.railway-api`
+  - Scraper: `Dockerfile.railway-scraper`
+- Set **`SCRAPER_SERVICE_TOKEN` identically** on both services; set **`SCRAPER_SERVICE_URL`** on API only.
+- After deploy, run one admin scrape job and confirm logs show `Using remote scraper worker: ...` and that products persist + reindex triggers.
+
 ### Current Status / Progress Tracking — Executor Update (Apr 20, 2026, FYP report Markdown to Word conversion)
 
 - User requested converting `C:\Users\US\Desktop\FYP\DupeFinder_FYP_Report_Full_Template.md` to a Word document.

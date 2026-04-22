@@ -1,5 +1,7 @@
-# DupeFinder Backend Dependencies
-# Updated: November 11, 2025 - Added authentication dependencies and MongoDB Atlas support
+# DupeFinder Backend Dependencies (Railway API image)
+#
+# This file is like `requirements.txt`, but intentionally omits Playwright because
+# browser automation is split into `Dockerfile.railway-scraper`.
 
 # Web Framework
 fastapi>=0.104.0
@@ -8,9 +10,8 @@ python-multipart>=0.0.6
 
 # Database
 sqlalchemy==2.0.23
-# psycopg2-binary: optional (no wheel for Python 3.14 yet; project uses MongoDB)
 pymongo>=4.6.0
-motor>=3.3.2  # Async MongoDB driver for Atlas
+motor>=3.3.2
 alembic>=1.13.0
 
 # Environment & Configuration
@@ -20,7 +21,7 @@ python-dotenv>=1.0.0
 PyJWT>=2.8.0
 python-jose[cryptography]>=3.3.0
 passlib[bcrypt]>=1.7.4
-bcrypt>=4.0.1,<4.1  # 4.1+ breaks passlib (no __about__)
+bcrypt>=4.0.1,<4.1
 
 # Email (for OTP)
 aiosmtplib>=3.0.0
@@ -35,7 +36,7 @@ transformers>=4.35.0
 numpy>=1.26.0
 scipy>=1.10.0
 tqdm>=4.65.0
-faiss-cpu>=1.7.0  # similarity search (import faiss)
+faiss-cpu>=1.7.0
 
 # API & Data Validation
 pydantic>=2.5.0
@@ -45,9 +46,7 @@ pydantic-settings>=2.1.0
 httpx>=0.25.0
 aiohttp>=3.9.0
 
-# Web Scraping (Playwright for JS-rendered pages; BeautifulSoup for parsing)
-# NOTE: Railway API image omits Playwright (see `requirements-railway-api.txt` + `Dockerfile.railway-api`).
-playwright>=1.40.0
+# HTML parsing helpers (Playwright itself is not installed in this image)
 beautifulsoup4>=4.12.0
 lxml>=4.9.0
 

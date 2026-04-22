@@ -16,7 +16,40 @@ The admin scraping → reindex flow imports `ml-engine` (see `backend/app/api/ro
 
 ### Dependency install note (image size)
 
-The production Docker image installs Python dependencies from **`backend/requirements.txt` only** (to avoid installing the ML stack twice). The `ml-engine/` directory is still copied into the image for imports/scripts.
+The production API image installs Python dependencies from **`backend/requirements-railway-api.txt`** (this intentionally omits Playwright/Chromium; those live in the scraper worker image).
+
+The `ml-engine/` directory is still copied into the image for imports/scripts.
+
+### Service C — Scraper worker (Playwright/Chromium)
+
+Railway has a hard **Docker image size** cap; splitting scraping into a second service keeps the API/ML image smaller.
+
+#### Recommended Railway settings
+
+- **Root Directory**: `.` (repo root)
+- **Dockerfile path**: `Dockerfile.railway-scraper`
+- **Start command**: leave empty (Dockerfile `CMD` runs uvicorn on `$PORT`)
+
+#### Required env vars (both services)
+
+Set the same shared secret on **both** services:
+
+- **`SCRAPER_SERVICE_TOKEN`**: shared secret (sent as `X-Scraper-Token`)
+
+On the **API** service, also set:
+
+- **`SCRAPER_SERVICE_URL`**: public URL of the scraper worker (**no trailing slash**), e.g. `https://<scraper>.up.railway.app`
+
+On the **scraper** service, you only need `SCRAPER_SERVICE_TOKEN` for auth (Mongo is **not** required for the worker unless you call Excel-based helpers that write to Mongo).
+
+#### How communication works
+
+Admin scraping (`backend/app/api/routes/admin_new.py`) will:
+
+- If `SCRAPER_SERVICE_URL` is set **and** `SCRAPER_SERVICE_TOKEN` is set: call `POST {SCRAPER_SERVICE_URL}/scrape/url` for each listing/home URL.
+- Otherwise: fall back to in-process `ProductScraper` (local dev parity).
+
+The API service still handles **Mongo writes** + **post-job reindex** exactly like local.
 
 ### Persistent volume (indices/maps/images; not Mongo)
 

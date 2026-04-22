@@ -6,7 +6,7 @@ Admin Dashboard API Endpoints
 from fastapi import APIRouter, HTTPException, Depends, UploadFile, File, Query, status
 from fastapi.responses import JSONResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from typing import List, Optional
+from typing import List, Optional, Any, Dict
 from datetime import datetime, timedelta
 from bson import ObjectId
 import pandas as pd
@@ -27,6 +27,7 @@ from app.models.admin import AdminLogin, AdminToken, AdminResponse
 from app.core.security import verify_password
 from app.utils.auth import create_access_token
 from app.api.routes.auth import _effective_name_for_user
+from app.core.config import settings
 import os
 import re
 import logging
@@ -2541,6 +2542,62 @@ async def _persist_product_batches_for_job(
     return stored_total, updated_total, False
 
 
+def _remote_scraper_base_url() -> str:
+    return (settings.SCRAPER_SERVICE_URL or "").strip().rstrip("/")
+
+
+def _remote_scraper_headers() -> Dict[str, str]:
+    token = (settings.SCRAPER_SERVICE_TOKEN or "").strip()
+    if not token:
+        raise RuntimeError("SCRAPER_SERVICE_TOKEN is not configured on API service")
+    return {"X-Scraper-Token": token}
+
+
+async def _remote_scrape_single_url(
+    *,
+    brand_url: str,
+    brand_name: str,
+    category: str,
+    gender: Optional[str],
+    scraper_type: str,
+) -> List[dict]:
+    """
+    Delegate a single URL scrape to the Railway scraper worker (Playwright/Chromium lives there).
+
+    This keeps the API image smaller while preserving the same scrape heuristics as local admin scraping.
+    """
+    base = _remote_scraper_base_url()
+    if not base:
+        raise RuntimeError("SCRAPER_SERVICE_URL is not configured")
+
+    url = f"{base}/scrape/url"
+    timeout_s = float(settings.SCRAPER_REQUEST_TIMEOUT_S or 300.0)
+    timeout = httpx.Timeout(timeout_s, connect=30.0)
+    payload: Dict[str, Any] = {
+        "brand_name": brand_name,
+        "brand_url": brand_url,
+        "category": category or "",
+        "gender": gender,
+        "scraper_type": (scraper_type or "generic").strip().lower() or "generic",
+    }
+
+    async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
+        resp = await client.post(url, json=payload, headers=_remote_scraper_headers())
+        if resp.status_code >= 400:
+            raise RuntimeError(f"scraper worker HTTP {resp.status_code}: {resp.text[:500]}")
+        data = resp.json()
+
+    if not isinstance(data, dict) or not data.get("ok"):
+        raise RuntimeError(f"scraper worker returned invalid payload: {str(data)[:500]}")
+
+    products = data.get("products") or []
+    if not isinstance(products, list):
+        raise RuntimeError("scraper worker returned non-list products")
+
+    # Ensure list items are dict-like enough for downstream persistence
+    return [p for p in products if isinstance(p, dict)]
+
+
 @router.post("/scraping/start")
 async def start_rescraping(
     request: dict,  # {brand_ids: [...], product_batch_size?: int}
@@ -2628,8 +2685,22 @@ async def run_scraping_job(job_id: str, brand_list: List[dict]):
         scraping_jobs[job_id]["brands"] = brand_list
         batch_sz = int(scraping_jobs[job_id].get("product_batch_size") or 50)
         batch_sz = max(5, min(batch_sz, 200))
-        
-        scraper = ProductScraper()
+
+        use_remote_scraper = bool(_remote_scraper_base_url())
+        if use_remote_scraper and not (settings.SCRAPER_SERVICE_TOKEN or "").strip():
+            use_remote_scraper = False
+            scraping_jobs[job_id]["logs"].append(
+                "Remote scraper URL is set but SCRAPER_SERVICE_TOKEN is missing; falling back to in-process scraping."
+            )
+            _flush_scraping_job_progress_mongo(job_id, scraping_history)
+
+        if use_remote_scraper:
+            scraping_jobs[job_id]["logs"].append(
+                f"Using remote scraper worker: {_remote_scraper_base_url()}"
+            )
+            _flush_scraping_job_progress_mongo(job_id, scraping_history)
+        else:
+            scraper = ProductScraper()
         
         for idx, brand_info in enumerate(brand_list):
             if _scraping_cancel_requested(job_id):
@@ -2684,17 +2755,28 @@ async def run_scraping_job(job_id: str, brand_list: List[dict]):
                     )
                     scraping_jobs[job_id]["logs"].append(f"Scraping: {brand_url}")
                     try:
-                        timeout_seconds = 300.0 if use_exact_listing else 60.0
-                        if use_exact_listing:
-                            page_products = await asyncio.wait_for(
-                                scraper.scrape_exact_listing_url(brand_url, brand_name, category, gender, None, scraper_type=scraper_type),
-                                timeout=timeout_seconds
+                        if use_remote_scraper:
+                            page_products = await _remote_scrape_single_url(
+                                brand_url=brand_url,
+                                brand_name=brand_name,
+                                category=category,
+                                gender=gender,
+                                scraper_type=scraper_type,
                             )
                         else:
-                            page_products = await asyncio.wait_for(
-                                scraper.scrape_brand_website(brand_url, brand_name, category, gender),
-                                timeout=timeout_seconds
-                            )
+                            timeout_seconds = 300.0 if use_exact_listing else 60.0
+                            if use_exact_listing:
+                                page_products = await asyncio.wait_for(
+                                    scraper.scrape_exact_listing_url(
+                                        brand_url, brand_name, category, gender, None, scraper_type=scraper_type
+                                    ),
+                                    timeout=timeout_seconds,
+                                )
+                            else:
+                                page_products = await asyncio.wait_for(
+                                    scraper.scrape_brand_website(brand_url, brand_name, category, gender),
+                                    timeout=timeout_seconds,
+                                )
                         slug = _listing_endpoint_slug(brand_url) or ((path.split("/")[-1] or "").strip() if path else "")
                         dc_override = ""
                         if url_idx < len(display_cats) and (display_cats[url_idx] or "").strip():

@@ -66,6 +66,13 @@ class Settings(BaseSettings):
     # File Upload
     MAX_UPLOAD_SIZE: int = 10485760  # 10MB
     ALLOWED_EXTENSIONS: list = ["jpg", "jpeg", "png", "webp"]
+
+    # Remote scraper worker (Railway split deploy)
+    # When SCRAPER_SERVICE_URL is set, admin scraping can delegate Playwright work to a separate service
+    # to keep the API image under platform size limits.
+    SCRAPER_SERVICE_URL: str = ""  # e.g. https://dupefinder-scraper.up.railway.app
+    SCRAPER_SERVICE_TOKEN: str = ""  # shared secret; sent as X-Scraper-Token
+    SCRAPER_REQUEST_TIMEOUT_S: float = 300.0
     
     class Config:
         env_file = ".env"
