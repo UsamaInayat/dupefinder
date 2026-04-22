@@ -5,10 +5,10 @@
 # - Dockerfile path: Dockerfile
 #
 # Build-time API base URL:
-# - Pass VITE_API_BASE as a Railway Variable (recommended), OR
+# - Set `VITE_API_BASE` in Railway Variables (no trailing slash), OR
 # - pass --build-arg VITE_API_BASE=... during docker build.
 #
-# NOTE: the admin UI uses `import.meta.env.VITE_API_BASE` (see `src/lib/adminApiUrl.js`).
+# Runtime uses `serve` to host prebuilt `dist/` (Vite is dev-only, not in production image).
 
 FROM node:20-alpine AS build
 
@@ -27,16 +27,14 @@ RUN npm run build
 
 FROM node:20-alpine AS runtime
 
+# Static file server; `vite` is not installed in prod (it's a devDependency).
+RUN npm install -g serve@14.2.4
+
 WORKDIR /app
-
-COPY --from=build /app/package.json /app/package-lock.json ./
-RUN npm ci --omit=dev
-
 COPY --from=build /app/dist ./dist
 
+EXPOSE 8080
 ENV PORT=8080
 
-EXPOSE 8080
-
-# Vite preview serves the production build. Bind 0.0.0.0 for containers.
-CMD ["sh", "-c", "npm run preview -- --host 0.0.0.0 --port ${PORT:-8080}"]
+# Railway sets $PORT. `npm run preview` is wrong here: Vite is dev-only (not in prod node_modules).
+CMD ["sh", "-c", "serve -s dist -l tcp://0.0.0.0:$PORT"]
