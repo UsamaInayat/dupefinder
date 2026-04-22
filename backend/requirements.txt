@@ -28,11 +28,10 @@ email-validator>=2.1.0
 
 # Image Processing (for handling uploads)
 Pillow>=10.1.0
-opencv-python>=4.8.0
 
 # ML & AI (for embedding extraction; search route loads ml-engine)
 torch>=2.2.0
-torchvision>=0.17.0
+transformers>=4.35.0
 numpy>=1.26.0
 scipy>=1.10.0
 tqdm>=4.65.0
@@ -57,10 +56,6 @@ pandas>=2.1.0
 
 # Utilities
 python-slugify>=8.0.0
-
-# Testing
-pytest>=7.4.0
-pytest-asyncio>=0.21.0
 
 # CORS
 fastapi-cors>=0.0.6

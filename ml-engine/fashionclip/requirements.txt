@@ -2,7 +2,6 @@
 # Install on Vast.ai: pip install -r ml-engine/fashionclip/requirements.txt
 
 torch>=2.2.0
-torchvision>=0.17.0
 transformers>=4.35.0      # FashionCLIP (patrickjohncyh/fashion-clip)
 faiss-cpu                 # faiss-gpu is not on PyPI; PyTorch handles GPU embedding
 pymongo>=4.0.0

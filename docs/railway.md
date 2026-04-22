@@ -14,6 +14,10 @@ This repo is a **monorepo** (`backend/`, `ml-engine/`, `frontend-app/`, `mobile/
 
 The admin scraping → reindex flow imports `ml-engine` (see `backend/app/api/routes/admin_new.py`). If Railway builds only `backend/` as the context, `ml-engine/` is not present in the image.
 
+### Dependency install note (image size)
+
+The production Docker image installs Python dependencies from **`backend/requirements.txt` only** (to avoid installing the ML stack twice). The `ml-engine/` directory is still copied into the image for imports/scripts.
+
 ### Persistent volume (indices/maps/images; not Mongo)
 
 Mount a Railway volume and point the backend to it with env vars:
