@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import axios from 'axios'
 import { apiUrl } from '../lib/apiBase'
+import loginArtUrl from '@login-root'
 import '../styles/Auth.css'
 
 function EmailFieldIcon() {
@@ -52,7 +53,12 @@ function AdminLogin({ onLoginSuccess }) {
   }
 
   return (
-    <div className="auth-container admin-login">
+    <div className="auth-container admin-login admin-login--fullbg">
+      <div
+        className="admin-login-bg"
+        style={{ backgroundImage: `url(${loginArtUrl})` }}
+        aria-hidden
+      />
       <div className="admin-login-full-inner">
         <div className="auth-box admin-login-card">
           <div className="auth-header">
