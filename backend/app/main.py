@@ -48,9 +48,11 @@ async def lifespan(app: FastAPI):
         print(f"[ERROR] Failed to connect to MongoDB: {e}")
         print("[WARNING] API starting without database connection")
 
-    if (settings.RESEND_API_KEY or "").strip():
-        from app.services.email_service import effective_resend_from_address
+    from app.services.email_service import effective_resend_from_address, gmail_api_is_configured
 
+    if gmail_api_is_configured():
+        print(f"[INFO] Outbound email: Gmail API (HTTPS) as {settings.EMAIL_FROM}")
+    elif (settings.RESEND_API_KEY or "").strip():
         ef = effective_resend_from_address()
         print(f"[INFO] Outbound email: Resend API (From: {ef})")
         if (not (settings.RESEND_FROM or "").strip()) and "onboarding@resend.dev" in ef:

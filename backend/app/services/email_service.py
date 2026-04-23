@@ -1,11 +1,14 @@
 """
 Email Service
-Send OTP emails via Resend (HTTPS) when RESEND_API_KEY is set, else SMTP.
+Outbound order: Gmail API (OAuth, HTTPS) if configured, else Resend, else SMTP.
 """
 
+import base64
 import random
+import time
 import aiosmtplib
 import httpx
+from email.message import EmailMessage
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from datetime import datetime, timedelta
@@ -52,6 +55,112 @@ _CONSUMER_FROM_MARKERS = (
     "@live.",
     "@icloud.",
 )
+
+
+_gmail_oauth_cache: dict = {"access_token": None, "expires_at": 0.0}
+
+
+def gmail_api_is_configured() -> bool:
+    return bool(
+        (settings.GMAIL_API_REFRESH_TOKEN or "").strip()
+        and (settings.GMAIL_API_CLIENT_ID or "").strip()
+        and (settings.GMAIL_API_CLIENT_SECRET or "").strip()
+    )
+
+
+def _gmail_rfc822_raw(
+    to_email: str,
+    subject: str,
+    body_html: str,
+    body_text: Optional[str],
+) -> str:
+    msg = EmailMessage()
+    msg["Subject"] = subject
+    msg["From"] = f"{settings.EMAIL_FROM_NAME} <{settings.EMAIL_FROM}>"
+    msg["To"] = to_email
+    plain = (body_text or "").strip() or "Your verification code is in the HTML part of this message."
+    msg.set_content(plain)
+    msg.add_alternative(body_html, subtype="html")
+    raw_bytes = msg.as_bytes()
+    return base64.urlsafe_b64encode(raw_bytes).decode("utf-8").rstrip("=")
+
+
+async def _get_gmail_access_token() -> Optional[str]:
+    now = time.time()
+    tok = _gmail_oauth_cache.get("access_token")
+    exp = float(_gmail_oauth_cache.get("expires_at") or 0)
+    if tok and now < exp - 120:
+        return str(tok)
+
+    cid = (settings.GMAIL_API_CLIENT_ID or "").strip()
+    sec = (settings.GMAIL_API_CLIENT_SECRET or "").strip()
+    rt = (settings.GMAIL_API_REFRESH_TOKEN or "").strip()
+    try:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(30.0, connect=15.0)) as client:
+            r = await client.post(
+                "https://oauth2.googleapis.com/token",
+                data={
+                    "client_id": cid,
+                    "client_secret": sec,
+                    "refresh_token": rt,
+                    "grant_type": "refresh_token",
+                },
+            )
+        if r.status_code != 200:
+            print(f"[ERROR] Gmail OAuth token refresh HTTP {r.status_code}: {r.text[:500]}")
+            return None
+        data = r.json()
+        access = data.get("access_token")
+        if not access:
+            print(f"[ERROR] Gmail OAuth response missing access_token: {data}")
+            return None
+        expires_in = int(data.get("expires_in", 3600))
+        _gmail_oauth_cache["access_token"] = access
+        _gmail_oauth_cache["expires_at"] = now + expires_in
+        return str(access)
+    except Exception as e:
+        import traceback
+
+        print(f"[ERROR] Gmail OAuth token refresh failed: {e}\n{traceback.format_exc()}")
+        return None
+
+
+async def _send_email_gmail_api(
+    to_email: str,
+    subject: str,
+    body_html: str,
+    body_text: Optional[str],
+) -> Tuple[bool, Optional[str]]:
+    """Send via Gmail API (googleapis.com). From must match the Google account used for the refresh token."""
+    access = await _get_gmail_access_token()
+    if not access:
+        return False, None
+    raw = _gmail_rfc822_raw(to_email, subject, body_html, body_text)
+    print(f"[INFO] Sending email to {to_email} via Gmail API (From: {settings.EMAIL_FROM})")
+    try:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(45.0, connect=20.0)) as client:
+            r = await client.post(
+                "https://gmail.googleapis.com/gmail/v1/users/me/messages/send",
+                headers={
+                    "Authorization": f"Bearer {access}",
+                    "Content-Type": "application/json",
+                },
+                json={"raw": raw},
+            )
+        if r.status_code in (200, 201):
+            try:
+                mid = r.json().get("id")
+            except Exception:
+                mid = None
+            print(f"[OK] Gmail API sent message to {to_email} id={mid}")
+            return True, None
+        print(f"[ERROR] Gmail API send HTTP {r.status_code}: {r.text[:600]}")
+        return False, None
+    except Exception as e:
+        import traceback
+
+        print(f"[ERROR] Gmail API send failed: {e}\n{traceback.format_exc()}")
+        return False, None
 
 
 def effective_resend_from_address() -> str:
@@ -141,13 +250,15 @@ async def send_email(
     body_text: Optional[str] = None
 ) -> Tuple[bool, Optional[str]]:
     """
-    Send email via Resend when RESEND_API_KEY is set, otherwise SMTP.
+    Send via Gmail API (if OAuth env configured), else Resend, else SMTP.
 
     Returns:
         (success, error_code). error_code is e.g. resend_needs_verified_domain when
         Resend blocks non-account recipients until a domain is verified.
     """
     try:
+        if gmail_api_is_configured():
+            return await _send_email_gmail_api(to_email, subject, body_html, body_text)
         if (settings.RESEND_API_KEY or "").strip():
             return await _send_email_resend(to_email, subject, body_html, body_text)
 
