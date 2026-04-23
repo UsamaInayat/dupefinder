@@ -3,7 +3,11 @@
  * For production, set e.g. `VITE_API_BASE=https://dupefinder-api.up.railway.app` at build time.
  */
 export function getApiBase() {
-  return (import.meta.env.VITE_API_BASE || '').replace(/\/$/, '')
+  const raw = (import.meta.env.VITE_API_BASE || '').trim().replace(/\/$/, '')
+  if (!raw) return ''
+  // Common deploy mistake: setting `dupefinder-api.up.railway.app` without scheme.
+  if (!/^https?:\/\//i.test(raw)) return `https://${raw}`
+  return raw
 }
 
 /**

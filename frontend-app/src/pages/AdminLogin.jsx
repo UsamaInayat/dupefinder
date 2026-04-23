@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import axios from 'axios'
-import loginArtUrl from '@login-root'
+import { apiUrl } from '../lib/apiBase'
 import '../styles/Auth.css'
 
 function EmailFieldIcon() {
@@ -20,10 +20,7 @@ function AdminLogin({ onLoginSuccess }) {
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
 
-  const adminLoginUrl = (() => {
-    const base = (import.meta.env.VITE_API_BASE || '').replace(/\/$/, '')
-    return base ? `${base}/api/admin/login` : '/api/admin/login'
-  })()
+  const adminLoginUrl = apiUrl('/api/admin/login')
 
   const handleSubmit = async (e) => {
     e.preventDefault()
@@ -46,7 +43,7 @@ function AdminLogin({ onLoginSuccess }) {
     } catch (err) {
       const msg =
         err.code === 'ECONNABORTED' || err.message?.toLowerCase?.().includes('timeout')
-          ? 'Login timed out — is the API running on port 8000 (or set VITE_API_BASE)?'
+          ? 'Login timed out. Check API service health and VITE_API_BASE.'
           : err.response?.data?.detail || err.message || 'Login failed'
       setError(msg)
     } finally {
@@ -55,12 +52,7 @@ function AdminLogin({ onLoginSuccess }) {
   }
 
   return (
-    <div className="auth-container admin-login admin-login--fullbg">
-      <div
-        className="admin-login-bg"
-        style={{ backgroundImage: `url(${loginArtUrl})` }}
-        aria-hidden
-      />
+    <div className="auth-container admin-login">
       <div className="admin-login-full-inner">
         <div className="auth-box admin-login-card">
           <div className="auth-header">
