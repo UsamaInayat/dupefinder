@@ -53,6 +53,17 @@ COPY --from=builder /usr/local/bin /usr/local/bin
 
 COPY backend /app/backend
 COPY ml-engine /app/ml-engine
+#
+# Auto Sync / Rescraping reads brand sheets from project root (see admin_new.py):
+# - local_brands_links.csv
+# - local_brands_links_women.csv
+# - men dataset.xlsx
+# - women links dataset.xlsx
+# Include them in the API image so Railway matches local behavior.
+COPY "local_brands_links.csv" "/app/local_brands_links.csv"
+COPY "local_brands_links_women.csv" "/app/local_brands_links_women.csv"
+COPY "men dataset.xlsx" "/app/men dataset.xlsx"
+COPY "women links dataset.xlsx" "/app/women links dataset.xlsx"
 
 WORKDIR /app/backend
 
