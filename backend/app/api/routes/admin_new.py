@@ -2992,22 +2992,32 @@ def _sync_reindex() -> dict:
 
     Runs inside asyncio.to_thread — does NOT block the event loop.
     """
+    import importlib
+    import os
     import sys
     from pathlib import Path as _Path
 
-    # Resolve ml-engine path so fashionclip package is importable
-    _project_root = _Path(__file__).parent.parent.parent.parent
-    _ml_engine    = _project_root / "ml-engine"
-    if str(_ml_engine) not in sys.path:
-        sys.path.insert(0, str(_ml_engine))
+    # Resolve ml-engine path so fashionclip package is importable.
+    # Prefer PROJECT_ROOT from Docker ENV (set to /app in Railway image).
+    _project_root = _Path(os.getenv("PROJECT_ROOT", "")).resolve() if os.getenv("PROJECT_ROOT") else None
+    if not _project_root or not _project_root.exists():
+        _project_root = _Path(__file__).resolve().parents[5]  # repo root fallback
+    _ml_engine = _project_root / "ml-engine"
 
-    # Import and call the standalone script's run_reindex function
+    _paths = (str(_ml_engine), str(_ml_engine / "scripts"))
+    for _p in _paths:
+        if _p not in sys.path:
+            sys.path.insert(0, _p)
+
+    # Import and call the standalone script's run_reindex function.
+    # Keep the original exception context if both import styles fail.
     try:
-        from scripts.reindex_new_products import run_reindex
-    except ImportError:
-        # Fallback: add scripts dir explicitly
-        sys.path.insert(0, str(_ml_engine / "scripts"))
-        from reindex_new_products import run_reindex
+        run_reindex = importlib.import_module("scripts.reindex_new_products").run_reindex
+    except Exception as _first_err:
+        try:
+            run_reindex = importlib.import_module("reindex_new_products").run_reindex
+        except Exception:
+            raise _first_err
 
     summary = run_reindex()
 
