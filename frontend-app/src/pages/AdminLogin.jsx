@@ -15,8 +15,8 @@ function EmailFieldIcon() {
 }
 
 function AdminLogin({ onLoginSuccess }) {
-  const [email, setEmail] = useState('admin@dupefinder.com')
-  const [password, setPassword] = useState('admin123')
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
 
@@ -81,7 +81,7 @@ function AdminLogin({ onLoginSuccess }) {
                   autoComplete="username"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  placeholder="admin@dupefinder.com"
+                  placeholder="Enter admin email"
                   required
                 />
               </div>
@@ -97,7 +97,7 @@ function AdminLogin({ onLoginSuccess }) {
                   autoComplete="current-password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  placeholder="••••••••"
+                  placeholder="Enter admin password"
                   required
                 />
               </div>
