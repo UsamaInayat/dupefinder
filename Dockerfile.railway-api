@@ -62,8 +62,8 @@ COPY ml-engine /app/ml-engine
 # Include them in the API image so Railway matches local behavior.
 COPY "local_brands_links.csv" "/app/local_brands_links.csv"
 COPY "local_brands_links_women.csv" "/app/local_brands_links_women.csv"
-COPY "men dataset.xlsx" "/app/men dataset.xlsx"
-COPY "women links dataset.xlsx" "/app/women links dataset.xlsx"
+COPY ["men dataset.xlsx", "/app/men dataset.xlsx"]
+COPY ["women links dataset.xlsx", "/app/women links dataset.xlsx"]
 
 WORKDIR /app/backend
 
