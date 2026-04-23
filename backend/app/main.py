@@ -19,6 +19,7 @@ import os
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from app.core.database import db_manager
+from app.core.config import settings
 from app.api.routes import health, products, search, auth, admin
 from app.api.routes import admin_new
 from app.api.routes import community
@@ -46,6 +47,13 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         print(f"[ERROR] Failed to connect to MongoDB: {e}")
         print("[WARNING] API starting without database connection")
+
+    if (settings.RESEND_API_KEY or "").strip():
+        from app.services.email_service import effective_resend_from_address
+
+        print(f"[INFO] Outbound email: Resend API (From: {effective_resend_from_address()})")
+    else:
+        print(f"[INFO] Outbound email: SMTP {settings.SMTP_HOST}:{settings.SMTP_PORT}")
 
     # Pre-load FashionCLIP + FAISS indices in a background thread so startup
     # never blocks the event loop — API is responsive immediately on port 8000.

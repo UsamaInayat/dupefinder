@@ -55,6 +55,12 @@ class Settings(BaseSettings):
     SMTP_PASSWORD: str = "kqsh zlyu xiuf mfwe"
     EMAIL_FROM: str = "ussamainayat@gmail.com"
     EMAIL_FROM_NAME: str = "DupeFinder"
+
+    # Transactional email via Resend (HTTPS). When set, OTP mail uses the API instead of SMTP.
+    # Free tier: https://resend.com/pricing — verify a domain and set RESEND_FROM for production.
+    # If RESEND_FROM is unset and EMAIL_FROM is Gmail/Yahoo/etc., the app uses onboarding@resend.dev (see email_service).
+    RESEND_API_KEY: Optional[str] = None
+    RESEND_FROM: Optional[str] = None  # e.g. DupeFinder <noreply@yourdomain.com>
     
     # OTP
     OTP_EXPIRY_MINUTES: int = 10

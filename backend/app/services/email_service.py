@@ -1,10 +1,11 @@
 """
 Email Service
-Send emails via SMTP (Gmail) for OTP verification
+Send OTP emails via Resend (HTTPS) when RESEND_API_KEY is set, else SMTP.
 """
 
 import random
 import aiosmtplib
+import httpx
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from datetime import datetime, timedelta
@@ -39,6 +40,92 @@ def generate_otp(length: int = None) -> str:
 # Email Sending
 # ============================================
 
+_resend_onboarding_warned: bool = False
+
+_CONSUMER_FROM_MARKERS = (
+    "@gmail.com",
+    "@googlemail.com",
+    "@yahoo.",
+    "@hotmail.",
+    "@outlook.",
+    "@live.",
+    "@icloud.",
+)
+
+
+def effective_resend_from_address() -> str:
+    """
+    From header for Resend. Resend rejects consumer addresses (Gmail, etc.) as From
+    unless you use their sandbox sender — use a verified domain in production.
+    """
+    explicit = (settings.RESEND_FROM or "").strip()
+    if explicit:
+        return explicit
+    combined = f"{settings.EMAIL_FROM_NAME} <{settings.EMAIL_FROM}>".strip()
+    low = combined.lower()
+    if any(m in low for m in _CONSUMER_FROM_MARKERS):
+        return f"{settings.EMAIL_FROM_NAME} <onboarding@resend.dev>"
+    return combined
+
+
+async def _send_email_resend(
+    to_email: str,
+    subject: str,
+    body_html: str,
+    body_text: Optional[str],
+) -> bool:
+    """POST to Resend API (no outbound SMTP)."""
+    key = (settings.RESEND_API_KEY or "").strip()
+    if not key:
+        return False
+    from_addr = effective_resend_from_address()
+    global _resend_onboarding_warned
+    if (
+        not _resend_onboarding_warned
+        and (settings.RESEND_FROM or "").strip() == ""
+        and "onboarding@resend.dev" in from_addr
+    ):
+        _resend_onboarding_warned = True
+        print(
+            "[WARN] Resend From is onboarding@resend.dev (EMAIL_FROM is a consumer inbox). "
+            "Verify a domain in Resend and set RESEND_FROM=DupeFinder <noreply@yourdomain.com> for production."
+        )
+
+    payload: dict = {
+        "from": from_addr,
+        "to": [to_email],
+        "subject": subject,
+        "html": body_html,
+    }
+    if body_text:
+        payload["text"] = body_text
+
+    print(f"[INFO] Sending email to {to_email} via Resend API (from={from_addr!r})")
+    try:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(30.0, connect=15.0)) as client:
+            r = await client.post(
+                "https://api.resend.com/emails",
+                headers={
+                    "Authorization": f"Bearer {key}",
+                    "Content-Type": "application/json",
+                },
+                json=payload,
+            )
+        if r.status_code in (200, 201):
+            try:
+                rid = r.json().get("id")
+            except Exception:
+                rid = None
+            print(f"[OK] Resend accepted email to {to_email} id={rid}")
+            return True
+        print(f"[ERROR] Resend HTTP {r.status_code}: {r.text[:500]}")
+        return False
+    except Exception as e:
+        import traceback
+        print(f"[ERROR] Resend request failed: {e}\n{traceback.format_exc()}")
+        return False
+
+
 async def send_email(
     to_email: str,
     subject: str,
@@ -46,7 +133,7 @@ async def send_email(
     body_text: Optional[str] = None
 ) -> bool:
     """
-    Send email via SMTP
+    Send email via Resend when RESEND_API_KEY is set, otherwise SMTP.
     
     Args:
         to_email: Recipient email address
@@ -58,6 +145,9 @@ async def send_email(
         True if sent successfully, False otherwise
     """
     try:
+        if (settings.RESEND_API_KEY or "").strip():
+            return await _send_email_resend(to_email, subject, body_html, body_text)
+
         # Create message
         message = MIMEMultipart("alternative")
         message["From"] = f"{settings.EMAIL_FROM_NAME} <{settings.EMAIL_FROM}>"
