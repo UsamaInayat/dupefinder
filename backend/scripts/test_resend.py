@@ -24,12 +24,14 @@ async def _main() -> int:
     to = sys.argv[1].strip()
     from app.services.email_service import send_email
 
-    ok = await send_email(
+    ok, err = await send_email(
         to_email=to,
         subject="DupeFinder — Resend / email test",
         body_html="<p>If you see this, outbound email from the backend works.</p>",
         body_text="If you see this, outbound email from the backend works.",
     )
+    if err:
+        print(f"send_email error_code={err}")
     return 0 if ok else 1
 
 

@@ -9,7 +9,8 @@ import httpx
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from datetime import datetime, timedelta
-from typing import Optional
+from typing import Optional, Tuple
+
 from app.core.config import settings
 from app.core.database import get_otps_collection
 
@@ -73,11 +74,11 @@ async def _send_email_resend(
     subject: str,
     body_html: str,
     body_text: Optional[str],
-) -> bool:
-    """POST to Resend API (no outbound SMTP)."""
+) -> Tuple[bool, Optional[str]]:
+    """POST to Resend API (no outbound SMTP). Returns (ok, error_code)."""
     key = (settings.RESEND_API_KEY or "").strip()
     if not key:
-        return False
+        return False, None
     from_addr = effective_resend_from_address()
     global _resend_onboarding_warned
     if (
@@ -117,13 +118,20 @@ async def _send_email_resend(
             except Exception:
                 rid = None
             print(f"[OK] Resend accepted email to {to_email} id={rid}")
-            return True
+            return True, None
+        snippet = (r.text or "")[:800].lower()
+        if r.status_code == 403 and (
+            "verify a domain" in snippet
+            or "only send testing" in snippet
+            or "your own email address" in snippet
+        ):
+            return False, "resend_needs_verified_domain"
         print(f"[ERROR] Resend HTTP {r.status_code}: {r.text[:500]}")
-        return False
+        return False, None
     except Exception as e:
         import traceback
         print(f"[ERROR] Resend request failed: {e}\n{traceback.format_exc()}")
-        return False
+        return False, None
 
 
 async def send_email(
@@ -131,18 +139,13 @@ async def send_email(
     subject: str,
     body_html: str,
     body_text: Optional[str] = None
-) -> bool:
+) -> Tuple[bool, Optional[str]]:
     """
     Send email via Resend when RESEND_API_KEY is set, otherwise SMTP.
-    
-    Args:
-        to_email: Recipient email address
-        subject: Email subject
-        body_html: HTML email body
-        body_text: Plain text email body (fallback)
-        
+
     Returns:
-        True if sent successfully, False otherwise
+        (success, error_code). error_code is e.g. resend_needs_verified_domain when
+        Resend blocks non-account recipients until a domain is verified.
     """
     try:
         if (settings.RESEND_API_KEY or "").strip():
@@ -188,8 +191,8 @@ async def send_email(
             )
         
         print(f"[OK] Email sent successfully to {to_email}")
-        return True
-        
+        return True, None
+
     except Exception as e:
         import traceback
         error_trace = traceback.format_exc()
@@ -197,7 +200,7 @@ async def send_email(
         print(f"[ERROR] Error type: {type(e).__name__}")
         print(f"[ERROR] Error message: {str(e)}")
         print(f"[ERROR] Full traceback:\n{error_trace}")
-        return False
+        return False, None
 
 
 def create_otp_email_html(otp: str, email: str) -> tuple[str, str]:
@@ -401,47 +404,43 @@ def verify_otp(email: str, otp: str) -> bool:
 # Combined OTP Operations
 # ============================================
 
-async def generate_and_send_otp(email: str) -> bool:
+async def generate_and_send_otp(email: str) -> Tuple[bool, Optional[str]]:
     """
-    Generate OTP, store it, and send email
-    
-    Args:
-        email: User email address
-        
+    Generate OTP, store it, and send email.
+
     Returns:
-        True if successful, False otherwise
+        (success, error_code). See send_email for error_code values.
     """
     try:
         # Generate OTP
         otp = generate_otp()
         print(f"[INFO] Generated OTP for {email}: {otp}")
-        
+
         # Store in database
         stored = await store_otp(email, otp)
         if not stored:
-            return False
-        
+            return False, None
+
         # Create email content
         html_body, text_body = create_otp_email_html(otp, email)
-        
+
         # Send email
-        sent = await send_email(
+        sent, send_err = await send_email(
             to_email=email,
             subject="DupeFinder - Email Verification Code",
             body_html=html_body,
-            body_text=text_body
+            body_text=text_body,
         )
-        
+
         if sent:
             print(f"[OK] OTP sent successfully to {email}")
-            return True
-        else:
-            print(f"[ERROR] Failed to send OTP email to {email}")
-            return False
-            
+            return True, None
+        print(f"[ERROR] Failed to send OTP email to {email}")
+        return False, send_err
+
     except Exception as e:
         print(f"[ERROR] Failed to generate and send OTP: {e}")
-        return False
+        return False, None
 
 
 

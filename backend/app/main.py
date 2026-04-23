@@ -51,7 +51,13 @@ async def lifespan(app: FastAPI):
     if (settings.RESEND_API_KEY or "").strip():
         from app.services.email_service import effective_resend_from_address
 
-        print(f"[INFO] Outbound email: Resend API (From: {effective_resend_from_address()})")
+        ef = effective_resend_from_address()
+        print(f"[INFO] Outbound email: Resend API (From: {ef})")
+        if (not (settings.RESEND_FROM or "").strip()) and "onboarding@resend.dev" in ef:
+            print(
+                "[WARN] Resend sender is onboarding@resend.dev: only your Resend account email "
+                "can receive mail until you verify a domain and set RESEND_FROM."
+            )
     else:
         print(f"[INFO] Outbound email: SMTP {settings.SMTP_HOST}:{settings.SMTP_PORT}")
 
