@@ -15,7 +15,6 @@ from urllib.parse import urljoin, urlparse, parse_qs
 import logging
 import hashlib
 
-from app.core.database import get_products_collection
 from app.services.category_normalizer import normalize_category, extract_gender_from_category
 
 logger = logging.getLogger(__name__)
@@ -2150,6 +2149,9 @@ async def scrape_from_excel_files(men_file: str = "men dataset.xlsx",
     Returns:
         Dictionary with scraping results
     """
+    # Import lazily so lightweight scraper-only deployments don't need Mongo deps at import time.
+    from app.core.database import get_products_collection
+
     scraper = ProductScraper()
     products_collection = get_products_collection()
     

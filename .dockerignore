@@ -1,0 +1,27 @@
+# Keep Docker build context small for Railway
+
+.git
+.github
+.cursor
+
+# Mobile + unrelated artifacts
+mobile/
+**/build/
+**/.dart_tool/
+
+# Frontend (separate Railway service)
+frontend-app/node_modules/
+frontend-app/dist/
+
+# Local datasets / logs (should be mounted at runtime, not baked into image)
+data/
+**/logs/
+**/__pycache__/
+**/*.pyc
+**/.pytest_cache/
+
+# OS / IDE
+Thumbs.db
+Desktop.ini
+.idea/
+.vscode/

@@ -55,6 +55,18 @@ class Settings(BaseSettings):
     SMTP_PASSWORD: str = "kqsh zlyu xiuf mfwe"
     EMAIL_FROM: str = "ussamainayat@gmail.com"
     EMAIL_FROM_NAME: str = "DupeFinder"
+
+    # Gmail API (HTTPS OAuth) — works on Railway without SMTP; send as your Gmail to any recipient.
+    # One-time: GCP project + Gmail API enabled, OAuth client, then refresh token (e.g. OAuth Playground with gmail.send).
+    GMAIL_API_CLIENT_ID: Optional[str] = None
+    GMAIL_API_CLIENT_SECRET: Optional[str] = None
+    GMAIL_API_REFRESH_TOKEN: Optional[str] = None
+
+    # Transactional email via Resend (HTTPS). When set, OTP mail uses the API instead of SMTP.
+    # Free tier: https://resend.com/pricing — verify a domain and set RESEND_FROM for production.
+    # If RESEND_FROM is unset and EMAIL_FROM is Gmail/Yahoo/etc., the app uses onboarding@resend.dev (see email_service).
+    RESEND_API_KEY: Optional[str] = None
+    RESEND_FROM: Optional[str] = None  # e.g. DupeFinder <noreply@yourdomain.com>
     
     # OTP
     OTP_EXPIRY_MINUTES: int = 10
@@ -66,6 +78,13 @@ class Settings(BaseSettings):
     # File Upload
     MAX_UPLOAD_SIZE: int = 10485760  # 10MB
     ALLOWED_EXTENSIONS: list = ["jpg", "jpeg", "png", "webp"]
+
+    # Remote scraper worker (Railway split deploy)
+    # When SCRAPER_SERVICE_URL is set, admin scraping can delegate Playwright work to a separate service
+    # to keep the API image under platform size limits.
+    SCRAPER_SERVICE_URL: str = ""  # e.g. https://dupefinder-scraper.up.railway.app
+    SCRAPER_SERVICE_TOKEN: str = ""  # shared secret; sent as X-Scraper-Token
+    SCRAPER_REQUEST_TIMEOUT_S: float = 300.0
     
     class Config:
         env_file = ".env"

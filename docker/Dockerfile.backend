@@ -1,3 +1,12 @@
+# DEPRECATED (kept for historical reference)
+#
+# Use the monorepo-aware production Dockerfile at repo root:
+#   `Dockerfile.railway-api`
+#
+# The old layout assumed `docker build` from repo root and used `COPY backend/...`,
+# but it also pointed `uvicorn` at `main:app` (not `app.main:app`) and enabled `--reload`,
+# which is not appropriate for production.
+
 FROM python:3.11-slim
 
 WORKDIR /app

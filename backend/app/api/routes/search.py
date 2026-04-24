@@ -11,6 +11,7 @@ Flow:
 """
 
 import sys
+import os
 import time
 import pickle
 import threading
@@ -24,12 +25,17 @@ from fastapi import APIRouter, File, UploadFile, HTTPException, Query
 from pydantic import BaseModel
 
 # ── Paths ─────────────────────────────────────────────────────────────────────
+def _path_from_env(name: str, default: Path) -> Path:
+    raw = os.getenv(name, "").strip()
+    return Path(raw) if raw else default
+
+
 PROJECT_ROOT = Path(__file__).parent.parent.parent.parent.parent
 ML_ENGINE    = PROJECT_ROOT / "ml-engine"
 ML_DIR       = Path(__file__).parent.parent.parent / "ml"
-FAISS_DIR    = ML_DIR / "fashionclip_indices"
-ID_MAPS_DIR  = ML_DIR / "fashionclip_id_maps"
-UPLOAD_DIR   = PROJECT_ROOT / "data" / "uploads"
+FAISS_DIR    = _path_from_env("FAISS_INDEX_DIR", ML_DIR / "fashionclip_indices")
+ID_MAPS_DIR  = _path_from_env("FAISS_ID_MAP_DIR", ML_DIR / "fashionclip_id_maps")
+UPLOAD_DIR   = _path_from_env("SEARCH_UPLOAD_DIR", PROJECT_ROOT / "data" / "uploads")
 UPLOAD_DIR.mkdir(exist_ok=True, parents=True)
 
 sys.path.insert(0, str(ML_ENGINE))

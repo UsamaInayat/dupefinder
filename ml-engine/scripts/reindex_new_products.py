@@ -43,9 +43,15 @@ from PIL import Image
 SCRIPT_DIR   = Path(__file__).parent
 ML_ROOT      = SCRIPT_DIR.parent
 PROJECT_ROOT = ML_ROOT.parent
-BACKEND_ML   = PROJECT_ROOT / "backend" / "app" / "ml"
-FAISS_DIR    = BACKEND_ML / "fashionclip_indices"
-ID_MAPS_DIR  = BACKEND_ML / "fashionclip_id_maps"
+def _path_from_env(name: str, default):
+    raw = os.getenv(name, "").strip()
+    return Path(raw) if raw else default
+
+
+# Allow Railway volume mounts by pointing directly at dirs, or override the whole backend ML root.
+BACKEND_ML = _path_from_env("BACKEND_APP_ML_DIR", PROJECT_ROOT / "backend" / "app" / "ml")
+FAISS_DIR = _path_from_env("FAISS_INDEX_DIR", BACKEND_ML / "fashionclip_indices")
+ID_MAPS_DIR = _path_from_env("FAISS_ID_MAP_DIR", BACKEND_ML / "fashionclip_id_maps")
 
 sys.path.insert(0, str(ML_ROOT))
 
@@ -53,9 +59,37 @@ CONFIG_PATH = ML_ROOT / "config.yaml"
 with open(CONFIG_PATH) as f:
     CFG = yaml.safe_load(f)
 
-MONGO_URI = CFG["mongodb"]["uri"]
-MONGO_DB  = CFG["mongodb"]["database"]
-MONGO_COL = CFG["mongodb"]["collection"]
+# Prefer environment variables (Railway / production), fall back to ml-engine/config.yaml (local dev).
+# This avoids requiring committed secrets in config.yaml for deployed environments.
+MONGO_URI = (
+    os.getenv("MONGO_URI")
+    or os.getenv("MONGODB_URI")
+    or os.getenv("MONGODB_URL")
+    or CFG.get("mongodb", {}).get("uri")
+)
+MONGO_DB = (
+    os.getenv("MONGO_DB_NAME")
+    or os.getenv("MONGODB_DATABASE")
+    or os.getenv("DATABASE_NAME")
+    or CFG.get("mongodb", {}).get("database")
+)
+MONGO_COL = os.getenv("MONGO_COLLECTION") or CFG.get("mongodb", {}).get("collection")
+
+if not MONGO_URI:
+    raise RuntimeError(
+        "Mongo URI not configured. Set MONGO_URI (or MONGODB_URI) in the environment, "
+        "or set mongodb.uri in ml-engine/config.yaml for local runs."
+    )
+if not MONGO_DB:
+    raise RuntimeError(
+        "Mongo database name not configured. Set MONGO_DB_NAME (or MONGODB_DATABASE), "
+        "or set mongodb.database in ml-engine/config.yaml for local runs."
+    )
+if not MONGO_COL:
+    raise RuntimeError(
+        "Mongo collection not configured. Set MONGO_COLLECTION, "
+        "or set mongodb.collection in ml-engine/config.yaml for local runs."
+    )
 
 DOWNLOAD_HEADERS = {
     "User-Agent": (

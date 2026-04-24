@@ -14,11 +14,13 @@ import sys
 import re
 import mimetypes
 from pathlib import Path
+import os
 
 # Add parent directory to path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from app.core.database import db_manager
+from app.core.config import settings
 from app.api.routes import health, products, search, auth, admin
 from app.api.routes import admin_new
 from app.api.routes import community
@@ -46,6 +48,21 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         print(f"[ERROR] Failed to connect to MongoDB: {e}")
         print("[WARNING] API starting without database connection")
+
+    from app.services.email_service import effective_resend_from_address, gmail_api_is_configured
+
+    if gmail_api_is_configured():
+        print(f"[INFO] Outbound email: Gmail API (HTTPS) as {settings.EMAIL_FROM}")
+    elif (settings.RESEND_API_KEY or "").strip():
+        ef = effective_resend_from_address()
+        print(f"[INFO] Outbound email: Resend API (From: {ef})")
+        if (not (settings.RESEND_FROM or "").strip()) and "onboarding@resend.dev" in ef:
+            print(
+                "[WARN] Resend sender is onboarding@resend.dev: only your Resend account email "
+                "can receive mail until you verify a domain and set RESEND_FROM."
+            )
+    else:
+        print(f"[INFO] Outbound email: SMTP {settings.SMTP_HOST}:{settings.SMTP_PORT}")
 
     # Pre-load FashionCLIP + FAISS indices in a background thread so startup
     # never blocks the event loop — API is responsive immediately on port 8000.
@@ -100,9 +117,9 @@ def is_localhost_origin(origin: str) -> bool:
     pattern = r'^https?://(localhost|127\.0\.0\.1)(:\d+)?$'
     return bool(re.match(pattern, origin))
 
-# CORS - localhost for dev; add production frontends via CORS_EXTRA_ORIGINS (comma-separated, no spaces required)
-_cors_extra = os.getenv("CORS_EXTRA_ORIGINS", "")
-_cors_extra_origins = [o.strip() for o in _cors_extra.split(",") if o.strip()]
+# CORS — localhost dev; production: CORS_ADDITIONAL_ORIGINS (Railway) or CORS_EXTRA_ORIGINS (legacy), comma-separated
+_cors_extra_raw = (os.getenv("CORS_ADDITIONAL_ORIGINS", "") or os.getenv("CORS_EXTRA_ORIGINS", ""))
+_cors_extra = [o.strip() for o in _cors_extra_raw.split(",") if o.strip()]
 _cors_allow_origins = [
     "http://localhost:3000",
     "http://localhost:5173",
@@ -110,7 +127,7 @@ _cors_allow_origins = [
     "http://127.0.0.1:5173",
     "http://localhost:8000",
     "http://127.0.0.1:8000",
-] + _cors_extra_origins
+] + _cors_extra
 
 app.add_middleware(
     CORSMiddleware,
@@ -140,7 +157,16 @@ app.include_router(user_data.router, prefix="/api/user-data", tags=["User Data"]
 # Ensure Windows serves modern image extensions with correct MIME type.
 mimetypes.add_type("image/webp", ".webp")
 mimetypes.add_type("image/avif", ".avif")
-data_dir = Path(__file__).parent.parent.parent / "data"
+# Product images and other static assets live under `/data` by default:
+#   <repo>/data
+# In deployed environments (Railway volume), override with DATA_DIR=/data (or any mount path).
+_data_dir_env = os.getenv("DATA_DIR", "").strip()
+if _data_dir_env:
+    data_dir = Path(_data_dir_env)
+else:
+    data_dir = Path(__file__).parent.parent.parent / "data"
+
+data_dir.mkdir(parents=True, exist_ok=True)
 app.mount("/data", StaticFiles(directory=str(data_dir)), name="data")
 
 # ============================================

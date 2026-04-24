@@ -126,14 +126,25 @@ async def signup(request: SignupRequest):
     
     # Generate and send OTP
     try:
-        otp_sent = await generate_and_send_otp(request.email)
-        
+        otp_sent, send_err = await generate_and_send_otp(request.email)
+
         if not otp_sent:
             # Rollback user creation
             users.delete_one({"_id": result.inserted_id})
+            if send_err == "resend_needs_verified_domain":
+                print(
+                    "[ACTION REQUIRED] Resend is blocking this recipient: with onboarding@resend.dev "
+                    "you may only send to your Resend account email. Verify a domain at "
+                    "https://resend.com/domains and set RESEND_FROM (e.g. DupeFinder <noreply@yourdomain.com>) "
+                    "on the API service."
+                )
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail="Verification email could not be sent right now. Please try again later.",
+                )
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Failed to send verification email. Please check your email settings or try again later."
+                detail="Failed to send verification email. Please check your email settings or try again later.",
             )
     except Exception as e:
         # Rollback user creation on any error
@@ -435,12 +446,21 @@ async def resend_otp(email: str):
         )
     
     # Generate and send OTP
-    otp_sent = await generate_and_send_otp(email)
-    
+    otp_sent, send_err = await generate_and_send_otp(email)
+
     if not otp_sent:
+        if send_err == "resend_needs_verified_domain":
+            print(
+                "[ACTION REQUIRED] Resend needs a verified domain and RESEND_FROM — "
+                "see https://resend.com/domains"
+            )
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Verification email could not be sent right now. Please try again later.",
+            )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to send verification email"
+            detail="Failed to send verification email",
         )
     
     return SignupResponse(

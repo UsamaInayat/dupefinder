@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import axios from 'axios'
-import { getApiOrigin } from '../../lib/apiOrigin'
+import { adminApiUrl } from '../../lib/adminApiUrl'
 
 function UserManagement() {
   const [users, setUsers] = useState([])
@@ -23,7 +23,7 @@ function UserManagement() {
 
       if (submittedSearch) params.append('search', submittedSearch)
 
-      const response = await axios.get(`${getApiOrigin()}/api/admin/users?${params}`, {
+      const response = await axios.get(`${adminApiUrl('/users')}?${params}`, {
         headers: { Authorization: `Bearer ${token}` },
       })
 
@@ -49,7 +49,7 @@ function UserManagement() {
 
     try {
       const token = localStorage.getItem('adminToken') || localStorage.getItem('token')
-      await axios.delete(`${getApiOrigin()}/api/admin/users/${userId}`, {
+      await axios.delete(adminApiUrl(`/users/${userId}`), {
         headers: { Authorization: `Bearer ${token}` },
       })
       alert('User deleted successfully')

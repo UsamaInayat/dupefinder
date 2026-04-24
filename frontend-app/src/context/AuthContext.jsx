@@ -1,12 +1,12 @@
 import { createContext, useState, useContext, useEffect, useRef } from 'react'
 import axios from 'axios'
-import { getApiOrigin } from '../lib/apiOrigin'
+import { getApiBase } from '../lib/apiBase'
 
 const AuthContext = createContext(null)
 
-// Create axios instance with interceptors
+// Same-origin in dev (Vite proxies /api). In prod, VITE_API_BASE must point at the API.
 const api = axios.create({
-  baseURL: getApiOrigin() || undefined,
+  baseURL: getApiBase() || undefined,
 })
 
 export const AuthProvider = ({ children }) => {
@@ -65,7 +65,7 @@ export const AuthProvider = ({ children }) => {
             }
 
             // Try to refresh the token
-            const response = await axios.post(`${getApiOrigin()}/api/auth/refresh`, {
+            const response = await api.post('/api/auth/refresh', {
               refresh_token: refreshToken
             })
 
@@ -180,7 +180,7 @@ export const AuthProvider = ({ children }) => {
 
   const resendOTP = async (email) => {
     try {
-      const response = await api.post(`/api/auth/resend-otp?email=${email}`)
+      const response = await api.post(`/api/auth/resend-otp?email=${encodeURIComponent(email)}`)
       
       return { 
         success: true,

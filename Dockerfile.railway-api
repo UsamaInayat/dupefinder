@@ -1,0 +1,72 @@
+# DupeFinder API — production image for Railway (monorepo-aware)
+#
+# Railway should use:
+# - Root Directory: .  (repo root)
+# - Dockerfile path: Dockerfile.railway-api
+#
+# Why not only `backend/` as build context?
+# - Scraping/reindex flows import `ml-engine` (see `backend/app/api/routes/admin_new.py`).
+# - `ml-engine/scripts/reindex_new_products.py` expects `PROJECT_ROOT/backend/...` layout.
+#
+# Image size: Railway caps images at ~4 GB. Default `pip install torch` often pulls a **CUDA**
+# wheel (multi‑GB). We install **CPU-only** PyTorch from download.pytorch.org, then copy
+# site-packages into a slim final stage (no compilers / no X11 / no OpenGL stack).
+
+FROM python:3.11-slim AS builder
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
+
+WORKDIR /app
+
+COPY backend/requirements-railway-api.txt /app/backend/requirements-railway-api.txt
+
+# Compilers live only in the builder stage (not copied into the final image).
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    ca-certificates \
+  && rm -rf /var/lib/apt/lists/* \
+  && python -m pip install --upgrade pip setuptools wheel \
+  # torch>=2.4: newer `transformers` requires it; 2.2.2 is treated as "missing PyTorch" for many models.
+  # Install torch first from the CPU index, then the rest of requirements (see numpy<2 in requirements file).
+  && pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cpu "torch==2.4.1" \
+  && pip install --no-cache-dir -r /app/backend/requirements-railway-api.txt
+
+# ── Slim runtime (no build tools; no ML GUI stack) ───────────────────────────
+FROM python:3.11-slim AS runtime
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PORT=8000 \
+    PROJECT_ROOT=/app
+
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    libgomp1 \
+  && rm -rf /var/lib/apt/lists/*
+
+COPY --from=builder /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
+COPY --from=builder /usr/local/bin /usr/local/bin
+
+COPY backend /app/backend
+COPY ml-engine /app/ml-engine
+#
+# Auto Sync / Rescraping reads brand sheets from project root (see admin_new.py):
+# - local_brands_links.csv
+# - local_brands_links_women.csv
+# - men dataset.xlsx
+# - women links dataset.xlsx
+# Include them in the API image so Railway matches local behavior.
+COPY "local_brands_links.csv" "/app/local_brands_links.csv"
+COPY "local_brands_links_women.csv" "/app/local_brands_links_women.csv"
+COPY ["men dataset.xlsx", "/app/men dataset.xlsx"]
+COPY ["women links dataset.xlsx", "/app/women links dataset.xlsx"]
+
+WORKDIR /app/backend
+
+EXPOSE 8000
+
+CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"]

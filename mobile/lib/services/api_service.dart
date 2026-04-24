@@ -31,9 +31,28 @@ class ApiService {
   /// Per-host probes while scanning /24 (parallel). Too short misses slow PCs / Wi‑Fi.
   static const Duration _lanScanProbeTimeout = Duration(milliseconds: 2000);
   static const int _lanScanBatchSize = 40;
+  // Cloud API (works from any Wi-Fi/internet). Can be overridden at build time:
+  // flutter run --dart-define=DUPFINDER_API_BASE=https://dupefinder-api.up.railway.app/api
+  static const String _defaultCloudApiBase = String.fromEnvironment(
+    'DUPFINDER_API_BASE',
+    defaultValue: 'https://dupefinder-api.up.railway.app/api',
+  );
 
   // Cached after resolveBaseUrl(); cleared on force re-probe or connection failure retry.
   static String? _resolvedUrl;
+  static String _normalizedApiBase(String raw) {
+    var s = raw.trim();
+    if (s.isEmpty) return '';
+    if (!s.startsWith('http://') && !s.startsWith('https://')) {
+      s = 'https://$s';
+    }
+    s = s.replaceAll(RegExp(r'\/+$'), '');
+    if (!s.endsWith('/api')) s = '$s/api';
+    return s;
+  }
+
+  static String get _cloudApiBase => _normalizedApiBase(_defaultCloudApiBase);
+
   static Map<String, dynamic>? _userDataCache;
   static DateTime? _userDataCacheAt;
   static const Duration _userDataCacheTtl = Duration(seconds: 20);
@@ -232,6 +251,10 @@ class ApiService {
         addApi(_resolvedUrl!);
       }
     }
+    // Prefer deployed API first so mobile works on any Wi-Fi/internet.
+    if (_cloudApiBase.isNotEmpty) {
+      addApi(_cloudApiBase);
+    }
     if (saved != null) {
       addApi(_apiUrlFromIp(saved));
     }
@@ -259,9 +282,9 @@ class ApiService {
   /// [fullLanScan] when false, skips scanning the whole /24 (saves many seconds on login).
   static Future<void> resolveBaseUrl(
       {bool force = false, bool fullLanScan = true}) async {
-    if (kIsWeb) {
-      _resolvedUrl = 'http://localhost:8000/api';
-      print('[ApiService] Web platform — using localhost');
+    if (kIsWeb && _cloudApiBase.isNotEmpty) {
+      _resolvedUrl = _cloudApiBase;
+      print('[ApiService] Web platform — using cloud API: $_resolvedUrl');
       return;
     }
     // Do not treat unresolvable.invalid as "done" — otherwise login keeps using 10.0.2.2 on real phones.
@@ -276,6 +299,12 @@ class ApiService {
 
     final prefs = await SharedPreferences.getInstance();
     await _migrateClearLegacyBackendIp(prefs);
+
+    // Cloud-first path: stable deployment endpoint works on any network.
+    if (_cloudApiBase.isNotEmpty) {
+      _resolvedUrl = _cloudApiBase;
+      return;
+    }
 
     final savedRaw = prefs.getString('backend_ip')?.trim();
     final saved = _normalizeLanIpv4(savedRaw);
@@ -407,6 +436,7 @@ class ApiService {
       return u;
     }
     if (kIsWeb) return 'http://localhost:8000/api';
+    if (_cloudApiBase.isNotEmpty) return _cloudApiBase;
     // Before resolveBaseUrl() (e.g. tests): prefer emulator loopback.
     if (defaultTargetPlatform == TargetPlatform.android) {
       return 'http://10.0.2.2:8000/api';

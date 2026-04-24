@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import axios from 'axios'
-import { getApiOrigin } from '../../lib/apiOrigin'
+import { adminApiUrl } from '../../lib/adminApiUrl'
 
 function MLTraining() {
   const [trainSplit, setTrainSplit] = useState(80)
@@ -26,7 +26,7 @@ function MLTraining() {
     try {
       const token = localStorage.getItem('adminToken') || localStorage.getItem('token')
       const response = await axios.get(
-        `${getApiOrigin()}/api/admin/ml/metrics?limit=10`,
+        adminApiUrl('/ml/metrics?limit=10'),
         { headers: { Authorization: `Bearer ${token}` } }
       )
       setMetrics(response.data.metrics)
@@ -75,7 +75,7 @@ function MLTraining() {
     try {
       const token = localStorage.getItem('adminToken') || localStorage.getItem('token')
       const response = await axios.post(
-        `${getApiOrigin()}/api/admin/ml/train?train_split=${trainSplit / 100}`,
+        adminApiUrl(`/ml/train?train_split=${trainSplit / 100}`),
         {},
         { headers: { Authorization: `Bearer ${token}` } }
       )
@@ -93,7 +93,7 @@ function MLTraining() {
     try {
       const token = localStorage.getItem('adminToken') || localStorage.getItem('token')
       const response = await axios.get(
-        `${getApiOrigin()}/api/admin/ml/training-status/${currentJob}`,
+        adminApiUrl(`/ml/training-status/${currentJob}`),
         { headers: { Authorization: `Bearer ${token}` } }
       )
 

@@ -1,14 +1,19 @@
 """
 Email Service
-Send emails via SMTP (Gmail) for OTP verification
+Outbound order: Gmail API (OAuth, HTTPS) if configured, else Resend, else SMTP.
 """
 
+import base64
 import random
+import time
 import aiosmtplib
+import httpx
+from email.message import EmailMessage
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from datetime import datetime, timedelta
-from typing import Optional
+from typing import Optional, Tuple
+
 from app.core.config import settings
 from app.core.database import get_otps_collection
 
@@ -39,25 +44,224 @@ def generate_otp(length: int = None) -> str:
 # Email Sending
 # ============================================
 
+_resend_onboarding_warned: bool = False
+
+_CONSUMER_FROM_MARKERS = (
+    "@gmail.com",
+    "@googlemail.com",
+    "@yahoo.",
+    "@hotmail.",
+    "@outlook.",
+    "@live.",
+    "@icloud.",
+)
+
+
+_gmail_oauth_cache: dict = {"access_token": None, "expires_at": 0.0}
+
+
+def gmail_api_is_configured() -> bool:
+    return bool(
+        (settings.GMAIL_API_REFRESH_TOKEN or "").strip()
+        and (settings.GMAIL_API_CLIENT_ID or "").strip()
+        and (settings.GMAIL_API_CLIENT_SECRET or "").strip()
+    )
+
+
+def _gmail_rfc822_raw(
+    to_email: str,
+    subject: str,
+    body_html: str,
+    body_text: Optional[str],
+) -> str:
+    msg = EmailMessage()
+    msg["Subject"] = subject
+    msg["From"] = f"{settings.EMAIL_FROM_NAME} <{settings.EMAIL_FROM}>"
+    msg["To"] = to_email
+    plain = (body_text or "").strip() or "Your verification code is in the HTML part of this message."
+    msg.set_content(plain)
+    msg.add_alternative(body_html, subtype="html")
+    raw_bytes = msg.as_bytes()
+    return base64.urlsafe_b64encode(raw_bytes).decode("utf-8").rstrip("=")
+
+
+async def _get_gmail_access_token() -> Optional[str]:
+    now = time.time()
+    tok = _gmail_oauth_cache.get("access_token")
+    exp = float(_gmail_oauth_cache.get("expires_at") or 0)
+    if tok and now < exp - 120:
+        return str(tok)
+
+    cid = (settings.GMAIL_API_CLIENT_ID or "").strip()
+    sec = (settings.GMAIL_API_CLIENT_SECRET or "").strip()
+    rt = (settings.GMAIL_API_REFRESH_TOKEN or "").strip()
+    try:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(30.0, connect=15.0)) as client:
+            r = await client.post(
+                "https://oauth2.googleapis.com/token",
+                data={
+                    "client_id": cid,
+                    "client_secret": sec,
+                    "refresh_token": rt,
+                    "grant_type": "refresh_token",
+                },
+            )
+        if r.status_code != 200:
+            print(f"[ERROR] Gmail OAuth token refresh HTTP {r.status_code}: {r.text[:500]}")
+            return None
+        data = r.json()
+        access = data.get("access_token")
+        if not access:
+            print(f"[ERROR] Gmail OAuth response missing access_token: {data}")
+            return None
+        expires_in = int(data.get("expires_in", 3600))
+        _gmail_oauth_cache["access_token"] = access
+        _gmail_oauth_cache["expires_at"] = now + expires_in
+        return str(access)
+    except Exception as e:
+        import traceback
+
+        print(f"[ERROR] Gmail OAuth token refresh failed: {e}\n{traceback.format_exc()}")
+        return None
+
+
+async def _send_email_gmail_api(
+    to_email: str,
+    subject: str,
+    body_html: str,
+    body_text: Optional[str],
+) -> Tuple[bool, Optional[str]]:
+    """Send via Gmail API (googleapis.com). From must match the Google account used for the refresh token."""
+    access = await _get_gmail_access_token()
+    if not access:
+        return False, None
+    raw = _gmail_rfc822_raw(to_email, subject, body_html, body_text)
+    print(f"[INFO] Sending email to {to_email} via Gmail API (From: {settings.EMAIL_FROM})")
+    try:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(45.0, connect=20.0)) as client:
+            r = await client.post(
+                "https://gmail.googleapis.com/gmail/v1/users/me/messages/send",
+                headers={
+                    "Authorization": f"Bearer {access}",
+                    "Content-Type": "application/json",
+                },
+                json={"raw": raw},
+            )
+        if r.status_code in (200, 201):
+            try:
+                mid = r.json().get("id")
+            except Exception:
+                mid = None
+            print(f"[OK] Gmail API sent message to {to_email} id={mid}")
+            return True, None
+        print(f"[ERROR] Gmail API send HTTP {r.status_code}: {r.text[:600]}")
+        return False, None
+    except Exception as e:
+        import traceback
+
+        print(f"[ERROR] Gmail API send failed: {e}\n{traceback.format_exc()}")
+        return False, None
+
+
+def effective_resend_from_address() -> str:
+    """
+    From header for Resend. Resend rejects consumer addresses (Gmail, etc.) as From
+    unless you use their sandbox sender — use a verified domain in production.
+    """
+    explicit = (settings.RESEND_FROM or "").strip()
+    if explicit:
+        return explicit
+    combined = f"{settings.EMAIL_FROM_NAME} <{settings.EMAIL_FROM}>".strip()
+    low = combined.lower()
+    if any(m in low for m in _CONSUMER_FROM_MARKERS):
+        return f"{settings.EMAIL_FROM_NAME} <onboarding@resend.dev>"
+    return combined
+
+
+async def _send_email_resend(
+    to_email: str,
+    subject: str,
+    body_html: str,
+    body_text: Optional[str],
+) -> Tuple[bool, Optional[str]]:
+    """POST to Resend API (no outbound SMTP). Returns (ok, error_code)."""
+    key = (settings.RESEND_API_KEY or "").strip()
+    if not key:
+        return False, None
+    from_addr = effective_resend_from_address()
+    global _resend_onboarding_warned
+    if (
+        not _resend_onboarding_warned
+        and (settings.RESEND_FROM or "").strip() == ""
+        and "onboarding@resend.dev" in from_addr
+    ):
+        _resend_onboarding_warned = True
+        print(
+            "[WARN] Resend From is onboarding@resend.dev (EMAIL_FROM is a consumer inbox). "
+            "Verify a domain in Resend and set RESEND_FROM=DupeFinder <noreply@yourdomain.com> for production."
+        )
+
+    payload: dict = {
+        "from": from_addr,
+        "to": [to_email],
+        "subject": subject,
+        "html": body_html,
+    }
+    if body_text:
+        payload["text"] = body_text
+
+    print(f"[INFO] Sending email to {to_email} via Resend API (from={from_addr!r})")
+    try:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(30.0, connect=15.0)) as client:
+            r = await client.post(
+                "https://api.resend.com/emails",
+                headers={
+                    "Authorization": f"Bearer {key}",
+                    "Content-Type": "application/json",
+                },
+                json=payload,
+            )
+        if r.status_code in (200, 201):
+            try:
+                rid = r.json().get("id")
+            except Exception:
+                rid = None
+            print(f"[OK] Resend accepted email to {to_email} id={rid}")
+            return True, None
+        snippet = (r.text or "")[:800].lower()
+        if r.status_code == 403 and (
+            "verify a domain" in snippet
+            or "only send testing" in snippet
+            or "your own email address" in snippet
+        ):
+            return False, "resend_needs_verified_domain"
+        print(f"[ERROR] Resend HTTP {r.status_code}: {r.text[:500]}")
+        return False, None
+    except Exception as e:
+        import traceback
+        print(f"[ERROR] Resend request failed: {e}\n{traceback.format_exc()}")
+        return False, None
+
+
 async def send_email(
     to_email: str,
     subject: str,
     body_html: str,
     body_text: Optional[str] = None
-) -> bool:
+) -> Tuple[bool, Optional[str]]:
     """
-    Send email via SMTP
-    
-    Args:
-        to_email: Recipient email address
-        subject: Email subject
-        body_html: HTML email body
-        body_text: Plain text email body (fallback)
-        
+    Send via Gmail API (if OAuth env configured), else Resend, else SMTP.
+
     Returns:
-        True if sent successfully, False otherwise
+        (success, error_code). error_code is e.g. resend_needs_verified_domain when
+        Resend blocks non-account recipients until a domain is verified.
     """
     try:
+        if gmail_api_is_configured():
+            return await _send_email_gmail_api(to_email, subject, body_html, body_text)
+        if (settings.RESEND_API_KEY or "").strip():
+            return await _send_email_resend(to_email, subject, body_html, body_text)
+
         # Create message
         message = MIMEMultipart("alternative")
         message["From"] = f"{settings.EMAIL_FROM_NAME} <{settings.EMAIL_FROM}>"
@@ -98,8 +302,8 @@ async def send_email(
             )
         
         print(f"[OK] Email sent successfully to {to_email}")
-        return True
-        
+        return True, None
+
     except Exception as e:
         import traceback
         error_trace = traceback.format_exc()
@@ -107,7 +311,7 @@ async def send_email(
         print(f"[ERROR] Error type: {type(e).__name__}")
         print(f"[ERROR] Error message: {str(e)}")
         print(f"[ERROR] Full traceback:\n{error_trace}")
-        return False
+        return False, None
 
 
 def create_otp_email_html(otp: str, email: str) -> tuple[str, str]:
@@ -311,47 +515,43 @@ def verify_otp(email: str, otp: str) -> bool:
 # Combined OTP Operations
 # ============================================
 
-async def generate_and_send_otp(email: str) -> bool:
+async def generate_and_send_otp(email: str) -> Tuple[bool, Optional[str]]:
     """
-    Generate OTP, store it, and send email
-    
-    Args:
-        email: User email address
-        
+    Generate OTP, store it, and send email.
+
     Returns:
-        True if successful, False otherwise
+        (success, error_code). See send_email for error_code values.
     """
     try:
         # Generate OTP
         otp = generate_otp()
         print(f"[INFO] Generated OTP for {email}: {otp}")
-        
+
         # Store in database
         stored = await store_otp(email, otp)
         if not stored:
-            return False
-        
+            return False, None
+
         # Create email content
         html_body, text_body = create_otp_email_html(otp, email)
-        
+
         # Send email
-        sent = await send_email(
+        sent, send_err = await send_email(
             to_email=email,
             subject="DupeFinder - Email Verification Code",
             body_html=html_body,
-            body_text=text_body
+            body_text=text_body,
         )
-        
+
         if sent:
             print(f"[OK] OTP sent successfully to {email}")
-            return True
-        else:
-            print(f"[ERROR] Failed to send OTP email to {email}")
-            return False
-            
+            return True, None
+        print(f"[ERROR] Failed to send OTP email to {email}")
+        return False, send_err
+
     except Exception as e:
         print(f"[ERROR] Failed to generate and send OTP: {e}")
-        return False
+        return False, None
 
 
 

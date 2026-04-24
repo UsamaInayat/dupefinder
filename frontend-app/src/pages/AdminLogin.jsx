@@ -42,7 +42,7 @@ function AdminLogin({ onLoginSuccess }) {
     } catch (err) {
       const msg =
         err.code === 'ECONNABORTED' || err.message?.toLowerCase?.().includes('timeout')
-          ? 'Login timed out — is the API reachable? On Vercel set VITE_API_BASE to your backend URL (no trailing slash) and redeploy.'
+          ? 'Login timed out — is the API reachable? Set VITE_API_BASE to your backend URL (no trailing slash) and redeploy.'
           : err.response?.data?.detail || err.message || 'Login failed'
       setError(msg)
     } finally {
@@ -96,7 +96,7 @@ function AdminLogin({ onLoginSuccess }) {
                   autoComplete="current-password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  placeholder="••••••••"
+                  placeholder="Enter admin password"
                   required
                 />
               </div>
