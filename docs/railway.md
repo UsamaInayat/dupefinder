@@ -86,7 +86,7 @@ The incremental reindex script (`ml-engine/scripts/reindex_new_products.py`) pre
 
 Vite embeds `import.meta.env.VITE_*` at **build time**.
 
-Set **`VITE_API_BASE`** in Railway for the frontend service (same value you want compiled into the bundle), e.g. your public API `https://...` (**no trailing slash**).
+Set **`VITE_API_BASE`** in Railway for the frontend service (same value you want compiled into the bundle), e.g. your public API `https://...` (**no trailing slash**). The Docker **build** runs `prebuild` (`scripts/sync-vercel-rewrites.mjs`); that script reads **`VITE_API_BASE` from the build environment** so `npm run build` can finish. If this variable is missing, the build fails. Ensure the variable is available to the **build** step (same as Vite: it is embedded at build time).
 
 ### Admin dashboard note
 

@@ -1,3 +1,5 @@
-# Vercel deploy: put your live FastAPI base URL on the next line only (https, no trailing slash).
-# Replace the placeholder below once, commit, push — no Vercel dashboard env vars needed.
-https://REPLACE-WITH-YOUR-FASTAPI-HOST.com
+# Vercel: put your public FastAPI base URL on a single line below (https, no trailing slash).
+# Example:
+#   https://dupefinder-api.up.railway.app
+#
+# Docker/Railway: prefer setting build-time VITE_API_BASE in the service — no need to edit this file.
