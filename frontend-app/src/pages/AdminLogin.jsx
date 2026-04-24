@@ -1,8 +1,10 @@
 import { useState } from 'react'
 import axios from 'axios'
-import loginArtUrl from '@login-root'
 import { adminApiUrl } from '../lib/adminApiUrl'
 import '../styles/Auth.css'
+
+/** Public asset (see `public/login.png`); same URL in dev and production builds. */
+const LOGIN_BG_URL = '/login.png'
 
 function EmailFieldIcon() {
   return (
@@ -54,7 +56,7 @@ function AdminLogin({ onLoginSuccess }) {
     <div className="auth-container admin-login admin-login--fullbg">
       <div
         className="admin-login-bg"
-        style={{ backgroundImage: `url(${loginArtUrl})` }}
+        style={{ backgroundImage: `url(${LOGIN_BG_URL})` }}
         aria-hidden
       />
       <div className="admin-login-full-inner">
