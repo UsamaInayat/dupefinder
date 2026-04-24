@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import axios from 'axios'
 import loginArtUrl from '@login-root'
+import { adminApiUrl } from '../lib/adminApiUrl'
 import '../styles/Auth.css'
 
 function EmailFieldIcon() {
@@ -15,15 +16,10 @@ function EmailFieldIcon() {
 }
 
 function AdminLogin({ onLoginSuccess }) {
-  const [email, setEmail] = useState('admin@dupefinder.com')
-  const [password, setPassword] = useState('admin123')
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
-
-  const adminLoginUrl = (() => {
-    const base = (import.meta.env.VITE_API_BASE || '').replace(/\/$/, '')
-    return base ? `${base}/api/admin/login` : '/api/admin/login'
-  })()
 
   const handleSubmit = async (e) => {
     e.preventDefault()
@@ -32,7 +28,7 @@ function AdminLogin({ onLoginSuccess }) {
 
     try {
       const response = await axios.post(
-        adminLoginUrl,
+        adminApiUrl('/login'),
         { email, password },
         { timeout: 25000 },
       )
@@ -46,7 +42,7 @@ function AdminLogin({ onLoginSuccess }) {
     } catch (err) {
       const msg =
         err.code === 'ECONNABORTED' || err.message?.toLowerCase?.().includes('timeout')
-          ? 'Login timed out — is the API running on port 8000 (or set VITE_API_BASE)?'
+          ? 'Login timed out — is the API reachable? On Vercel set VITE_API_BASE to your backend URL (no trailing slash) and redeploy.'
           : err.response?.data?.detail || err.message || 'Login failed'
       setError(msg)
     } finally {
@@ -84,7 +80,7 @@ function AdminLogin({ onLoginSuccess }) {
                   autoComplete="username"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  placeholder="admin@dupefinder.com"
+                  placeholder="Enter your admin email"
                   required
                 />
               </div>

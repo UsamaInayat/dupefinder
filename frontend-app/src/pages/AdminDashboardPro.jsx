@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react'
 import axios from 'axios'
+import { getApiOrigin } from '../lib/apiOrigin'
 import '../styles/AdminPro.css'
 
-const API_BASE = 'http://localhost:8000'
+const API_BASE = getApiOrigin()
 
 function AdminDashboardPro({ admin, token, onLogout }) {
   const [activeTab, setActiveTab] = useState(() => {
@@ -147,7 +148,13 @@ function AdminDashboardPro({ admin, token, onLogout }) {
 
       {connectionError === 'backend' && (
         <div className="admin-pro-alert admin-pro-alert-error" role="alert">
-          Backend reachable nahi hai. Please ensure server is running on <strong>{API_BASE}</strong> and try again.
+          Backend reachable nahi hai. Please ensure the API is up
+          {API_BASE ? (
+            <> on <strong>{API_BASE}</strong></>
+          ) : (
+            <> (same-origin /api proxy on Vercel, or local backend on port 8000)</>
+          )}{' '}
+          and try again.
         </div>
       )}
       {connectionError === 'auth' && (
@@ -378,7 +385,14 @@ function AdminDashboardPro({ admin, token, onLogout }) {
                       <div key={product._id} className="product-pro-card">
                         <div className="product-pro-image">
                           <img
-                            src={`http://localhost:8000/${product.image_path}`}
+                            src={
+                              product.image_path?.startsWith('http')
+                                ? product.image_path
+                                : `${API_BASE}/data/${String(product.image_path || '')
+                                    .replace(/\\/g, '/')
+                                    .replace(/^\/+/, '')
+                                    .replace(/^data\//, '')}`
+                            }
                             alt={product.name}
                             onError={(e) => {
                               e.target.src = 'https://via.placeholder.com/200?text=No+Image'

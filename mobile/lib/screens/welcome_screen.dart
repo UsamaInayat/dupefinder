@@ -167,10 +167,11 @@ class _WelcomeScreenState extends State<WelcomeScreen>
                                     onPressed: () =>
                                         Navigator.of(context).pushNamed('/login'),
                                     style: OutlinedButton.styleFrom(
-                                      backgroundColor: DupePalette.scaffoldLight,
+                                      backgroundColor: DupePalette.textPrimary
+                                          .withValues(alpha: 0.42),
                                       side: BorderSide(
-                                        color: DupePalette.greyGuest
-                                            .withValues(alpha: 0.55),
+                                        color: Colors.white
+                                            .withValues(alpha: 0.7),
                                       ),
                                       shape: RoundedRectangleBorder(
                                         borderRadius: BorderRadius.circular(32),
@@ -180,9 +181,9 @@ class _WelcomeScreenState extends State<WelcomeScreen>
                                     child: const Text(
                                       'Log In',
                                       style: TextStyle(
-                                        color: DupePalette.textPrimary,
+                                        color: Colors.white,
                                         fontSize: 16,
-                                        fontWeight: FontWeight.bold,
+                                        fontWeight: FontWeight.w700,
                                         height: 1.2, // Prevent descender clipping (e.g., "g").
                                       ),
                                     ),

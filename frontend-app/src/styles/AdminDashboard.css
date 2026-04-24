@@ -2241,6 +2241,103 @@ button.product-delete-icon:hover {
   transition: none !important;
 }
 
+/* Scraping History — readable white text on dark panel (hierarchy, not all “black” weight) */
+.scraping-management .section-card.scraping-history-section {
+  background: linear-gradient(145deg, #1e293b 0%, #0f172a 100%) !important;
+  border: 1px solid rgba(255, 255, 255, 0.14) !important;
+}
+
+.scraping-management .section-card.scraping-history-section h3,
+.scraping-management .section-card.scraping-history-section .scraping-history-status-line,
+.scraping-management .section-card.scraping-history-section .pagination,
+.scraping-management .section-card.scraping-history-section .pagination-info {
+  color: #ffffff !important;
+  opacity: 1 !important;
+}
+
+.scraping-management .section-card.scraping-history-section h3 {
+  font-size: 1.3rem;
+  font-weight: 900 !important;
+  letter-spacing: -0.01em;
+  margin-bottom: 4px;
+}
+
+.scraping-management .section-card.scraping-history-section .scraping-history-status-line,
+.scraping-management .section-card.scraping-history-section .pagination-info {
+  font-weight: 800;
+  font-size: 0.95rem;
+}
+
+/* Each job row: subtle card, padding, so copy isn’t glued to edges */
+.scraping-management .section-card.scraping-history-section .history-item {
+  display: flex !important;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 16px;
+  margin-bottom: 12px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-sizing: border-box;
+}
+
+.scraping-management .section-card.scraping-history-section .history-item > div:first-child {
+  flex: 1;
+  min-width: 0;
+}
+
+.scraping-management .section-card.scraping-history-section .history-item .action-btn,
+.scraping-management .section-card.scraping-history-section .history-item .action-btn.danger {
+  align-self: center;
+  flex-shrink: 0;
+  margin-left: 0 !important;
+  font-weight: 900 !important;
+  font-size: 0.9rem !important;
+  padding: 0.5rem 1rem !important;
+  letter-spacing: 0.02em;
+}
+
+.scraping-management .section-card.scraping-history-section .history-header {
+  margin-bottom: 6px;
+}
+
+.scraping-management .section-card.scraping-history-section .history-status {
+  color: #ffffff !important;
+  font-weight: 900 !important;
+  font-size: 0.8125rem !important;
+  letter-spacing: 0.05em;
+}
+
+.scraping-management .section-card.scraping-history-section .history-list {
+  padding-top: 4px;
+}
+
+.scraping-management .section-card.scraping-history-section .history-details,
+.scraping-management .section-card.scraping-history-section .history-details span {
+  color: #ffffff !important;
+  font-weight: 700 !important;
+  font-size: 0.9375rem !important;
+  line-height: 1.5 !important;
+  letter-spacing: 0;
+  opacity: 1 !important;
+}
+
+.scraping-management .section-card.scraping-history-section .pagination {
+  font-weight: 800;
+  margin-top: 20px;
+}
+
+.scraping-management .section-card.scraping-history-section button.action-btn,
+.scraping-management .section-card.scraping-history-section button.action-btn.danger,
+.scraping-management .section-card.scraping-history-section button.pagination-btn,
+.scraping-management .section-card.scraping-history-section .pagination button {
+  color: #ffffff !important;
+  font-weight: 900 !important;
+  font-size: 0.9rem !important;
+  letter-spacing: 0.02em;
+}
+
 .scraping-management button {
   transition: none !important;
 }

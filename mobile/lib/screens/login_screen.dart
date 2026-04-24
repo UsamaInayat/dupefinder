@@ -65,12 +65,32 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
+  static final TextStyle _inputValueStyle = GoogleFonts.inter(
+    color: Colors.white,
+    fontSize: 16,
+    fontWeight: FontWeight.w800,
+  );
+
   InputDecoration _glassField(String label, String hint, {Widget? prefix, Widget? suffix}) {
     return InputDecoration(
       labelText: label,
       hintText: hint,
-      labelStyle: TextStyle(color: Colors.white.withValues(alpha: 0.9), fontSize: 13),
-      hintStyle: TextStyle(color: Colors.white.withValues(alpha: 0.5)),
+      labelStyle: GoogleFonts.inter(
+        color: Colors.white,
+        fontSize: 14,
+        fontWeight: FontWeight.w900,
+        height: 1.1,
+      ),
+      floatingLabelStyle: GoogleFonts.inter(
+        color: Colors.white,
+        fontSize: 13,
+        fontWeight: FontWeight.w900,
+      ),
+      hintStyle: GoogleFonts.inter(
+        color: Colors.white.withValues(alpha: 0.64),
+        fontSize: 15,
+        fontWeight: FontWeight.w800,
+      ),
       prefixIcon: prefix,
       suffixIcon: suffix,
       filled: true,
@@ -120,7 +140,7 @@ class _LoginScreenState extends State<LoginScreen> {
                 Text(
                   'Welcome Back',
                   textAlign: TextAlign.center,
-                  style: DupePalette.serifHeading(32, w: FontWeight.w700, color: Colors.white),
+                  style: DupePalette.serifHeading(32, w: FontWeight.w900, color: Colors.white),
                 ),
                 const SizedBox(height: 10),
                 Text(
@@ -128,7 +148,8 @@ class _LoginScreenState extends State<LoginScreen> {
                   textAlign: TextAlign.center,
                   style: GoogleFonts.inter(
                     fontSize: 15,
-                    color: Colors.white.withValues(alpha: 0.88),
+                    color: Colors.white,
+                    fontWeight: FontWeight.w900,
                     height: 1.35,
                   ),
                 ),
@@ -144,7 +165,7 @@ class _LoginScreenState extends State<LoginScreen> {
                         TextFormField(
                           controller: _emailController,
                           keyboardType: TextInputType.emailAddress,
-                          style: const TextStyle(color: Colors.white),
+                          style: _inputValueStyle,
                           cursorColor: Colors.white,
                           decoration: _glassField(
                             'Email',
@@ -161,7 +182,7 @@ class _LoginScreenState extends State<LoginScreen> {
                         TextFormField(
                           controller: _passwordController,
                           obscureText: _obscurePassword,
-                          style: const TextStyle(color: Colors.white),
+                          style: _inputValueStyle,
                           cursorColor: Colors.white,
                           decoration: _glassField(
                             'Password',
@@ -206,7 +227,7 @@ class _LoginScreenState extends State<LoginScreen> {
                                               style: GoogleFonts.inter(
                                                 color: Colors.white,
                                                 fontSize: 17,
-                                                fontWeight: FontWeight.bold,
+                                                fontWeight: FontWeight.w900,
                                               ),
                                             ),
                                             const SizedBox(width: 8),
@@ -227,14 +248,18 @@ class _LoginScreenState extends State<LoginScreen> {
                   onPressed: () => Navigator.of(context).pushReplacementNamed('/register'),
                   child: Text.rich(
                     TextSpan(
-                      style: GoogleFonts.inter(color: Colors.white.withValues(alpha: 0.9), fontSize: 15),
+                      style: GoogleFonts.inter(
+                        color: Colors.white,
+                        fontSize: 15,
+                        fontWeight: FontWeight.w900,
+                      ),
                       children: [
                         const TextSpan(text: "Don't have an account? "),
                         TextSpan(
                           text: 'Sign Up',
                           style: GoogleFonts.inter(
                             decoration: TextDecoration.underline,
-                            fontWeight: FontWeight.w600,
+                            fontWeight: FontWeight.w900,
                             color: Colors.white,
                           ),
                         ),

@@ -4,6 +4,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "prebuild": "node ./scripts/sync-vercel-rewrites.mjs",
     "build": "vite build",
     "preview": "vite preview",
     "analyze": "vite build --sourcemap && npx source-map-explorer dist/assets/*.js --html dist/bundle-report.html"

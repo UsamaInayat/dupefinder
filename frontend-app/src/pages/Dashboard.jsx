@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useAuth } from '../context/AuthContext'
 import axios from 'axios'
+import { getApiOrigin } from '../lib/apiOrigin'
 import '../styles/Dashboard.css'
 
 function Dashboard({ onBackToSearch }) {
@@ -16,7 +17,7 @@ function Dashboard({ onBackToSearch }) {
 
   const fetchSearchHistory = async () => {
     try {
-      const response = await axios.get('http://localhost:8000/api/auth/search-history?limit=10', {
+      const response = await axios.get(`${getApiOrigin()}/api/auth/search-history?limit=10`, {
         headers: {
           Authorization: `Bearer ${token}`
         }
@@ -31,7 +32,7 @@ function Dashboard({ onBackToSearch }) {
 
   const fetchSearchStats = async () => {
     try {
-      const response = await axios.get('http://localhost:8000/api/search/stats')
+      const response = await axios.get(`${getApiOrigin()}/api/search/stats`)
       setStats(response.data)
     } catch (error) {
       console.error('Failed to fetch stats:', error)

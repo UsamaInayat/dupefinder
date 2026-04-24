@@ -275,8 +275,6 @@ class _CategoryBrowseScreenState extends State<CategoryBrowseScreen> {
                           final name = (p['name'] as String?) ?? 'Product';
                           final brand = (p['brand'] as String?) ?? '';
                           final price = (p['price'] as num?)?.toDouble() ?? 0;
-                          final desc =
-                              (p['description'] as String?)?.trim() ?? '';
                           final cat =
                               (p['display_category'] as String?)?.trim() ?? '';
                           final imgUrl = _resolveImageUrl(p);
@@ -387,19 +385,6 @@ class _CategoryBrowseScreenState extends State<CategoryBrowseScreen> {
                                               color: DupePalette.pinkDeep,
                                             ),
                                           ),
-                                          if (desc.isNotEmpty) ...[
-                                            const SizedBox(height: 6),
-                                            Text(
-                                              desc,
-                                              maxLines: 3,
-                                              overflow: TextOverflow.ellipsis,
-                                              style: GoogleFonts.inter(
-                                                fontSize: 12,
-                                                color: DupePalette.greySubtitle,
-                                                height: 1.35,
-                                              ),
-                                            ),
-                                          ],
                                           const SizedBox(height: 6),
                                           Row(
                                             children: [

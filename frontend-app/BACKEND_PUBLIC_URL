@@ -1,0 +1,3 @@
+# Vercel deploy: put your live FastAPI base URL on the next line only (https, no trailing slash).
+# Replace the placeholder below once, commit, push — no Vercel dashboard env vars needed.
+https://REPLACE-WITH-YOUR-FASTAPI-HOST.com

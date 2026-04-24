@@ -47,6 +47,8 @@ yarn.lock
 # React
 frontend/build/
 admin-dashboard/build/
+# Generated on each Vite build from frontend-app/BACKEND_PUBLIC_URL (see that file)
+frontend-app/vercel.json
 
 # Flutter/Dart
 mobile/.dart_tool/

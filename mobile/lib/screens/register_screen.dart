@@ -58,12 +58,32 @@ class _RegisterScreenState extends State<RegisterScreen> {
     });
   }
 
+  static final TextStyle _inputValueStyle = GoogleFonts.inter(
+    color: Colors.white,
+    fontSize: 16,
+    fontWeight: FontWeight.w800,
+  );
+
   InputDecoration _glassField(String label, String hint, {Widget? prefix, Widget? suffix}) {
     return InputDecoration(
       labelText: label,
       hintText: hint,
-      labelStyle: TextStyle(color: Colors.white.withValues(alpha: 0.9), fontSize: 13),
-      hintStyle: TextStyle(color: Colors.white.withValues(alpha: 0.5)),
+      labelStyle: GoogleFonts.inter(
+        color: Colors.white,
+        fontSize: 14,
+        fontWeight: FontWeight.w900,
+        height: 1.1,
+      ),
+      floatingLabelStyle: GoogleFonts.inter(
+        color: Colors.white,
+        fontSize: 13,
+        fontWeight: FontWeight.w900,
+      ),
+      hintStyle: GoogleFonts.inter(
+        color: Colors.white.withValues(alpha: 0.64),
+        fontSize: 15,
+        fontWeight: FontWeight.w800,
+      ),
       prefixIcon: prefix,
       suffixIcon: suffix,
       filled: true,
@@ -185,7 +205,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 Text(
                   _otpSent ? 'Verify email' : 'Create account',
                   textAlign: TextAlign.center,
-                  style: DupePalette.serifHeading(30, w: FontWeight.w700, color: Colors.white),
+                  style: DupePalette.serifHeading(30, w: FontWeight.w900, color: Colors.white),
                 ),
                 const SizedBox(height: 10),
                 Text(
@@ -195,7 +215,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   textAlign: TextAlign.center,
                   style: GoogleFonts.inter(
                     fontSize: 15,
-                    color: Colors.white.withValues(alpha: 0.88),
+                    color: Colors.white,
+                    fontWeight: FontWeight.w900,
                     height: 1.35,
                   ),
                 ),
@@ -212,7 +233,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                           TextFormField(
                             controller: _nameController,
                             textCapitalization: TextCapitalization.words,
-                            style: const TextStyle(color: Colors.white),
+                            style: _inputValueStyle,
                             cursorColor: Colors.white,
                             decoration: _glassField(
                               'Full name',
@@ -228,7 +249,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                           TextFormField(
                             controller: _emailController,
                             keyboardType: TextInputType.emailAddress,
-                            style: const TextStyle(color: Colors.white),
+                            style: _inputValueStyle,
                             cursorColor: Colors.white,
                             decoration: _glassField(
                               'Email',
@@ -245,7 +266,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                           TextFormField(
                             controller: _passwordController,
                             obscureText: _obscurePassword,
-                            style: const TextStyle(color: Colors.white),
+                            style: _inputValueStyle,
                             cursorColor: Colors.white,
                             onChanged: (_) {
                               _validatePassword();
@@ -280,7 +301,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                           TextFormField(
                             controller: _confirmPasswordController,
                             obscureText: _obscureConfirm,
-                            style: const TextStyle(color: Colors.white),
+                            style: _inputValueStyle,
                             cursorColor: Colors.white,
                             decoration: _glassField(
                               'Confirm password',
@@ -322,7 +343,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                                             style: GoogleFonts.inter(
                                               color: Colors.white,
                                               fontSize: 17,
-                                              fontWeight: FontWeight.bold,
+                                              fontWeight: FontWeight.w900,
                                             ),
                                           ),
                                   ),
@@ -336,7 +357,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
                             textAlign: TextAlign.center,
                             style: GoogleFonts.inter(
                               fontSize: 15,
-                              color: Colors.white.withValues(alpha: 0.92),
+                              color: Colors.white,
+                              fontWeight: FontWeight.w900,
                               height: 1.45,
                             ),
                           ),
@@ -344,7 +366,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                           TextFormField(
                             controller: _otpController,
                             keyboardType: TextInputType.number,
-                            style: const TextStyle(color: Colors.white),
+                            style: _inputValueStyle,
                             cursorColor: Colors.white,
                             decoration: _glassField(
                               'Verification code',
@@ -374,7 +396,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                                             style: GoogleFonts.inter(
                                               color: Colors.white,
                                               fontSize: 17,
-                                              fontWeight: FontWeight.bold,
+                                              fontWeight: FontWeight.w900,
                                             ),
                                           ),
                                   ),
@@ -392,14 +414,18 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   onPressed: () => Navigator.of(context).pushReplacementNamed('/login'),
                   child: Text.rich(
                     TextSpan(
-                      style: GoogleFonts.inter(color: Colors.white.withValues(alpha: 0.9), fontSize: 15),
+                      style: GoogleFonts.inter(
+                        color: Colors.white,
+                        fontSize: 15,
+                        fontWeight: FontWeight.w900,
+                      ),
                       children: [
                         const TextSpan(text: 'Already have an account? '),
                         TextSpan(
                           text: 'Log In',
                           style: GoogleFonts.inter(
                             decoration: TextDecoration.underline,
-                            fontWeight: FontWeight.w600,
+                            fontWeight: FontWeight.w900,
                             color: Colors.white,
                           ),
                         ),
@@ -433,7 +459,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 label,
                 style: GoogleFonts.inter(
                   fontSize: 12,
-                  color: ok ? Colors.white : Colors.white.withValues(alpha: 0.7),
+                  fontWeight: FontWeight.w900,
+                  color: Colors.white,
                 ),
               ),
             ),
@@ -455,7 +482,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
           Text(
             'Password requirements',
             style: GoogleFonts.inter(
-              fontWeight: FontWeight.w600,
+              fontWeight: FontWeight.w900,
               color: Colors.white,
               fontSize: 13,
             ),

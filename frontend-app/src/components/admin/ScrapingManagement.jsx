@@ -796,17 +796,17 @@ function ScrapingManagement() {
       )}
 
       {/* History */}
-      <div className="section-card">
+      <div className="section-card scraping-history-section">
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
           <h3>Scraping History ({historyTotal} total)</h3>
         </div>
         
         {loadingHistory ? (
-          <p style={{ color: '#666', textAlign: 'center', padding: '20px' }}>
+          <p className="scraping-history-status-line" style={{ textAlign: 'center', padding: '20px' }}>
             Loading history... Please wait.
           </p>
         ) : history.length === 0 ? (
-          <p>No scraping history yet.</p>
+          <p className="scraping-history-status-line">No scraping history yet.</p>
         ) : (
           <>
             <div className="history-list">
@@ -817,21 +817,19 @@ function ScrapingManagement() {
                 ).join(', ') || 'N/A'
                 
                 return (
-                  <div key={job.job_id || idx} className="history-item" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
-                    <div style={{ flex: 1 }}>
-                      <div className="history-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                  <div key={job.job_id || idx} className="history-item">
+                    <div>
+                      <div className="history-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                         <span className={`history-status ${job.status}`} style={{ 
                           padding: '4px 12px', 
                           borderRadius: '4px', 
                           background: job.status === 'completed' ? 'var(--dupe-teal)' : job.status === 'failed' ? '#c026d3' : job.status === 'cancelled' ? '#d97706' : 'var(--dupe-blue)',
                           color: '#fff',
-                          fontSize: '0.85rem',
-                          fontWeight: '600'
                         }}>
                           {job.status?.toUpperCase() || 'UNKNOWN'}
                         </span>
                       </div>
-                      <div className="history-details" style={{ display: 'flex', gap: '15px', fontSize: '0.9rem', color: 'var(--dupe-text-primary)', opacity: 0.92 }}>
+                      <div className="history-details" style={{ display: 'flex', flexWrap: 'wrap', gap: '12px 16px' }}>
                         <span>Brands: {brandNames}</span>
                         {job.products_added !== undefined && (
                           <span>Products (new + updated): {job.products_added}</span>
@@ -849,7 +847,6 @@ function ScrapingManagement() {
                       disabled={deletingHistoryId === job.job_id || isProcessingRef.current}
                       className="action-btn danger"
                       style={{
-                        marginLeft: '15px',
                         cursor: deletingHistoryId === job.job_id || isProcessingRef.current ? 'not-allowed' : 'pointer',
                         opacity: deletingHistoryId === job.job_id || isProcessingRef.current ? 0.5 : 1,
                         pointerEvents: deletingHistoryId === job.job_id || isProcessingRef.current ? 'none' : 'auto'

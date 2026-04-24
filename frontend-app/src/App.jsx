@@ -1,8 +1,9 @@
 import { useState } from 'react'
 import axios from 'axios'
 import { useAuth } from './context/AuthContext'
+import { getApiOrigin } from './lib/apiOrigin'
 
-const API_BASE_URL = 'http://localhost:8000'
+const API_BASE_URL = getApiOrigin()
 
 function App() {
   const { user } = useAuth()
@@ -221,7 +222,7 @@ function App() {
                 .map((product, index) => (
                 <div key={product._id} className="product-card">
                   <img 
-                    src={`http://localhost:8000/data/${product.image_path.replace(/\\/g, '/')}`}
+                    src={`${API_BASE_URL}/data/${product.image_path.replace(/\\/g, '/')}`}
                     alt={product.name}
                     className="product-image"
                     onError={(e) => {

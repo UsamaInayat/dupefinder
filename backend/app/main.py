@@ -9,6 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from contextlib import asynccontextmanager
+import os
 import sys
 import re
 import mimetypes
@@ -99,17 +100,21 @@ def is_localhost_origin(origin: str) -> bool:
     pattern = r'^https?://(localhost|127\.0\.0\.1)(:\d+)?$'
     return bool(re.match(pattern, origin))
 
-# CORS - Allow all localhost origins for development (including Flutter web dynamic ports)
+# CORS - localhost for dev; add production frontends via CORS_EXTRA_ORIGINS (comma-separated, no spaces required)
+_cors_extra = os.getenv("CORS_EXTRA_ORIGINS", "")
+_cors_extra_origins = [o.strip() for o in _cors_extra.split(",") if o.strip()]
+_cors_allow_origins = [
+    "http://localhost:3000",
+    "http://localhost:5173",
+    "http://127.0.0.1:3000",
+    "http://127.0.0.1:5173",
+    "http://localhost:8000",
+    "http://127.0.0.1:8000",
+] + _cors_extra_origins
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",
-        "http://localhost:5173",
-        "http://127.0.0.1:3000",
-        "http://127.0.0.1:5173",
-        "http://localhost:8000",
-        "http://127.0.0.1:8000",
-    ],
+    allow_origins=_cors_allow_origins,
     allow_origin_regex=r"https?://(localhost|127\.0\.0\.1)(:\d+)?$",  # Allow any localhost port (for Flutter web)
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
