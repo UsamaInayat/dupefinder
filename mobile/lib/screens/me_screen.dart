@@ -51,6 +51,7 @@ class _MeScreenState extends State<MeScreen> {
   String? _joinedAt;
   String? _profileImageBase64;
   int _dupeHistoryCount = 0;
+  int _imageSearchCount = 0;
   int _totalDupeClicks = 0;
   bool _guest = false;
   Uint8List? _pendingProfileBytes;
@@ -113,6 +114,17 @@ class _MeScreenState extends State<MeScreen> {
     for (final e in history) {
       clicks += e.clickCount;
     }
+    var searchCount = 0;
+    if (!isGuest) {
+      try {
+        final ud = await _api.getUserData();
+        searchCount = (ud['image_search_count'] as num?)?.toInt() ?? 0;
+      } catch (_) {
+        searchCount = prefs.getInt('insights_search_count') ?? 0;
+      }
+    } else {
+      searchCount = prefs.getInt('insights_search_count') ?? 0;
+    }
     if (!isGuest) {
       final pfpFromProfile = (profile['profileImage'] as String?)?.trim();
       if ((pfpFromProfile == null || pfpFromProfile.isEmpty) && mounted) {
@@ -134,6 +146,7 @@ class _MeScreenState extends State<MeScreen> {
       _joinedAt = profile['joinedAt'] as String?;
       _profileImageBase64 = profile['profileImage'] as String?;
       _dupeHistoryCount = history.length;
+      _imageSearchCount = searchCount;
       _totalDupeClicks = clicks;
     });
   }
@@ -413,7 +426,7 @@ class _MeScreenState extends State<MeScreen> {
                       child: _statTile(
                         icon: Icons.image_search_rounded,
                         iconColor: DupePalette.pink,
-                        value: '$_dupeHistoryCount',
+                        value: '$_imageSearchCount',
                         label: 'Searched',
                       ),
                     ),
