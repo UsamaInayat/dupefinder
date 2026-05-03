@@ -302,14 +302,19 @@ def run_reindex(
         )
         t0 = time.time()
         emb_parts: list[np.ndarray] = []
-        for off in range(0, len(image_paths), path_chunk):
+        n_path_chunks = (len(image_paths) + path_chunk - 1) // path_chunk
+        for ci, off in enumerate(range(0, len(image_paths), path_chunk)):
             sub = image_paths[off : off + path_chunk]
-            show_pb = len(image_paths) <= path_chunk or off == 0
+            if n_path_chunks > 1:
+                print(
+                    f"[INFO] FashionCLIP path-chunk {ci + 1}/{n_path_chunks} "
+                    f"({len(sub)} images) ..."
+                )
             emb_parts.append(
                 extractor.extract_batch(
                     sub,
                     batch_size=infer_bs,
-                    show_progress=show_pb and len(sub) > infer_bs,
+                    show_progress=len(sub) > infer_bs,
                 )
             )
             gc.collect()
