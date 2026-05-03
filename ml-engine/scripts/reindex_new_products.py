@@ -101,6 +101,34 @@ DOWNLOAD_HEADERS = {
 }
 
 
+def _env_int(name: str, default: int) -> int:
+    raw = os.getenv(name, "").strip()
+    if not raw:
+        return default
+    try:
+        v = int(raw)
+        return v if v > 0 else default
+    except ValueError:
+        return default
+
+
+def _fashionclip_extract_batch_size() -> int:
+    """
+    Inference micro-batch for FashionCLIP. Large values (e.g. 32) often trigger
+    OOM ('Killed') on small Railway containers; override with FASHIONCLIP_EXTRACT_BATCH.
+    """
+    raw = os.getenv("FASHIONCLIP_EXTRACT_BATCH", "").strip()
+    if raw:
+        try:
+            return max(1, min(128, int(raw)))
+        except ValueError:
+            pass
+    # Railway sets RAILWAY_ENVIRONMENT; default to a conservative batch on that platform.
+    if os.getenv("RAILWAY_ENVIRONMENT", "").strip():
+        return 4
+    return 32
+
+
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 def _slug(cat: str) -> str:
@@ -246,9 +274,28 @@ def run_reindex(
 
         # ── Extract embeddings ────────────────────────────────────────────────
         image_paths = [p["_local_image"] for p in valid_products]
-        print(f"[INFO] Extracting embeddings for {len(image_paths)} images ...")
+        infer_bs = _fashionclip_extract_batch_size()
+        # Optional: cap how many paths we pass per extract_batch call (frees PIL RAM between chunks).
+        path_chunk = _env_int("REINDEX_EXTRACT_PATH_CHUNK", 0)
+        if path_chunk <= 0:
+            path_chunk = len(image_paths)
+        print(
+            f"[INFO] Extracting embeddings for {len(image_paths)} images "
+            f"(infer_batch={infer_bs}, path_chunk={path_chunk}) ..."
+        )
         t0 = time.time()
-        embeddings = extractor.extract_batch(image_paths, batch_size=32, show_progress=True)
+        emb_parts: list[np.ndarray] = []
+        for off in range(0, len(image_paths), path_chunk):
+            sub = image_paths[off : off + path_chunk]
+            show_pb = len(image_paths) <= path_chunk or off == 0
+            emb_parts.append(
+                extractor.extract_batch(
+                    sub,
+                    batch_size=infer_bs,
+                    show_progress=show_pb and len(sub) > infer_bs,
+                )
+            )
+        embeddings = np.vstack(emb_parts) if len(emb_parts) > 1 else emb_parts[0]
         print(f"[OK] Embeddings extracted in {time.time()-t0:.1f}s  shape={embeddings.shape}")
 
         # ── Group by category ─────────────────────────────────────────────────
