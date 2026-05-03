@@ -1215,6 +1215,48 @@ class ApiService {
     throw StateError('toggleCommunityPostLike: exhausted retries');
   }
 
+  /// Persists one image-search for the signed-in user (count + optional category for insights).
+  Future<int> recordImageSearchEvent({String? category}) async {
+    final trimmed = category?.trim();
+    final body = <String, dynamic>{};
+    if (trimmed != null && trimmed.isNotEmpty) {
+      body['category'] = trimmed;
+    }
+    final response = await http.post(
+      Uri.parse('$baseUrl/user-data/analytics/image-search'),
+      headers: await getHeaders(),
+      body: jsonEncode(body),
+    );
+    if (response.statusCode != 200) {
+      throw Exception(
+        'Image search analytics failed (${response.statusCode}): ${response.body}',
+      );
+    }
+    final decoded =
+        Map<String, dynamic>.from(jsonDecode(response.body) as Map);
+    final n = (decoded['image_search_count'] as num?)?.toInt() ?? 0;
+    if (_userDataCache != null) {
+      final prevHist = _userDataCache!['search_category_history'];
+      final hist = <String>[
+        ...((prevHist as List<dynamic>?) ?? const [])
+            .map((e) => e.toString()),
+      ];
+      if (trimmed != null && trimmed.isNotEmpty) {
+        hist.add(trimmed);
+        while (hist.length > 400) {
+          hist.removeAt(0);
+        }
+      }
+      _userDataCache = {
+        ..._userDataCache!,
+        'image_search_count': n,
+        'search_category_history': hist,
+      };
+      _userDataCacheAt = DateTime.now();
+    }
+    return n;
+  }
+
   Future<Map<String, dynamic>> getUserData() async {
     if (_userDataCache != null &&
         _userDataCacheAt != null &&

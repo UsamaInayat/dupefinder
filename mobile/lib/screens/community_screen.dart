@@ -59,6 +59,9 @@ class CommunityScreen extends StatefulWidget {
   final bool feedPollActive;
   final String? focusPostId;
   final String? focusReplyId;
+  final Future<void> Function(String postId, String replyId, String notificationId)?
+      onOpenCommunityFromNotification;
+  final VoidCallback? onNotificationStateChanged;
 
   const CommunityScreen({
     super.key,
@@ -66,6 +69,8 @@ class CommunityScreen extends StatefulWidget {
     this.feedPollActive = true,
     this.focusPostId,
     this.focusReplyId,
+    this.onOpenCommunityFromNotification,
+    this.onNotificationStateChanged,
   });
 
   @override
@@ -84,10 +89,22 @@ class _CommunityScreenState extends State<CommunityScreen> {
   Timer? _feedTimeTicker;
   bool _loadBusy = false;
   bool _hydratingFeedImages = false;
+  bool _guest = false;
+  List<CommunityNotification> _recentNotifications = [];
+  Timer? _notificationTicker;
+
+  int get _unreadNotificationCount =>
+      _recentNotifications.where((n) => !n.isRead).length;
 
   @override
   void initState() {
     super.initState();
+    unawaited(_loadRecentNotifications(silent: true));
+    _notificationTicker = Timer.periodic(const Duration(seconds: 25), (_) {
+      if (!mounted) return;
+      if (widget.embedded && !widget.feedPollActive) return;
+      unawaited(_loadRecentNotifications(silent: true));
+    });
     // Soft refresh only when cache TTL elapsed (see CommunityService); avoids slow full refetch every few seconds.
     _feedTimeTicker = Timer.periodic(const Duration(seconds: 45), (_) {
       if (!mounted) return;
@@ -101,6 +118,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
   @override
   void dispose() {
     _feedTimeTicker?.cancel();
+    _notificationTicker?.cancel();
     super.dispose();
   }
 
@@ -118,6 +136,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
         _myUserId = me;
         _myName = myName.toLowerCase();
         _myEmailPrefix = emailPrefix.toLowerCase();
+        _guest = prefs.getBool('guest_mode') == true;
         _loading = false;
       });
       unawaited(_hydrateFeedImages());
@@ -141,6 +160,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
         widget.feedPollActive &&
         widget.embedded) {
       unawaited(_load(forceRefresh: true, showErrorSnack: false));
+      unawaited(_loadRecentNotifications(silent: true));
     }
   }
 
@@ -168,6 +188,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
           _myUserId = me;
           _myName = myName.toLowerCase();
           _myEmailPrefix = emailPrefix.toLowerCase();
+          _guest = prefs.getBool('guest_mode') == true;
           _loading = false;
         });
         unawaited(_hydrateFeedImages());
@@ -236,6 +257,120 @@ class _CommunityScreenState extends State<CommunityScreen> {
     } finally {
       _hydratingFeedImages = false;
     }
+  }
+
+  Future<void> _loadRecentNotifications({bool silent = false}) async {
+    final prefs = await SharedPreferences.getInstance();
+    if (prefs.getBool('guest_mode') == true) {
+      if (!silent && mounted && _recentNotifications.isNotEmpty) {
+        setState(() => _recentNotifications = []);
+      }
+      return;
+    }
+    try {
+      final list =
+          await _service.getNotifications(limit: 12, unreadOnly: false);
+      if (!mounted) return;
+      setState(() => _recentNotifications = list);
+      widget.onNotificationStateChanged?.call();
+    } catch (_) {}
+  }
+
+  Future<void> _openNotification(CommunityNotification n) async {
+    if (mounted) {
+      setState(() {
+        final idx = _recentNotifications.indexWhere((x) => x.id == n.id);
+        if (idx >= 0) {
+          final curr = _recentNotifications[idx];
+          _recentNotifications[idx] = CommunityNotification(
+            id: curr.id,
+            postId: curr.postId,
+            replyId: curr.replyId,
+            message: curr.message,
+            isRead: true,
+            createdAt: curr.createdAt,
+            actorName: curr.actorName,
+            replyPreview: curr.replyPreview,
+          );
+        }
+      });
+    }
+    widget.onNotificationStateChanged?.call();
+
+    final open = widget.onOpenCommunityFromNotification;
+    if (open != null) {
+      await open(n.postId, n.replyId, n.id);
+    }
+
+    try {
+      await _service.markNotificationRead(n.id);
+      widget.onNotificationStateChanged?.call();
+      unawaited(_loadRecentNotifications(silent: true));
+    } catch (_) {}
+  }
+
+  void _showNotificationsSheet() {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      builder: (ctx) => SizedBox(
+        height: MediaQuery.sizeOf(ctx).height * 0.58,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 14, 16, 10),
+              child: Text(
+                'Notifications',
+                style: GoogleFonts.inter(
+                  fontSize: 17,
+                  fontWeight: FontWeight.w700,
+                  color: DupePalette.textPrimary,
+                ),
+              ),
+            ),
+            const Divider(height: 1),
+            Expanded(
+              child: _recentNotifications.isEmpty
+                  ? Center(
+                      child: Text(
+                        'No notifications yet.',
+                        style: GoogleFonts.inter(
+                          color: DupePalette.greySubtitle,
+                        ),
+                      ),
+                    )
+                  : ListView.separated(
+                      itemCount: _recentNotifications.length,
+                      separatorBuilder: (_, __) => const Divider(height: 1),
+                      itemBuilder: (_, i) {
+                        final n = _recentNotifications[i];
+                        return ListTile(
+                          title: Text(
+                            n.message,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          subtitle: Text(
+                            n.replyPreview.isEmpty
+                                ? 'Community update'
+                                : n.replyPreview,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          onTap: () async {
+                            Navigator.of(ctx).pop();
+                            await _openNotification(n);
+                          },
+                        );
+                      },
+                    ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   Future<void> _openFocusedPostIfNeeded() async {
@@ -820,6 +955,32 @@ class _CommunityScreenState extends State<CommunityScreen> {
               backgroundColor: Colors.white,
               foregroundColor: DupePalette.textPrimary,
               surfaceTintColor: Colors.transparent,
+              actions: [
+                if (!_guest)
+                  IconButton(
+                    tooltip: 'Notifications',
+                    onPressed: _showNotificationsSheet,
+                    icon: Stack(
+                      clipBehavior: Clip.none,
+                      children: [
+                        const Icon(Icons.notifications_none_rounded),
+                        if (_unreadNotificationCount > 0)
+                          Positioned(
+                            right: -2,
+                            top: -2,
+                            child: Container(
+                              width: 8,
+                              height: 8,
+                              decoration: const BoxDecoration(
+                                color: Colors.redAccent,
+                                shape: BoxShape.circle,
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+              ],
             ),
       body: SafeArea(
           top: widget.embedded,
@@ -843,15 +1004,56 @@ class _CommunityScreenState extends State<CommunityScreen> {
                 children: [
                   if (widget.embedded) ...[
                     Padding(
-                      padding: const EdgeInsets.fromLTRB(20, 12, 20, 4),
-                      child: Text(
-                        'Community',
-                        style: GoogleFonts.playfairDisplay(
-                          fontSize: 26,
-                          fontWeight: FontWeight.w700,
-                          color: DupePalette.textPrimary,
-                          height: 1.1,
-                        ),
+                      padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.center,
+                        children: [
+                          Expanded(
+                            child: Text(
+                              'Community',
+                              style: GoogleFonts.playfairDisplay(
+                                fontSize: 26,
+                                fontWeight: FontWeight.w700,
+                                color: DupePalette.textPrimary,
+                                height: 1.1,
+                              ),
+                            ),
+                          ),
+                          if (!_guest)
+                            Material(
+                              color: Colors.white,
+                              shape: const CircleBorder(),
+                              elevation: 1,
+                              shadowColor:
+                                  DupePalette.pink.withValues(alpha: 0.2),
+                              child: IconButton(
+                                tooltip: 'Notifications',
+                                onPressed: _showNotificationsSheet,
+                                icon: Stack(
+                                  clipBehavior: Clip.none,
+                                  children: [
+                                    Icon(
+                                      Icons.notifications_none_rounded,
+                                      color: DupePalette.textPrimary,
+                                    ),
+                                    if (_unreadNotificationCount > 0)
+                                      Positioned(
+                                        right: -1,
+                                        top: -1,
+                                        child: Container(
+                                          width: 8,
+                                          height: 8,
+                                          decoration: const BoxDecoration(
+                                            color: Colors.redAccent,
+                                            shape: BoxShape.circle,
+                                          ),
+                                        ),
+                                      ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                        ],
                       ),
                     ),
                   ],

@@ -6,7 +6,7 @@ Data is stored per authenticated user in MongoDB.
 from datetime import datetime
 from typing import Any, Dict, List
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Body, Depends
 from pydantic import BaseModel, Field
 from bson import ObjectId
 
@@ -26,6 +26,11 @@ class ProfilePayload(BaseModel):
     profile_image: str | None = None
 
 
+class ImageSearchPayload(BaseModel):
+    """Optional category label from image search (for per-user insights)."""
+    category: str | None = None
+
+
 def _col():
     if not db_manager.is_connected():
         raise RuntimeError("Database not connected")
@@ -41,6 +46,8 @@ def _ensure_doc(user_id: str) -> Dict[str, Any]:
             "wishlist": [],
             "compare": [],
             "dupe_history": [],
+            "image_search_count": 0,
+            "search_category_history": [],
             "display_name": None,
             "profile_image": None,
             "created_at": datetime.utcnow(),
@@ -56,6 +63,8 @@ def _serialize(doc: Dict[str, Any]) -> Dict[str, Any]:
         "wishlist": doc.get("wishlist", []),
         "compare": doc.get("compare", []),
         "dupe_history": doc.get("dupe_history", []),
+        "image_search_count": int(doc.get("image_search_count") or 0),
+        "search_category_history": list(doc.get("search_category_history") or []),
         "display_name": doc.get("display_name"),
         "profile_image": doc.get("profile_image"),
     }
@@ -108,6 +117,32 @@ async def put_dupe_history(
         {"$set": {"dupe_history": payload.items, "updated_at": datetime.utcnow()}},
     )
     return {"ok": True, "count": len(payload.items)}
+
+
+@router.post("/analytics/image-search")
+async def record_image_search(
+    current_user: Dict[str, Any] = Depends(get_current_user),
+    payload: ImageSearchPayload = Body(default_factory=ImageSearchPayload),
+):
+    """Increment per-user image search count; optionally append category for insights."""
+    user_id = current_user["_id"]
+    _ensure_doc(user_id)
+    c = _col()
+    p = payload
+    cat = (p.category or "").strip()
+    now = datetime.utcnow()
+    update: Dict[str, Any] = {
+        "$inc": {"image_search_count": 1},
+        "$set": {"updated_at": now},
+    }
+    if cat:
+        update["$push"] = {
+            "search_category_history": {"$each": [cat], "$slice": -400},
+        }
+    c.update_one({"user_id": user_id}, update)
+    doc = c.find_one({"user_id": user_id})
+    n = int((doc or {}).get("image_search_count") or 0)
+    return {"ok": True, "image_search_count": n}
 
 
 @router.get("/profile")

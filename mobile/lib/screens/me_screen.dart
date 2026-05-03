@@ -32,16 +32,7 @@ Uint8List? _decodeProfileImageBytes(String? raw) {
 }
 
 class MeScreen extends StatefulWidget {
-  final Future<void> Function(
-          String postId, String replyId, String notificationId)?
-      onOpenCommunityFromNotification;
-  final VoidCallback? onNotificationStateChanged;
-
-  const MeScreen({
-    super.key,
-    this.onOpenCommunityFromNotification,
-    this.onNotificationStateChanged,
-  });
+  const MeScreen({super.key});
 
   @override
   State<MeScreen> createState() => _MeScreenState();
@@ -58,10 +49,10 @@ class _MeScreenState extends State<MeScreen> {
   String? _joinedAt;
   String? _profileImageBase64;
   int _dupeHistoryCount = 0;
+  int _imageSearchCount = 0;
+  int _totalDupeClicks = 0;
   bool _guest = false;
   Uint8List? _pendingProfileBytes;
-  List<CommunityNotification> _notifications = [];
-  String? _snackShownNotificationId;
 
   @override
   void initState() {
@@ -90,14 +81,34 @@ class _MeScreenState extends State<MeScreen> {
     ]);
     final p = results[0] as SharedPreferences;
     final profile = results[1] as Map<String, dynamic>;
-    final history = results[2] as List<dynamic>;
-    List<CommunityNotification> notifications = [];
+    final history = results[2] as List<DupeHistoryEntry>;
     final isGuest = p.getBool('guest_mode') == true;
+    var searchCount = 0;
+    var clicks = 0;
+    for (final e in history) {
+      clicks += e.clickCount;
+    }
     if (!isGuest) {
       try {
-        notifications = await _communityService.getNotifications(
-            limit: 10, unreadOnly: true);
-      } catch (_) {}
+        final ud = await _api.getUserData();
+        searchCount = (ud['image_search_count'] as num?)?.toInt() ?? 0;
+      } catch (_) {
+        searchCount = p.getInt('insights_search_count') ?? 0;
+      }
+      final pfpFromProfile = (profile['profileImage'] as String?)?.trim();
+      if ((pfpFromProfile == null || pfpFromProfile.isEmpty) && mounted) {
+        try {
+          await _communityService.getPosts(forceRefresh: true);
+          if (!mounted) return;
+          final prefsAfter = await SharedPreferences.getInstance();
+          final synced = prefsAfter.getString('user_profile_image');
+          if (synced != null && synced.trim().isNotEmpty) {
+            setState(() => _profileImageBase64 = synced);
+          }
+        } catch (_) {}
+      }
+    } else {
+      searchCount = p.getInt('insights_search_count') ?? 0;
     }
     setState(() {
       _email = p.getString('user_email');
@@ -106,45 +117,8 @@ class _MeScreenState extends State<MeScreen> {
       _joinedAt = profile['joinedAt'] as String?;
       _profileImageBase64 = profile['profileImage'] as String?;
       _dupeHistoryCount = history.length;
-      _notifications = notifications;
-    });
-    if (!isGuest &&
-        (_profileImageBase64 == null || _profileImageBase64!.trim().isEmpty)) {
-      try {
-        await _communityService.getPosts(forceRefresh: true);
-        if (!mounted) return;
-        final prefsAfter = await SharedPreferences.getInstance();
-        final synced = prefsAfter.getString('user_profile_image');
-        if (synced != null && synced.trim().isNotEmpty) {
-          setState(() => _profileImageBase64 = synced);
-        }
-      } catch (_) {}
-    }
-    _maybeShowNotificationSnack(notifications);
-    widget.onNotificationStateChanged?.call();
-  }
-
-  void _maybeShowNotificationSnack(List<CommunityNotification> notifications) {
-    if (!mounted || _guest || notifications.isEmpty) return;
-    final top = notifications.first;
-    if (_snackShownNotificationId == top.id) return;
-    _snackShownNotificationId = top.id;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      final messenger = ScaffoldMessenger.of(context);
-      messenger.hideCurrentSnackBar();
-      messenger.showSnackBar(
-        SnackBar(
-          content: Text(top.message),
-          behavior: SnackBarBehavior.floating,
-          action: SnackBarAction(
-            label: 'Open',
-            onPressed: () {
-              _openNotification(top);
-            },
-          ),
-        ),
-      );
+      _imageSearchCount = searchCount;
+      _totalDupeClicks = clicks;
     });
   }
 
@@ -280,27 +254,6 @@ class _MeScreenState extends State<MeScreen> {
     if (next == null || next.trim().isEmpty) return;
     await _profileService.setDisplayName(next);
     await _load();
-  }
-
-  Future<void> _openNotification(CommunityNotification n) async {
-    if (mounted) {
-      setState(() => _notifications.removeWhere((x) => x.id == n.id));
-    }
-    widget.onNotificationStateChanged?.call();
-
-    final open = widget.onOpenCommunityFromNotification;
-    if (open != null) {
-      await open(n.postId, n.replyId, n.id);
-    }
-
-    try {
-      await _communityService.markNotificationRead(n.id);
-      widget.onNotificationStateChanged?.call();
-    } catch (_) {
-      if (mounted) {
-        await _load();
-      }
-    }
   }
 
   String _displayName() {
@@ -442,18 +395,18 @@ class _MeScreenState extends State<MeScreen> {
                   children: [
                     Expanded(
                       child: _statTile(
-                        icon: Icons.favorite_outline_rounded,
+                        icon: Icons.image_search_rounded,
                         iconColor: DupePalette.pink,
-                        value: '$_dupeHistoryCount',
-                        label: 'Dupes',
+                        value: '$_imageSearchCount',
+                        label: 'Searched',
                       ),
                     ),
                     Expanded(
                       child: _statTile(
-                        icon: Icons.insights_outlined,
+                        icon: Icons.touch_app_outlined,
                         iconColor: DupePalette.teal,
-                        value: '$_dupeHistoryCount',
-                        label: 'Tracked',
+                        value: '$_totalDupeClicks',
+                        label: 'Clicked',
                       ),
                     ),
                     Expanded(
@@ -511,17 +464,6 @@ class _MeScreenState extends State<MeScreen> {
                 ),
                 _divider(),
                 _menuRow(
-                  icon: Icons.notifications_outlined,
-                  title: 'Notifications',
-                  badge: _notifications.isNotEmpty ? '${_notifications.length}' : null,
-                  onTap: () {
-                    if (_notifications.isNotEmpty) {
-                      _openNotification(_notifications.first);
-                    }
-                  },
-                ),
-                _divider(),
-                _menuRow(
                   icon: Icons.insights_outlined,
                   title: 'Insights & trends',
                   onTap: () {
@@ -531,33 +473,6 @@ class _MeScreenState extends State<MeScreen> {
               ],
             ),
           ),
-          if (!_guest && _notifications.isNotEmpty) ...[
-            const SizedBox(height: 16),
-            Text(
-              'Recent notifications',
-              style: GoogleFonts.inter(
-                fontWeight: FontWeight.w700,
-                color: DupePalette.textPrimary,
-              ),
-            ),
-            const SizedBox(height: 8),
-            ..._notifications.take(3).map(
-                  (n) => Card(
-                    margin: const EdgeInsets.only(bottom: 8),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                    child: ListTile(
-                      title: Text(n.message),
-                      subtitle: Text(
-                        n.replyPreview.isEmpty ? 'Tap to open your post' : n.replyPreview,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      trailing: const Icon(Icons.chevron_right_rounded),
-                      onTap: () => _openNotification(n),
-                    ),
-                  ),
-                ),
-          ],
           if (_guest)
             Padding(
               padding: const EdgeInsets.only(top: 12),

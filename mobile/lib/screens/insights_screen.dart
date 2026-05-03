@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../theme/app_theme.dart';
+import '../services/api_service.dart';
 import '../services/wishlist_service.dart';
 import '../services/dupe_history_service.dart';
 
@@ -14,6 +15,7 @@ class InsightsScreen extends StatefulWidget {
 }
 
 class _InsightsScreenState extends State<InsightsScreen> {
+  final _api = ApiService();
   final _wishlistService = WishlistService();
   final _historyService = DupeHistoryService();
   List<Map<String, dynamic>> _wishlist = [];
@@ -36,14 +38,29 @@ class _InsightsScreenState extends State<InsightsScreen> {
     final wishlist = results[0] as List<Map<String, dynamic>>;
     final history = results[1] as List<DupeHistoryEntry>;
     final prefs = results[2] as SharedPreferences;
-    final categories = prefs.getStringList('insights_search_categories') ?? [];
+    var categories = <String>[];
+    if (await _api.isLoggedIn()) {
+      try {
+        final ud = await _api.getUserData();
+        final raw = ud['search_category_history'];
+        if (raw is List) {
+          categories = raw
+              .map((e) => e.toString())
+              .where((s) => s.trim().isNotEmpty)
+              .toList();
+        }
+      } catch (_) {}
+    }
+    if (categories.isEmpty) {
+      categories = prefs.getStringList('insights_search_categories') ?? [];
+    }
     if (mounted) {
       setState(() {
-      _wishlist = wishlist;
-      _history = history;
-      _searchCategories = categories;
-      _loading = false;
-    });
+        _wishlist = wishlist;
+        _history = history;
+        _searchCategories = categories;
+        _loading = false;
+      });
     }
   }
 
@@ -147,7 +164,7 @@ class _InsightsScreenState extends State<InsightsScreen> {
               Icons.trending_up_rounded,
               'Top categories',
               _topCategories.isEmpty
-                  ? 'Your most searched styles will appear here. Run a search with a category selected.'
+                  ? 'Your most-used search categories from your account will appear here after image searches with a category selected.'
                   : _topCategories.map((e) => '${e.key} (${e.value})').join(' • '),
             ),
             _card(

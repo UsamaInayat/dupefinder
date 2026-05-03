@@ -125,12 +125,35 @@ class _ImageSearchScreenState extends State<ImageSearchScreen> {
           }
         }
         final prefs = await SharedPreferences.getInstance();
-        await prefs.setInt('insights_search_count',
-            (prefs.getInt('insights_search_count') ?? 0) + 1);
-        if (_selectedCategory.isNotEmpty) {
-          final list = prefs.getStringList('insights_search_categories') ?? [];
-          list.add(_selectedCategory);
-          await prefs.setStringList('insights_search_categories', list);
+        if (await _apiService.isLoggedIn()) {
+          try {
+            await _apiService.recordImageSearchEvent(
+              category:
+                  _selectedCategory.isNotEmpty ? _selectedCategory : null,
+            );
+          } catch (_) {
+            await prefs.setInt(
+              'insights_search_count',
+              (prefs.getInt('insights_search_count') ?? 0) + 1,
+            );
+            if (_selectedCategory.isNotEmpty) {
+              final list =
+                  prefs.getStringList('insights_search_categories') ?? [];
+              list.add(_selectedCategory);
+              await prefs.setStringList('insights_search_categories', list);
+            }
+          }
+        } else {
+          await prefs.setInt(
+            'insights_search_count',
+            (prefs.getInt('insights_search_count') ?? 0) + 1,
+          );
+          if (_selectedCategory.isNotEmpty) {
+            final list =
+                prefs.getStringList('insights_search_categories') ?? [];
+            list.add(_selectedCategory);
+            await prefs.setStringList('insights_search_categories', list);
+          }
         }
         setState(() {
           _loading = false;

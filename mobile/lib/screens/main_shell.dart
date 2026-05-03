@@ -203,8 +203,6 @@ class _MainShellState extends State<MainShell> {
             0,
             HomeTab(
               onOpenSearch: () => _openTab(1),
-              onOpenCommunityFromNotification: _openCommunityFromNotification,
-              onNotificationStateChanged: _refreshCommunityNotificationCount,
             ),
           ),
           lazyTab(1, const ImageSearchScreen(embedded: true)),
@@ -217,14 +215,13 @@ class _MainShellState extends State<MainShell> {
               feedPollActive: _index == 4,
               focusPostId: _focusCommunityPostId,
               focusReplyId: _focusCommunityReplyId,
+              onOpenCommunityFromNotification: _openCommunityFromNotification,
+              onNotificationStateChanged: _refreshCommunityNotificationCount,
             ),
           ),
           lazyTab(
             5,
-            MeScreen(
-              onOpenCommunityFromNotification: _openCommunityFromNotification,
-              onNotificationStateChanged: _refreshCommunityNotificationCount,
-            ),
+            const MeScreen(),
           ),
         ],
       ),
@@ -256,13 +253,13 @@ class _MainShellState extends State<MainShell> {
               icon: Icon(Icons.compare_arrows_outlined),
               selectedIcon: Icon(Icons.compare_arrows_rounded),
               label: 'Compare'),
-          const NavigationDestination(
-              icon: Icon(Icons.forum_outlined),
-              selectedIcon: Icon(Icons.forum_rounded),
+          NavigationDestination(
+              icon: badgeWrap(Icon(Icons.forum_outlined)),
+              selectedIcon: badgeWrap(Icon(Icons.forum_rounded)),
               label: 'Community'),
           NavigationDestination(
-            icon: badgeWrap(baseMeIcon(false)),
-            selectedIcon: badgeWrap(baseMeIcon(true)),
+            icon: baseMeIcon(false),
+            selectedIcon: baseMeIcon(true),
             label: 'Me',
           ),
         ],
