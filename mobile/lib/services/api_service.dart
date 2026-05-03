@@ -1263,8 +1263,9 @@ class ApiService {
     return n;
   }
 
-  Future<Map<String, dynamic>> getUserData() async {
-    if (_userDataCache != null &&
+  Future<Map<String, dynamic>> getUserData({bool forceRefresh = false}) async {
+    if (!forceRefresh &&
+        _userDataCache != null &&
         _userDataCacheAt != null &&
         DateTime.now().difference(_userDataCacheAt!) < _userDataCacheTtl) {
       return Map<String, dynamic>.from(_userDataCache!);

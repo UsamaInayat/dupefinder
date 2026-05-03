@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 import 'package:flutter/foundation.dart' show kIsWeb;
@@ -10,6 +11,7 @@ import '../services/api_service.dart';
 import '../services/community_service.dart';
 import '../services/dupe_history_service.dart';
 import '../services/user_profile_service.dart';
+import '../services/profile_stats_refresh.dart';
 import '../theme/app_theme.dart';
 import 'welcome_screen.dart';
 import 'insights_screen.dart';
@@ -49,15 +51,33 @@ class _MeScreenState extends State<MeScreen> {
   String? _joinedAt;
   String? _profileImageBase64;
   int _dupeHistoryCount = 0;
-  int _imageSearchCount = 0;
   int _totalDupeClicks = 0;
   bool _guest = false;
   Uint8List? _pendingProfileBytes;
+  Timer? _statsDebounce;
+  late final VoidCallback _statsTickListener;
 
   @override
   void initState() {
     super.initState();
+    _statsTickListener = _scheduleStatsReload;
+    ProfileStatsRefresh.instance.tick.addListener(_statsTickListener);
     _loadCachedThenRefresh();
+  }
+
+  @override
+  void dispose() {
+    _statsDebounce?.cancel();
+    ProfileStatsRefresh.instance.tick.removeListener(_statsTickListener);
+    super.dispose();
+  }
+
+  void _scheduleStatsReload() {
+    _statsDebounce?.cancel();
+    _statsDebounce = Timer(const Duration(milliseconds: 120), () {
+      _statsDebounce = null;
+      if (mounted) _load();
+    });
   }
 
   Future<void> _loadCachedThenRefresh() async {
@@ -70,31 +90,30 @@ class _MeScreenState extends State<MeScreen> {
       _joinedAt = p.getString('user_joined_at');
       _profileImageBase64 = p.getString('user_profile_image');
     });
-    _load();
+    _scheduleStatsReload();
   }
 
   Future<void> _load() async {
+    final p = await SharedPreferences.getInstance();
+    final isGuest = p.getBool('guest_mode') == true;
+    if (!isGuest) {
+      try {
+        await _api.getUserData(forceRefresh: true);
+      } catch (_) {}
+    }
     final results = await Future.wait([
-      SharedPreferences.getInstance(),
+      Future<SharedPreferences>.value(p),
       _profileService.getProfile(),
       _historyService.getHistory(),
     ]);
-    final p = results[0] as SharedPreferences;
+    final prefs = results[0] as SharedPreferences;
     final profile = results[1] as Map<String, dynamic>;
     final history = results[2] as List<DupeHistoryEntry>;
-    final isGuest = p.getBool('guest_mode') == true;
-    var searchCount = 0;
     var clicks = 0;
     for (final e in history) {
       clicks += e.clickCount;
     }
     if (!isGuest) {
-      try {
-        final ud = await _api.getUserData();
-        searchCount = (ud['image_search_count'] as num?)?.toInt() ?? 0;
-      } catch (_) {
-        searchCount = p.getInt('insights_search_count') ?? 0;
-      }
       final pfpFromProfile = (profile['profileImage'] as String?)?.trim();
       if ((pfpFromProfile == null || pfpFromProfile.isEmpty) && mounted) {
         try {
@@ -107,17 +126,14 @@ class _MeScreenState extends State<MeScreen> {
           }
         } catch (_) {}
       }
-    } else {
-      searchCount = p.getInt('insights_search_count') ?? 0;
     }
     setState(() {
-      _email = p.getString('user_email');
+      _email = prefs.getString('user_email');
       _guest = isGuest;
       _username = profile['username'] as String? ?? '';
       _joinedAt = profile['joinedAt'] as String?;
       _profileImageBase64 = profile['profileImage'] as String?;
       _dupeHistoryCount = history.length;
-      _imageSearchCount = searchCount;
       _totalDupeClicks = clicks;
     });
   }
@@ -397,7 +413,7 @@ class _MeScreenState extends State<MeScreen> {
                       child: _statTile(
                         icon: Icons.image_search_rounded,
                         iconColor: DupePalette.pink,
-                        value: '$_imageSearchCount',
+                        value: '$_dupeHistoryCount',
                         label: 'Searched',
                       ),
                     ),

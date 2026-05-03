@@ -11,6 +11,7 @@ import 'compare_screen.dart';
 import 'community_screen.dart';
 import 'me_screen.dart';
 import 'dupe_history_screen.dart';
+import '../services/profile_stats_refresh.dart';
 
 /// Bottom navigation: Home | Search | Saved | Compare | Community | Me
 class MainShell extends StatefulWidget {
@@ -129,6 +130,7 @@ class _MainShellState extends State<MainShell> {
     _saveCurrentTab();
     if (targetIndex == 5) {
       _refreshNavProfile();
+      ProfileStatsRefresh.instance.notify();
     }
     if (targetIndex == 4 || targetIndex == 5) {
       _refreshCommunityNotificationCount();

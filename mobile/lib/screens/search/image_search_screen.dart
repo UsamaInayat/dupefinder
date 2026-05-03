@@ -9,6 +9,7 @@ import '../../services/api_service.dart';
 import '../../services/wishlist_service.dart';
 import '../../services/compare_service.dart';
 import '../../services/dupe_history_service.dart';
+import '../../services/profile_stats_refresh.dart';
 import '../../theme/app_theme.dart';
 
 /// FYP: User Experience + Image Matching — upload/capture image, get similar products.
@@ -161,6 +162,7 @@ class _ImageSearchScreenState extends State<ImageSearchScreen> {
           _savedIds = ids;
         });
         await _refreshReviewMap();
+        ProfileStatsRefresh.instance.notify();
       }
     } catch (e) {
       if (mounted) {

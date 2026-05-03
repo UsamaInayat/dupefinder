@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'api_service.dart';
+import 'profile_stats_refresh.dart';
 
 class DupeReview {
   final int stars;
@@ -172,6 +173,7 @@ class DupeHistoryService {
       list.insert(0, next);
     }
     await _saveHistory(list);
+    ProfileStatsRefresh.instance.notify();
   }
 
   Future<void> addReview(String entryId, int stars) async {
