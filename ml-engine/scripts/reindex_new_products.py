@@ -290,7 +290,12 @@ def run_reindex(
         # Optional: cap how many paths we pass per extract_batch call (frees PIL RAM between chunks).
         path_chunk = _env_int("REINDEX_EXTRACT_PATH_CHUNK", 0)
         if path_chunk <= 0:
-            path_chunk = len(image_paths)
+            # One huge extract_batch() hogs RAM for 1000+ inner steps on Railway; smaller
+            # chunks return to reindex loop for gc.collect() between calls.
+            if os.getenv("RAILWAY_ENVIRONMENT", "").strip():
+                path_chunk = min(96, len(image_paths))
+            else:
+                path_chunk = len(image_paths)
         print(
             f"[INFO] Extracting embeddings for {len(image_paths)} images "
             f"(infer_batch={infer_bs}, path_chunk={path_chunk}) ..."

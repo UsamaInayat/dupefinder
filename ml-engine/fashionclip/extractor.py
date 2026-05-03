@@ -15,6 +15,7 @@ BaseModelOutputWithPooling object, not a plain tensor. We use
 vision_model + visual_projection explicitly to avoid this.
 """
 
+import gc
 import time
 from io import BytesIO
 from pathlib import Path
@@ -109,16 +110,23 @@ class FashionCLIPExtractor:
         if show_progress:
             it = tqdm(it, total=n_batches, desc="FashionCLIP embeddings")
 
+        batch_idx = 0
         for i in it:
             batch = image_paths[i : i + batch_size]
-            pils  = []
+            pils: List[Image.Image] = []
             for p in batch:
                 try:
-                    pils.append(self._load_pil(p))
+                    with Image.open(p) as im:
+                        pils.append(im.convert("RGB").copy())
                 except Exception as exc:
                     print(f"[WARNING] Could not load {p}: {exc} — blank image used")
                     pils.append(Image.new("RGB", (224, 224)))
             all_vecs.append(self._extract_pil(pils))
+            del pils
+            batch_idx += 1
+            # Long CPU runs fragment PyTorch/PIL memory; periodic GC avoids OOM near end of large jobs.
+            if batch_idx % 32 == 0:
+                gc.collect()
 
         return np.vstack(all_vecs)
 
