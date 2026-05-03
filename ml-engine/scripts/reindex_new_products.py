@@ -25,6 +25,7 @@ Usage:
 import sys
 import os
 import argparse
+import gc
 import pickle
 import tempfile
 import time
@@ -123,10 +124,20 @@ def _fashionclip_extract_batch_size() -> int:
             return max(1, min(128, int(raw)))
         except ValueError:
             pass
-    # Railway sets RAILWAY_ENVIRONMENT; default to a conservative batch on that platform.
+    # Railway sets RAILWAY_ENVIRONMENT (~512MB–1GB hobby tiers): default small batch.
     if os.getenv("RAILWAY_ENVIRONMENT", "").strip():
-        return 4
+        return 2
     return 32
+
+
+def _reindex_download_workers() -> int:
+    """Parallel image downloads during reindex; lower on small RAM hosts."""
+    raw = os.getenv("REINDEX_DOWNLOAD_WORKERS", "").strip()
+    if raw:
+        return max(1, min(16, _env_int("REINDEX_DOWNLOAD_WORKERS", 4)))
+    if os.getenv("RAILWAY_ENVIRONMENT", "").strip():
+        return 3
+    return 8
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -236,7 +247,8 @@ def run_reindex(
     # ── Download images to temp directory ────────────────────────────────────
     with tempfile.TemporaryDirectory(prefix="dupefinder_reindex_") as tmp_str:
         tmp_dir = Path(tmp_str)
-        print(f"[INFO] Downloading images to {tmp_dir} ...")
+        dl_workers = _reindex_download_workers()
+        print(f"[INFO] Downloading images to {tmp_dir} (workers={dl_workers}) ...")
 
         valid_products = []
         t0 = time.time()
@@ -247,7 +259,7 @@ def run_reindex(
             path  = _download_image(pid, url, tmp_dir)
             return p, path
 
-        with ThreadPoolExecutor(max_workers=8) as executor:
+        with ThreadPoolExecutor(max_workers=dl_workers) as executor:
             futures = {executor.submit(_dl, p): p for p in products}
             done = 0
             for fut in as_completed(futures):
@@ -295,6 +307,7 @@ def run_reindex(
                     show_progress=show_pb and len(sub) > infer_bs,
                 )
             )
+            gc.collect()
         embeddings = np.vstack(emb_parts) if len(emb_parts) > 1 else emb_parts[0]
         print(f"[OK] Embeddings extracted in {time.time()-t0:.1f}s  shape={embeddings.shape}")
 
