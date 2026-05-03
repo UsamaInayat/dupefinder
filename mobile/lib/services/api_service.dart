@@ -465,7 +465,13 @@ class ApiService {
   // Store access token
   Future<void> setAccessToken(String token) async {
     final prefs = await SharedPreferences.getInstance();
+    final prev = prefs.getString('access_token');
     await prefs.setString('access_token', token);
+    // New session / account must not reuse cached GET /user-data from a previous user.
+    if (prev != token) {
+      _userDataCache = null;
+      _userDataCacheAt = null;
+    }
   }
 
   // Remove access token (logout)

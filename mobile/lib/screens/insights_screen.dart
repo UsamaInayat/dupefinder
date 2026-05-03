@@ -38,10 +38,13 @@ class _InsightsScreenState extends State<InsightsScreen> {
     final wishlist = results[0] as List<Map<String, dynamic>>;
     final history = results[1] as List<DupeHistoryEntry>;
     final prefs = results[2] as SharedPreferences;
+    final loggedIn = await _api.isLoggedIn();
     var categories = <String>[];
-    if (await _api.isLoggedIn()) {
+    var usedServerCategories = false;
+    if (loggedIn) {
       try {
         final ud = await _api.getUserData();
+        usedServerCategories = true;
         final raw = ud['search_category_history'];
         if (raw is List) {
           categories = raw
@@ -51,7 +54,8 @@ class _InsightsScreenState extends State<InsightsScreen> {
         }
       } catch (_) {}
     }
-    if (categories.isEmpty) {
+    // Device prefs are not per-account — only guests (or failed fetch) use local category tail.
+    if (!usedServerCategories && !loggedIn) {
       categories = prefs.getStringList('insights_search_categories') ?? [];
     }
     if (mounted) {
