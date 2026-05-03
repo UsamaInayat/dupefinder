@@ -1868,6 +1868,16 @@ async def get_training_metrics(
 # In-memory storage for scraping jobs
 scraping_jobs = {}
 
+# One reindex at a time (post-scrape task + startup recovery share this).
+_reindex_lock: Optional[asyncio.Lock] = None
+
+
+def _get_reindex_lock() -> asyncio.Lock:
+    global _reindex_lock
+    if _reindex_lock is None:
+        _reindex_lock = asyncio.Lock()
+    return _reindex_lock
+
 
 def _project_root_for_local_csvs() -> str:
     """Directory containing local_brands_links*.csv (same walk as get_available_brands)."""
@@ -2959,29 +2969,50 @@ async def _run_reindex_task(job_id: str):
     FastAPI event loop is never blocked. Called automatically after
     run_scraping_job completes.
     """
-    try:
-        summary = await asyncio.to_thread(_sync_reindex)
-        if summary:
-            total = sum(summary.values())
-            msg   = f"Reindex done: {total} new products indexed across {len(summary)} categories"
-        else:
-            msg   = "Reindex complete: no new products found to index"
+    async with _get_reindex_lock():
+        try:
+            summary = await asyncio.to_thread(_sync_reindex)
+            if summary:
+                total = sum(summary.values())
+                msg = f"Reindex done: {total} new products indexed across {len(summary)} categories"
+            else:
+                msg = "Reindex complete: no new products found to index"
 
-        if job_id in scraping_jobs:
-            scraping_jobs[job_id]["logs"].append(msg)
-            scraping_jobs[job_id]["reindex_summary"] = summary
+            if job_id in scraping_jobs:
+                scraping_jobs[job_id]["logs"].append(msg)
+                scraping_jobs[job_id]["reindex_summary"] = summary
 
-        get_scraping_history_collection().update_one(
-            {"job_id": job_id},
-            {"$set": {"reindex_summary": summary, "reindex_done": True}}
-        )
-        logger.info(f"[Reindex] {msg}")
+            get_scraping_history_collection().update_one(
+                {"job_id": job_id},
+                {
+                    "$set": {
+                        "reindex_summary": summary or {},
+                        "reindex_done": True,
+                        "reindex_completed_at": datetime.utcnow(),
+                    },
+                    "$unset": {"reindex_error": "", "reindex_failed_at": ""},
+                },
+            )
+            logger.info(f"[Reindex] {msg}")
 
-    except Exception as e:
-        err = f"Reindex failed: {e}"
-        logger.error(f"[Reindex] {err}", exc_info=True)
-        if job_id in scraping_jobs:
-            scraping_jobs[job_id]["logs"].append(err)
+        except Exception as e:
+            err = f"Reindex failed: {e}"
+            logger.error(f"[Reindex] {err}", exc_info=True)
+            if job_id in scraping_jobs:
+                scraping_jobs[job_id]["logs"].append(err)
+            try:
+                get_scraping_history_collection().update_one(
+                    {"job_id": job_id},
+                    {
+                        "$set": {
+                            "reindex_done": False,
+                            "reindex_error": str(e)[:2000],
+                            "reindex_failed_at": datetime.utcnow(),
+                        }
+                    },
+                )
+            except Exception as ue:
+                logger.warning("[Reindex] Could not persist failure to Mongo: %s", ue)
 
 
 def _sync_reindex() -> dict:
@@ -3035,6 +3066,95 @@ def _sync_reindex() -> dict:
             logger.warning(f"[Reindex] Hot-reload failed (restart backend to apply): {e}")
 
     return summary
+
+
+async def startup_reindex_recovery():
+    """
+    On boot, find scrape jobs that reached status=completed but never finished
+    FashionCLIP reindex (OOM/crash/reindex exception). Run one global reindex and
+    mark those jobs reindex_done so restarts do not keep retrying forever on success.
+
+    Env:
+      DISABLE_STARTUP_REINDEX_RECOVERY=1  — skip entirely
+      STARTUP_REINDEX_RECOVERY_DELAY_SEC  — seconds to wait after boot (default 120)
+        so Uvicorn + optional FashionCLIP preload can settle on low-RAM hosts.
+    """
+    if os.getenv("DISABLE_STARTUP_REINDEX_RECOVERY", "").lower() in ("1", "true", "yes"):
+        return
+    try:
+        delay = int(os.getenv("STARTUP_REINDEX_RECOVERY_DELAY_SEC", "120"))
+    except ValueError:
+        delay = 120
+
+    await asyncio.sleep(max(0, delay))
+
+    try:
+        col = get_scraping_history_collection()
+        stuck = list(
+            col.find(
+                {"status": "completed", "reindex_done": {"$ne": True}},
+                {"job_id": 1},
+            )
+            .sort("completed_at", -1)
+            .limit(100)
+        )
+    except Exception as e:
+        logger.warning("[ReindexRecovery] Mongo query skipped: %s", e)
+        return
+
+    job_ids = [str(d["job_id"]) for d in stuck if d.get("job_id")]
+    if not job_ids:
+        return
+
+    logger.info(
+        "[ReindexRecovery] %s completed job(s) without reindex_done; running deferred reindex",
+        len(job_ids),
+    )
+
+    async with _get_reindex_lock():
+        try:
+            summary = await asyncio.to_thread(_sync_reindex)
+        except Exception as e:
+            logger.error("[ReindexRecovery] reindex failed: %s", e, exc_info=True)
+            try:
+                col = get_scraping_history_collection()
+                now = datetime.utcnow()
+                col.update_many(
+                    {"job_id": {"$in": job_ids}},
+                    {
+                        "$set": {
+                            "reindex_done": False,
+                            "reindex_error": str(e)[:2000],
+                            "reindex_failed_at": now,
+                        }
+                    },
+                )
+            except Exception as ue:
+                logger.warning("[ReindexRecovery] could not persist error: %s", ue)
+            return
+
+        try:
+            col = get_scraping_history_collection()
+            now = datetime.utcnow()
+            col.update_many(
+                {"job_id": {"$in": job_ids}},
+                {
+                    "$set": {
+                        "reindex_done": True,
+                        "reindex_summary": summary or {},
+                        "reindex_recovered_at": now,
+                        "reindex_completed_at": now,
+                    },
+                    "$unset": {"reindex_error": "", "reindex_failed_at": ""},
+                },
+            )
+            logger.info(
+                "[ReindexRecovery] marked %s job(s) done (summary categories=%s)",
+                len(job_ids),
+                len(summary or {}),
+            )
+        except Exception as ue:
+            logger.warning("[ReindexRecovery] reindex OK but Mongo update failed: %s", ue)
 
 
 @router.post("/scraping/cancel/{job_id}")

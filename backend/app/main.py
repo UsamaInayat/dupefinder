@@ -79,6 +79,14 @@ async def lifespan(app: FastAPI):
 
     threading.Thread(target=_load_fashionclip, daemon=True).start()
 
+    try:
+        from app.api.routes.admin_new import startup_reindex_recovery
+
+        asyncio.create_task(startup_reindex_recovery())
+        print("[INFO] Scheduled startup reindex recovery (see STARTUP_REINDEX_RECOVERY_DELAY_SEC)")
+    except Exception as e:
+        print(f"[WARNING] Startup reindex recovery not scheduled: {e}")
+
     yield
     
     # Shutdown
