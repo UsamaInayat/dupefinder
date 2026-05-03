@@ -220,6 +220,19 @@ def _shop_browse_query(slot: str) -> dict:
                 },
             ]
         }
+    if slot == "watches":
+        return {
+            "$or": [
+                {"category": "watches"},
+                {
+                    "display_category": {
+                        "$regex": r"Watch|Wrist|Timepiece",
+                        "$options": "i",
+                    }
+                },
+                {"name": {"$regex": r"\bwatch(es)?\b", "$options": "i"}},
+            ]
+        }
     if slot == "jewelry":
         return {
             "$or": [
@@ -235,7 +248,7 @@ def _shop_browse_query(slot: str) -> dict:
 
 @router.get("/shop-browse")
 async def shop_browse(
-    slot: str = Query(..., pattern="^(dresses|bags|accessories|jewelry)$"),
+    slot: str = Query(..., pattern="^(dresses|bags|accessories|jewelry|watches)$"),
     limit: int = Query(10, ge=1, le=30),
 ):
     """

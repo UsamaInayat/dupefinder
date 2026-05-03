@@ -232,7 +232,8 @@ class CommunityService {
   static const _userIdKey = 'user_id';
   static const _postsCacheKey = 'community_posts_cache_v1';
   static const _postsCacheAtKey = 'community_posts_cache_at_v1';
-  static const Duration _postsCacheTtl = Duration(seconds: 45);
+  /// Avoid hammering the community API when switching tabs or on background tick.
+  static const Duration _postsCacheTtl = Duration(minutes: 2);
   List<CommunityPost>? _postsCache;
   DateTime? _postsCacheAt;
   /// Last fetch error message (for UI hints). Cleared on success.

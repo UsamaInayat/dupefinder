@@ -120,80 +120,35 @@ class _HomeTabState extends State<HomeTab> {
                           ],
                         ),
                       ),
-                      Row(
-                        children: [
-                          Material(
-                            color: Colors.white.withValues(alpha: 0.25),
-                            shape: const CircleBorder(),
-                            child: IconButton(
-                              icon: Stack(
-                                clipBehavior: Clip.none,
-                                children: [
-                                  Icon(Icons.notifications_none_rounded,
-                                      color: Colors.white.withValues(alpha: 0.95)),
-                                  if (_unreadCount > 0)
-                                    Positioned(
-                                      right: -2,
-                                      top: -2,
-                                      child: Container(
-                                        width: 8,
-                                        height: 8,
-                                        decoration: const BoxDecoration(
-                                          color: Colors.redAccent,
-                                          shape: BoxShape.circle,
-                                        ),
-                                      ),
+                      Material(
+                        color: Colors.white.withValues(alpha: 0.25),
+                        shape: const CircleBorder(),
+                        child: IconButton(
+                          icon: Stack(
+                            clipBehavior: Clip.none,
+                            children: [
+                              Icon(Icons.notifications_none_rounded,
+                                  color: Colors.white.withValues(alpha: 0.95)),
+                              if (_unreadCount > 0)
+                                Positioned(
+                                  right: -2,
+                                  top: -2,
+                                  child: Container(
+                                    width: 8,
+                                    height: 8,
+                                    decoration: const BoxDecoration(
+                                      color: Colors.redAccent,
+                                      shape: BoxShape.circle,
                                     ),
-                                ],
-                              ),
-                              onPressed: _showNotificationsSheet,
-                              tooltip: 'Recent notifications',
-                            ),
+                                  ),
+                                ),
+                            ],
                           ),
-                          const SizedBox(width: 8),
-                          Material(
-                            color: Colors.white.withValues(alpha: 0.25),
-                            shape: const CircleBorder(),
-                            child: IconButton(
-                              icon: Icon(Icons.tune_rounded, color: Colors.white.withValues(alpha: 0.95)),
-                              onPressed: widget.onOpenSearch,
-                              tooltip: 'Search & filters',
-                            ),
-                          ),
-                        ],
+                          onPressed: _showNotificationsSheet,
+                          tooltip: 'Recent notifications',
+                        ),
                       ),
                     ],
-                  ),
-                  const SizedBox(height: 18),
-                  Material(
-                    color: Colors.transparent,
-                    child: InkWell(
-                      onTap: widget.onOpenSearch,
-                      borderRadius: BorderRadius.circular(22),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-                        decoration: BoxDecoration(
-                          color: Colors.white.withValues(alpha: 0.22),
-                          borderRadius: BorderRadius.circular(22),
-                          border: Border.all(color: Colors.white.withValues(alpha: 0.45)),
-                        ),
-                        child: Row(
-                          children: [
-                            Icon(Icons.search_rounded, color: Colors.white.withValues(alpha: 0.9)),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: Text(
-                                'Search luxury items…',
-                                style: GoogleFonts.inter(
-                                  fontSize: 15,
-                                  color: Colors.white.withValues(alpha: 0.88),
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
                   ),
                 ],
               ),
@@ -238,9 +193,9 @@ class _HomeTabState extends State<HomeTab> {
                     gradient: [DupePalette.pinkDeep, DupePalette.blue],
                   ),
                   _categoryChip(
-                    label: 'Accessories',
-                    slot: 'accessories',
-                    icon: Icons.style_rounded,
+                    label: 'Watches',
+                    slot: 'watches',
+                    icon: Icons.watch_outlined,
                     gradient: [DupePalette.blue, DupePalette.teal],
                   ),
                   _categoryChip(
@@ -326,7 +281,7 @@ class _HomeTabState extends State<HomeTab> {
       _trendingLoading = true;
       _trendingError = null;
     });
-    const slots = ['dresses', 'bags', 'accessories', 'jewelry'];
+    const slots = ['dresses', 'bags', 'watches', 'jewelry'];
     final seen = <String>{};
     final merged = <Map<String, dynamic>>[];
     try {

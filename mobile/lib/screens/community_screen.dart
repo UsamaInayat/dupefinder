@@ -23,9 +23,10 @@ int _decodeDetailImagePx(BuildContext context) {
   return (w * dpr).round().clamp(240, 1600);
 }
 
-int _decodeDetailImageHeightPx(BuildContext context) {
-  final dpr = MediaQuery.devicePixelRatioOf(context);
-  return (280 * dpr).round().clamp(200, 1200);
+String _compactCount(int n) {
+  if (n >= 1000000) return '${(n / 1000000).toStringAsFixed(1)}M';
+  if (n >= 1000) return '${(n / 1000).toStringAsFixed(1)}k';
+  return '$n';
 }
 
 /// When the server returns a lite post (no [imageBase64]) but we still have bytes in memory, keep them.
@@ -87,11 +88,12 @@ class _CommunityScreenState extends State<CommunityScreen> {
   @override
   void initState() {
     super.initState();
-    _feedTimeTicker = Timer.periodic(const Duration(seconds: 10), (_) {
+    // Soft refresh only when cache TTL elapsed (see CommunityService); avoids slow full refetch every few seconds.
+    _feedTimeTicker = Timer.periodic(const Duration(seconds: 45), (_) {
       if (!mounted) return;
       if (widget.embedded && !widget.feedPollActive) return;
       setState(() {});
-      unawaited(_load(forceRefresh: true, showErrorSnack: false));
+      unawaited(_load(forceRefresh: false, showErrorSnack: false));
     });
     _loadCachedThenRefresh();
   }
@@ -204,22 +206,32 @@ class _CommunityScreenState extends State<CommunityScreen> {
           .where((p) =>
               p.hasImage &&
               (p.imageBase64 == null || p.imageBase64!.trim().isEmpty))
-          .take(6)
+          .take(8)
           .toList();
-      for (final p in targets) {
+      const concurrency = 3;
+      for (var i = 0; i < targets.length; i += concurrency) {
         if (!mounted) return;
-        try {
-          final full = await _service.fetchPostById(p.id);
-          final hasBytes =
-              full.imageBase64 != null && full.imageBase64!.trim().isNotEmpty;
-          if (!hasBytes || !mounted) continue;
-          setState(() {
-            final i = _posts.indexWhere((x) => x.id == p.id);
-            if (i >= 0) {
-              _posts[i] = full;
+        final batch = targets.skip(i).take(concurrency).toList();
+        final results = await Future.wait(
+          batch.map((p) async {
+            try {
+              return await _service.fetchPostById(p.id);
+            } catch (_) {
+              return null;
             }
-          });
-        } catch (_) {}
+          }),
+        );
+        if (!mounted) return;
+        setState(() {
+          for (final full in results) {
+            if (full == null) continue;
+            final hasBytes =
+                full.imageBase64 != null && full.imageBase64!.trim().isNotEmpty;
+            if (!hasBytes) continue;
+            final idx = _posts.indexWhere((x) => x.id == full.id);
+            if (idx >= 0) _posts[idx] = full;
+          }
+        });
       }
     } finally {
       _hydratingFeedImages = false;
@@ -250,12 +262,6 @@ class _CommunityScreenState extends State<CommunityScreen> {
     if (_myName.isNotEmpty && author == _myName) return true;
     if (_myEmailPrefix.isNotEmpty && author == _myEmailPrefix) return true;
     return false;
-  }
-
-  String _compactCount(int n) {
-    if (n >= 1000000) return '${(n / 1000000).toStringAsFixed(1)}M';
-    if (n >= 1000) return '${(n / 1000).toStringAsFixed(1)}k';
-    return '$n';
   }
 
   Future<void> _toggleLikeForPost(CommunityPost post) async {
@@ -775,40 +781,32 @@ class _CommunityScreenState extends State<CommunityScreen> {
 
   Future<void> _showPostDetail(CommunityPost post,
       {String? highlightReplyId}) async {
-    await showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      useRootNavigator: true,
-      useSafeArea: true,
-      backgroundColor: Colors.transparent,
-      barrierColor: Colors.black.withValues(alpha: 0.32),
-      builder: (ctx) => _PostDetailSheet(
-        initialPost: post,
-        service: _service,
-        myUserId: _myUserId,
-        myNameLower: _myName,
-        myEmailPrefixLower: _myEmailPrefix,
-        initialHighlightReplyId: highlightReplyId,
-        onPostChanged: (updatedPost) {
-          if (!mounted) return;
-          setState(() {
-            final idx = _posts.indexWhere((p) => p.id == updatedPost.id);
-            if (idx >= 0) {
-              final prev = _posts[idx];
-              _posts[idx] = mergeCommunityPostKeepImage(prev, updatedPost);
-            }
-          });
-        },
-        onPostDeleted: () {
-          if (!mounted) return;
-          setState(() => _posts.removeWhere((p) => p.id == post.id));
-        },
+    await Navigator.of(context, rootNavigator: true).push<void>(
+      MaterialPageRoute<void>(
+        builder: (ctx) => _PostDetailSheet(
+          initialPost: post,
+          service: _service,
+          myUserId: _myUserId,
+          myNameLower: _myName,
+          myEmailPrefixLower: _myEmailPrefix,
+          initialHighlightReplyId: highlightReplyId,
+          onPostChanged: (updatedPost) {
+            if (!mounted) return;
+            setState(() {
+              final idx = _posts.indexWhere((p) => p.id == updatedPost.id);
+              if (idx >= 0) {
+                final prev = _posts[idx];
+                _posts[idx] = mergeCommunityPostKeepImage(prev, updatedPost);
+              }
+            });
+          },
+          onPostDeleted: () {
+            if (!mounted) return;
+            setState(() => _posts.removeWhere((p) => p.id == post.id));
+          },
+        ),
       ),
     );
-    if (mounted) {
-      // Refresh in background so returning from detail feels instant.
-      unawaited(_load(forceRefresh: true));
-    }
   }
 
   @override
@@ -869,16 +867,23 @@ class _CommunityScreenState extends State<CommunityScreen> {
                               ),
                             ),
                           )
-                        : ListView.builder(
-                            padding: EdgeInsets.fromLTRB(
-                              16,
-                              widget.embedded ? 4 : 12,
-                              16,
-                              100,
+                        : RefreshIndicator(
+                            color: DupePalette.pink,
+                            onRefresh: () => _load(forceRefresh: true),
+                            child: ListView.builder(
+                              physics: const AlwaysScrollableScrollPhysics(
+                                parent: BouncingScrollPhysics(),
+                              ),
+                              padding: EdgeInsets.fromLTRB(
+                                16,
+                                widget.embedded ? 4 : 12,
+                                16,
+                                100,
+                              ),
+                              itemCount: _posts.length,
+                              itemBuilder: (_, i) =>
+                                  _buildFeedPostCard(_posts[i]),
                             ),
-                            itemCount: _posts.length,
-                            itemBuilder: (_, i) =>
-                                _buildFeedPostCard(_posts[i]),
                           ),
                   ),
                 ],
@@ -958,6 +963,7 @@ class _PostDetailSheet extends StatefulWidget {
 class _PostDetailSheetState extends State<_PostDetailSheet> {
   late CommunityPost _post;
   final _replyController = TextEditingController();
+  final _replyFocusNode = FocusNode();
   bool _sendingReply = false;
   bool _hydratingImage = false;
   String? _pendingReplyTempId;
@@ -992,6 +998,7 @@ class _PostDetailSheetState extends State<_PostDetailSheet> {
   @override
   void dispose() {
     _detailTimeTicker?.cancel();
+    _replyFocusNode.dispose();
     _replyController.dispose();
     super.dispose();
   }
@@ -1033,16 +1040,44 @@ class _PostDetailSheetState extends State<_PostDetailSheet> {
   }
 
   Future<void> _refreshPost() async {
-    final list = await widget.service.getPosts(forceRefresh: true);
-    CommunityPost? next;
     try {
-      next = list.firstWhere((p) => p.id == _post.id);
-    } catch (_) {}
-    if (next != null && mounted) {
+      final next = await widget.service.fetchPostById(_post.id);
+      if (!mounted) return;
       final merged = _mergeFeedWithHydratedImage(next);
       setState(() => _post = merged);
       widget.onPostChanged(merged);
+    } catch (_) {}
+  }
+
+  Future<void> _toggleLikeDetail() async {
+    try {
+      final updated = await widget.service.togglePostLike(_post.id);
+      if (!mounted) return;
+      final merged = _mergeFeedWithHydratedImage(updated);
+      setState(() => _post = merged);
+      widget.onPostChanged(merged);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Could not update like: $e'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
     }
+  }
+
+  Future<void> _sharePostDetail() async {
+    final text =
+        '${_post.author}: ${_post.description}\n— DupeFinder Community';
+    await Clipboard.setData(ClipboardData(text: text));
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Post copied — paste anywhere to share'),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
   }
 
   Future<void> _sendReply() async {
@@ -1223,663 +1258,728 @@ class _PostDetailSheetState extends State<_PostDetailSheet> {
   @override
   Widget build(BuildContext context) {
     final detailDecodeW = _decodeDetailImagePx(context);
-    final detailDecodeH = _decodeDetailImageHeightPx(context);
-    return DraggableScrollableSheet(
-      initialChildSize: 0.58,
-      minChildSize: 0.38,
-      maxChildSize: 0.94,
-      expand: false,
-      builder: (_, scrollController) => Container(
-        decoration: BoxDecoration(
-          color: DupePalette.cardSurface,
-          borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.12),
-              blurRadius: 20,
-              offset: const Offset(0, -4),
-            ),
-          ],
+    final media = MediaQuery.of(context);
+    final maxImgH = media.size.height * 0.72;
+    final threaded = _threadedReplies();
+    final visibleNodes =
+        threaded.where((x) => x['visible'] == true).toList();
+    final replyById = <String, CommunityReply>{
+      for (final r in _post.replies)
+        if (r.id.isNotEmpty) r.id: r
+    };
+    final liked = _post.likedByMe;
+
+    return Scaffold(
+      backgroundColor: DupePalette.scaffoldLight,
+      appBar: AppBar(
+        backgroundColor: Colors.white,
+        foregroundColor: DupePalette.textPrimary,
+        surfaceTintColor: Colors.transparent,
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back_ios_new_rounded, size: 20),
+          onPressed: () => Navigator.of(context).pop(),
         ),
-        child: Column(
-          children: [
-            Flexible(
-              fit: FlexFit.loose,
-              child: Padding(
-                padding: const EdgeInsets.all(20),
-                child: SingleChildScrollView(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      CircleAvatar(
-                        radius: 15,
-                        backgroundColor: DupePalette.pink.withValues(alpha: 0.18),
-                        backgroundImage: (_post.authorPfp != null &&
-                                _post.authorPfp!.isNotEmpty)
-                            ? ResizeImage(
-                                MemoryImage(base64Decode(_post.authorPfp!)),
-                                width: 120,
-                                height: 120,
-                              )
-                            : null,
-                        child: (_post.authorPfp == null ||
-                                _post.authorPfp!.isEmpty)
-                            ? Icon(Icons.person_outline_rounded,
-                                size: 15, color: DupePalette.pinkDeep)
-                            : null,
+        title: Text(
+          _post.author,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: GoogleFonts.inter(fontWeight: FontWeight.w700, fontSize: 17),
+        ),
+        actions: [
+          PopupMenuButton<String>(
+            icon: Icon(Icons.more_horiz_rounded, color: DupePalette.textPrimary),
+            onSelected: (v) async {
+              try {
+                if (v == 'delete') {
+                  await widget.service.deletePost(_post.id);
+                  widget.onPostDeleted();
+                  if (!mounted) return;
+                  Navigator.pop(context, true);
+                }
+                if (v == 'edit') {
+                  final c = TextEditingController(text: _post.description);
+                  final updated = await showDialog<String>(
+                    context: context,
+                    builder: (ctx) => AlertDialog(
+                      title: const Text('Edit post'),
+                      content: TextField(
+                        controller: c,
+                        maxLines: 4,
+                        decoration: const InputDecoration(hintText: 'Update message'),
                       ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              _post.author,
-                              style: const TextStyle(
-                                  fontWeight: FontWeight.w600,
-                                  color: AppColors.purpleDark),
-                            ),
-                            Text(
-                              _timeAgo(_post.createdAt),
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: DupePalette.greySubtitle,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      PopupMenuButton<String>(
-                        icon: Icon(Icons.more_vert_rounded,
-                            color: DupePalette.textPrimary),
-                        onSelected: (v) async {
-                          try {
-                            if (v == 'delete') {
-                              await widget.service.deletePost(_post.id);
-                              widget.onPostDeleted();
-                              if (!mounted) return;
-                              Navigator.pop(context, true);
-                            }
-                            if (v == 'edit') {
-                              final c = TextEditingController(
-                                  text: _post.description);
-                              final updated = await showDialog<String>(
-                                context: context,
-                                builder: (ctx) => AlertDialog(
-                                  title: const Text('Edit post'),
-                                  content: TextField(
-                                    controller: c,
-                                    maxLines: 4,
-                                    decoration: const InputDecoration(
-                                        hintText: 'Update message'),
-                                  ),
-                                  actions: [
-                                    TextButton(
-                                        onPressed: () => Navigator.pop(ctx),
-                                        child: const Text('Cancel')),
-                                    FilledButton(
-                                        onPressed: () =>
-                                            Navigator.pop(ctx, c.text.trim()),
-                                        child: const Text('Save')),
-                                  ],
-                                ),
-                              );
-                              if (updated == null || updated.isEmpty) return;
-                              await widget.service.editPost(_post.id, updated);
-                              await _refreshPost();
-                            }
-                            if (v == 'report') {
-                              final c = TextEditingController();
-                              final reason = await showDialog<String>(
-                                context: context,
-                                builder: (ctx) => AlertDialog(
-                                  title: const Text('Report post'),
-                                  content: TextField(
-                                    controller: c,
-                                    maxLines: 3,
-                                    decoration: const InputDecoration(
-                                        hintText: 'Reason'),
-                                  ),
-                                  actions: [
-                                    TextButton(
-                                        onPressed: () => Navigator.pop(ctx),
-                                        child: const Text('Cancel')),
-                                    FilledButton(
-                                        onPressed: () =>
-                                            Navigator.pop(ctx, c.text.trim()),
-                                        child: const Text('Report')),
-                                  ],
-                                ),
-                              );
-                              if (reason == null || reason.isEmpty) return;
-                              await widget.service.reportPost(_post.id, reason);
-                              if (!mounted) return;
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(
-                                    content: Text('Report sent to admin'),
-                                    behavior: SnackBarBehavior.floating),
-                              );
-                            }
-                          } catch (e) {
-                            if (!mounted) return;
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                  content: Text('Action failed: $e'),
-                                  behavior: SnackBarBehavior.floating),
-                            );
-                          }
-                        },
-                        itemBuilder: (_) => [
-                          if ((widget.myUserId != null &&
-                                  widget.myUserId == _post.authorUserId) ||
-                              (_post.author.trim().toLowerCase() ==
-                                  widget.myNameLower) ||
-                              (_post.author.trim().toLowerCase() ==
-                                  widget.myEmailPrefixLower))
-                            const PopupMenuItem(
-                                value: 'edit', child: Text('Edit my post')),
-                          if ((widget.myUserId != null &&
-                                  widget.myUserId == _post.authorUserId) ||
-                              (_post.author.trim().toLowerCase() ==
-                                  widget.myNameLower) ||
-                              (_post.author.trim().toLowerCase() ==
-                                  widget.myEmailPrefixLower))
-                            const PopupMenuItem(
-                                value: 'delete', child: Text('Delete my post')),
-                          if (!((widget.myUserId != null &&
-                                  widget.myUserId == _post.authorUserId) ||
-                              (_post.author.trim().toLowerCase() ==
-                                  widget.myNameLower) ||
-                              (_post.author.trim().toLowerCase() ==
-                                  widget.myEmailPrefixLower)))
-                            const PopupMenuItem(
-                                value: 'report', child: Text('Report post')),
-                        ],
-                      ),
-                    ],
-                  ),
-                  if (_hydratingImage) ...[
-                    const SizedBox(height: 10),
-                    Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 24),
-                      child: Center(
-                        child: CircularProgressIndicator(
-                          color: DupePalette.pink,
-                        ),
-                      ),
+                      actions: [
+                        TextButton(
+                            onPressed: () => Navigator.pop(ctx),
+                            child: const Text('Cancel')),
+                        FilledButton(
+                          onPressed: () => Navigator.pop(ctx, c.text.trim()),
+                          child: const Text('Save')),
+                      ],
                     ),
-                  ] else if (_post.imageBase64 != null &&
-                      _post.imageBase64!.isNotEmpty) ...[
-                    const SizedBox(height: 10),
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(12),
-                      child: ConstrainedBox(
-                        constraints: const BoxConstraints(maxHeight: 280),
-                        child: Center(
-                          child: Image.memory(
-                            base64Decode(_post.imageBase64!),
-                            fit: BoxFit.contain,
-                            cacheWidth: detailDecodeW,
-                            cacheHeight: detailDecodeH,
-                            filterQuality: FilterQuality.medium,
-                          ),
-                        ),
+                  );
+                  if (updated == null || updated.isEmpty) return;
+                  await widget.service.editPost(_post.id, updated);
+                  await _refreshPost();
+                }
+                if (v == 'report') {
+                  final c = TextEditingController();
+                  final reason = await showDialog<String>(
+                    context: context,
+                    builder: (ctx) => AlertDialog(
+                      title: const Text('Report post'),
+                      content: TextField(
+                        controller: c,
+                        maxLines: 3,
+                        decoration: const InputDecoration(hintText: 'Reason'),
                       ),
+                      actions: [
+                        TextButton(
+                            onPressed: () => Navigator.pop(ctx),
+                            child: const Text('Cancel')),
+                        FilledButton(
+                          onPressed: () => Navigator.pop(ctx, c.text.trim()),
+                          child: const Text('Report')),
+                      ],
                     ),
-                  ] else if (_post.hasImage) ...[
-                    const SizedBox(height: 10),
-                    Text(
-                      'Photo could not be loaded.',
-                      style: GoogleFonts.inter(
-                        fontSize: 13,
-                        color: DupePalette.greySubtitle,
-                      ),
-                    ),
-                  ],
-                  const SizedBox(height: 8),
-                  _LinkText(
-                    _post.description,
-                    style: TextStyle(
-                        fontSize: 14,
-                        color: DupePalette.textPrimary,
-                        height: 1.4),
-                  ),
-                    ],
-                  ),
-                ),
+                  );
+                  if (reason == null || reason.isEmpty) return;
+                  await widget.service.reportPost(_post.id, reason);
+                  if (!mounted) return;
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                        content: Text('Report sent to admin'),
+                        behavior: SnackBarBehavior.floating),
+                  );
+                }
+              } catch (e) {
+                if (!mounted) return;
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                      content: Text('Action failed: $e'),
+                      behavior: SnackBarBehavior.floating),
+                );
+              }
+            },
+            itemBuilder: (_) => [
+              if ((widget.myUserId != null && widget.myUserId == _post.authorUserId) ||
+                  (_post.author.trim().toLowerCase() == widget.myNameLower) ||
+                  (_post.author.trim().toLowerCase() == widget.myEmailPrefixLower))
+                const PopupMenuItem(value: 'edit', child: Text('Edit my post')),
+              if ((widget.myUserId != null && widget.myUserId == _post.authorUserId) ||
+                  (_post.author.trim().toLowerCase() == widget.myNameLower) ||
+                  (_post.author.trim().toLowerCase() == widget.myEmailPrefixLower))
+                const PopupMenuItem(value: 'delete', child: Text('Delete my post')),
+              if (!((widget.myUserId != null && widget.myUserId == _post.authorUserId) ||
+                  (_post.author.trim().toLowerCase() == widget.myNameLower) ||
+                  (_post.author.trim().toLowerCase() == widget.myEmailPrefixLower)))
+                const PopupMenuItem(value: 'report', child: Text('Report post')),
+            ],
+          ),
+        ],
+      ),
+      resizeToAvoidBottomInset: true,
+      body: Column(
+        children: [
+          Expanded(
+            child: CustomScrollView(
+              keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+              physics: const BouncingScrollPhysics(
+                parent: AlwaysScrollableScrollPhysics(),
               ),
-            ),
-            Divider(
-                height: 1,
-                thickness: 1,
-                color: DupePalette.pink.withValues(alpha: 0.22)),
-            Expanded(
-              child: Builder(builder: (context) {
-                final threaded = _threadedReplies();
-                final visibleNodes =
-                    threaded.where((x) => x['visible'] == true).toList();
-                final replyById = <String, CommunityReply>{
-                  for (final r in _post.replies)
-                    if (r.id.isNotEmpty) r.id: r
-                };
-                return ListView.builder(
-                  controller: scrollController,
-                  padding: const EdgeInsets.all(16),
-                  itemCount: visibleNodes.length,
-                  itemBuilder: (_, i) {
-                    final node = visibleNodes[i];
-                    final r = node['reply'] as CommunityReply;
-                    final depth = (node['depth'] as int?) ?? 0;
-                    final indent =
-                        depth <= 0 ? 0.0 : 22.0 * (depth > 4 ? 4 : depth);
-                    final parentReplyId = (r.parentReplyId ?? '').trim();
-                    final parentReply =
-                        parentReplyId.isEmpty ? null : replyById[parentReplyId];
-                    final hasHiddenChildren = node['hasHiddenChildren'] == true;
-                    final hiddenChildrenCount =
-                        (node['hiddenChildrenCount'] as int?) ?? 0;
-                    final isHighlighted =
-                        _highlightReplyId != null && _highlightReplyId == r.id;
-                    return AnimatedContainer(
-                      duration: const Duration(milliseconds: 250),
-                      margin: const EdgeInsets.only(bottom: 12),
-                      padding: const EdgeInsets.all(6),
-                      decoration: BoxDecoration(
-                        color: isHighlighted
-                            ? DupePalette.pink.withValues(alpha: 0.14)
-                            : Colors.transparent,
-                        borderRadius: BorderRadius.circular(8),
-                        border: isHighlighted
-                            ? Border.all(
-                                color:
-                                    DupePalette.teal.withValues(alpha: 0.45),
-                                width: 1,
-                              )
-                            : null,
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
+              slivers: [
+                SliverToBoxAdapter(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        CircleAvatar(
+                          radius: 22,
+                          backgroundColor: DupePalette.pink.withValues(alpha: 0.18),
+                          backgroundImage: (_post.authorPfp != null &&
+                                  _post.authorPfp!.isNotEmpty)
+                              ? ResizeImage(
+                                  MemoryImage(base64Decode(_post.authorPfp!)),
+                                  width: 120,
+                                  height: 120,
+                                )
+                              : null,
+                          child: (_post.authorPfp == null ||
+                                  _post.authorPfp!.isEmpty)
+                              ? Icon(Icons.person_outline_rounded,
+                                  size: 22, color: DupePalette.pinkDeep)
+                              : null,
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              CircleAvatar(
-                                radius: 12,
-                                backgroundColor:
-                                    DupePalette.teal.withValues(alpha: 0.15),
-                                backgroundImage: (r.authorPfp != null &&
-                                        r.authorPfp!.isNotEmpty)
-                                    ? ResizeImage(
-                                        MemoryImage(
-                                            base64Decode(r.authorPfp!)),
-                                        width: 96,
-                                        height: 96,
-                                      )
-                                    : null,
-                                child: (r.authorPfp == null ||
-                                        r.authorPfp!.isEmpty)
-                                    ? Icon(Icons.person_outline_rounded,
-                                        size: 13, color: DupePalette.tealWall)
-                                    : null,
-                              ),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      r.author,
-                                      style: const TextStyle(
-                                        fontSize: 12,
-                                        fontWeight: FontWeight.w600,
-                                        color: AppColors.purpleDark,
-                                      ),
-                                    ),
-                                    Text(
-                                      _timeAgo(r.createdAt),
-                                      style: TextStyle(
-                                          fontSize: 11,
-                                          color: DupePalette.greySubtitle),
-                                    ),
-                                  ],
+                              Text(
+                                _post.author,
+                                style: GoogleFonts.inter(
+                                  fontWeight: FontWeight.w700,
+                                  fontSize: 16,
+                                  color: DupePalette.textPrimary,
                                 ),
                               ),
-                              PopupMenuButton<String>(
-                                icon: Icon(Icons.more_vert_rounded,
-                                    size: 20, color: DupePalette.textPrimary),
-                                onSelected: (v) async {
-                                  try {
-                                    if (v == 'reply_back') {
-                                      final mention = '@${r.author} ';
-                                      final current =
-                                          _replyController.text.trim();
-                                      final next = current.isEmpty
-                                          ? mention
-                                          : '$mention$current';
-                                      setState(() {
-                                        _replyingToName = r.author;
-                                        _replyingToReplyId =
-                                            r.id.isNotEmpty ? r.id : null;
-                                      });
-                                      _replyController
-                                        ..text = next
-                                        ..selection = TextSelection.collapsed(
-                                            offset: next.length);
-                                      return;
-                                    }
-                                    if (v == 'delete_reply') {
-                                      await widget.service
-                                          .deleteReply(_post.id, r.id);
-                                      await _refreshPost();
-                                      if (!mounted) return;
-                                      ScaffoldMessenger.of(context)
-                                          .showSnackBar(
-                                        const SnackBar(
-                                          content: Text('Reply deleted'),
-                                          behavior: SnackBarBehavior.floating,
-                                        ),
-                                      );
-                                      return;
-                                    }
-                                    if (v == 'report_reply') {
-                                      if (r.id.isEmpty) return;
-                                      final reason = await _askReason();
-                                      if (reason == null || reason.isEmpty) {
-                                        return;
-                                      }
-                                      await widget.service.reportReply(
-                                        postId: _post.id,
-                                        replyId: r.id,
-                                        reason: reason,
-                                      );
-                                      if (!mounted) return;
-                                      ScaffoldMessenger.of(context)
-                                          .showSnackBar(
-                                        const SnackBar(
-                                          content: Text('Reply reported'),
-                                          behavior: SnackBarBehavior.floating,
-                                        ),
-                                      );
-                                      return;
-                                    }
-                                    if (v == 'block_user') {
-                                      final targetId =
-                                          (r.authorUserId ?? '').trim();
-                                      if (targetId.isEmpty) {
-                                        if (!mounted) return;
-                                        ScaffoldMessenger.of(context)
-                                            .showSnackBar(
-                                          const SnackBar(
-                                            content: Text(
-                                                'Cannot block this legacy user'),
-                                            behavior: SnackBarBehavior.floating,
-                                          ),
-                                        );
-                                        return;
-                                      }
-                                      await widget.service.blockUser(targetId);
-                                      await _refreshPost();
-                                      if (!mounted) return;
-                                      ScaffoldMessenger.of(context)
-                                          .showSnackBar(
-                                        SnackBar(
-                                          content: Text('${r.author} blocked'),
-                                          behavior: SnackBarBehavior.floating,
-                                        ),
-                                      );
-                                    }
-                                  } catch (e) {
-                                    if (!mounted) return;
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      SnackBar(
-                                        content: Text('Action failed: $e'),
-                                        behavior: SnackBarBehavior.floating,
-                                      ),
-                                    );
-                                  }
-                                },
-                                itemBuilder: (_) => [
-                                  const PopupMenuItem(
-                                    value: 'reply_back',
-                                    child: Text('Reply back'),
-                                  ),
-                                  if (_isMyReply(r) && r.id.isNotEmpty)
-                                    const PopupMenuItem(
-                                      value: 'delete_reply',
-                                      child: Text('Delete my reply'),
-                                    ),
-                                  if (!_isMyReply(r) && r.id.isNotEmpty)
-                                    const PopupMenuItem(
-                                      value: 'report_reply',
-                                      child: Text('Report reply'),
-                                    ),
-                                  if (!_isMyReply(r))
-                                    const PopupMenuItem(
-                                      value: 'block_user',
-                                      child: Text('Block user'),
-                                    ),
-                                ],
+                              Text(
+                                _timeAgo(_post.createdAt),
+                                style: GoogleFonts.inter(
+                                  fontSize: 13,
+                                  color: DupePalette.greySubtitle,
+                                ),
                               ),
                             ],
                           ),
-                          const SizedBox(height: 6),
-                          Padding(
-                            padding: EdgeInsets.only(left: 26 + indent),
-                            child: Container(
-                              decoration: BoxDecoration(
-                                border: depth > 0
-                                    ? Border(
-                                        left: BorderSide(
-                                          color: DupePalette.teal
-                                              .withValues(alpha: 0.55),
-                                          width: 1.2,
-                                        ),
-                                      )
-                                    : null,
-                              ),
-                              padding: EdgeInsets.only(
-                                left: depth > 0 ? 8 : 0,
-                              ),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  if (parentReply != null)
-                                    Container(
-                                      margin: const EdgeInsets.only(bottom: 4),
-                                      padding: const EdgeInsets.symmetric(
-                                          horizontal: 8, vertical: 3),
-                                      decoration: BoxDecoration(
-                                        gradient: LinearGradient(
-                                          colors: [
-                                            DupePalette.pink
-                                                .withValues(alpha: 0.14),
-                                            DupePalette.teal
-                                                .withValues(alpha: 0.1),
-                                          ],
-                                        ),
-                                        borderRadius:
-                                            BorderRadius.circular(999),
-                                        border: Border.all(
-                                          color: DupePalette.pink
-                                              .withValues(alpha: 0.35),
-                                          width: 1,
-                                        ),
-                                      ),
-                                      child: Text(
-                                        'Replying to @${parentReply.author}',
-                                        style: TextStyle(
-                                          fontSize: 11,
-                                          fontWeight: FontWeight.w600,
-                                          color: DupePalette.pinkDeep,
-                                        ),
-                                      ),
-                                    ),
-                                  _LinkText(
-                                    r.body,
-                                    style: const TextStyle(
-                                        fontSize: 14,
-                                        color: AppColors.purpleDark,
-                                        height: 1.35),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                          if (hasHiddenChildren)
-                            Padding(
-                              padding: EdgeInsets.only(
-                                  left: 26 + indent + 6, top: 4),
-                              child: TextButton(
-                                style: TextButton.styleFrom(
-                                  foregroundColor: DupePalette.pinkDeep,
-                                ),
-                                onPressed: () {
-                                  if (!mounted || r.id.isEmpty) return;
-                                  setState(
-                                      () => _expandedThreadParents.add(r.id));
-                                },
-                                child: Text(
-                                  hiddenChildrenCount > 0
-                                      ? 'View more replies ($hiddenChildrenCount)'
-                                      : 'View more replies',
-                                ),
-                              ),
-                            ),
-                          if (depth >= _maxVisibleDepth &&
-                              r.id.isNotEmpty &&
-                              _expandedThreadParents.contains(r.id))
-                            Padding(
-                              padding: EdgeInsets.only(left: 26 + indent + 6),
-                              child: TextButton(
-                                style: TextButton.styleFrom(
-                                  foregroundColor: DupePalette.tealWall,
-                                ),
-                                onPressed: () {
-                                  if (!mounted) return;
-                                  setState(() =>
-                                      _expandedThreadParents.remove(r.id));
-                                },
-                                child: const Text('Hide nested replies'),
-                              ),
-                            ),
-                        ],
-                      ),
-                    );
-                  },
-                );
-              }),
-            ),
-            AnimatedPadding(
-              duration: const Duration(milliseconds: 180),
-              curve: Curves.easeOut,
-              padding: EdgeInsets.fromLTRB(
-                16,
-                8,
-                16,
-                12 + MediaQuery.of(context).viewPadding.bottom,
-              ),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: TextField(
-                      controller: _replyController,
-                      enabled: !_sendingReply,
-                      scrollPadding: const EdgeInsets.fromLTRB(16, 80, 16, 120),
-                      style: const TextStyle(
-                        color: AppColors.purpleDark,
-                        fontSize: 15,
-                        fontWeight: FontWeight.w500,
-                      ),
-                      cursorColor: DupePalette.pinkDeep,
-                      decoration: InputDecoration(
-                        filled: true,
-                        fillColor: DupePalette.scaffoldLight,
-                        hintText: _replyingToName != null &&
-                                _replyingToName!.isNotEmpty
-                            ? 'Replying to $_replyingToName...'
-                            : 'Reply with a store link or suggestion...',
-                        hintStyle: TextStyle(
-                          color: DupePalette.greyGuest,
-                          fontSize: 14,
                         ),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(14),
-                          borderSide: BorderSide(
-                            color:
-                                DupePalette.pink.withValues(alpha: 0.35),
-                          ),
-                        ),
-                        enabledBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(14),
-                          borderSide: BorderSide(
-                            color:
-                                DupePalette.teal.withValues(alpha: 0.4),
-                          ),
-                        ),
-                        focusedBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(14),
-                          borderSide: BorderSide(
-                              color: DupePalette.pinkDeep, width: 2),
-                        ),
-                        contentPadding: const EdgeInsets.symmetric(
-                            horizontal: 12, vertical: 10),
-                      ),
-                      maxLines: 1,
-                      onSubmitted: (_) => _sendingReply ? null : _sendReply(),
+                      ],
                     ),
                   ),
-                  const SizedBox(width: 8),
-                  Material(
-                    color: Colors.transparent,
-                    child: InkWell(
-                      onTap: _sendingReply ? null : _sendReply,
-                      customBorder: const CircleBorder(),
-                      child: Ink(
-                        height: 48,
-                        width: 48,
-                        decoration: BoxDecoration(
-                          gradient: _sendingReply
-                              ? null
-                              : DupePalette.ctaGradient,
-                          color: _sendingReply
-                              ? DupePalette.greyGuest
-                              : null,
-                          shape: BoxShape.circle,
-                          boxShadow: _sendingReply
-                              ? null
-                              : [
-                                  BoxShadow(
-                                    color: DupePalette.pink
-                                        .withValues(alpha: 0.35),
-                                    blurRadius: 10,
-                                    offset: const Offset(0, 3),
-                                  ),
-                                ],
-                        ),
-                        child: Center(
-                          child: _sendingReply
-                              ? const SizedBox(
-                                  width: 20,
-                                  height: 20,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                    color: Colors.white,
+                ),
+                SliverToBoxAdapter(
+                  child: _hydratingImage
+                      ? SizedBox(
+                          height: maxImgH * 0.45,
+                          child: const Center(
+                            child: CircularProgressIndicator(color: DupePalette.pink),
+                          ),
+                        )
+                      : (_post.imageBase64 != null &&
+                              _post.imageBase64!.isNotEmpty)
+                          ? SizedBox(
+                              width: media.size.width,
+                              height: maxImgH,
+                              child: Image.memory(
+                                base64Decode(_post.imageBase64!),
+                                fit: BoxFit.contain,
+                                width: media.size.width,
+                                cacheWidth: detailDecodeW,
+                                filterQuality: FilterQuality.medium,
+                              ),
+                            )
+                          : _post.hasImage
+                              ? Padding(
+                                  padding: const EdgeInsets.all(24),
+                                  child: Text(
+                                    'Photo could not be loaded.',
+                                    style: GoogleFonts.inter(
+                                      fontSize: 13,
+                                      color: DupePalette.greySubtitle,
+                                    ),
                                   ),
                                 )
-                              : const Icon(Icons.send_rounded,
-                                  color: Colors.white, size: 22),
+                              : const SizedBox(height: 8),
+                ),
+                SliverToBoxAdapter(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(4, 4, 8, 4),
+                    child: Row(
+                      children: [
+                        IconButton(
+                          onPressed: _toggleLikeDetail,
+                          icon: Icon(
+                            liked
+                                ? Icons.favorite_rounded
+                                : Icons.favorite_border_rounded,
+                            color: DupePalette.pinkDeep,
+                            size: 28,
+                          ),
+                        ),
+                        Text(
+                          _compactCount(_post.likeCount),
+                          style: GoogleFonts.inter(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w600,
+                            color: DupePalette.textPrimary,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        IconButton(
+                          onPressed: () =>
+                              FocusScope.of(context).requestFocus(_replyFocusNode),
+                          icon: Icon(
+                            Icons.chat_bubble_outline_rounded,
+                            color: DupePalette.textPrimary,
+                            size: 26,
+                          ),
+                        ),
+                        Text(
+                          _compactCount(_post.replies.length),
+                          style: GoogleFonts.inter(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w600,
+                            color: DupePalette.textPrimary,
+                          ),
+                        ),
+                        const Spacer(),
+                        IconButton(
+                          onPressed: _sharePostDetail,
+                          icon: Icon(Icons.share_outlined,
+                              color: DupePalette.textPrimary, size: 24),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                SliverToBoxAdapter(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+                    child: _LinkText(
+                      _post.description,
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: DupePalette.textPrimary,
+                        height: 1.4,
+                      ),
+                    ),
+                  ),
+                ),
+                if (visibleNodes.isNotEmpty)
+                  SliverToBoxAdapter(
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+                      child: Text(
+                        'Comments',
+                        style: GoogleFonts.inter(
+                          fontWeight: FontWeight.w700,
+                          fontSize: 15,
+                          color: DupePalette.textPrimary,
                         ),
                       ),
                     ),
                   ),
-                ],
-              ),
+                SliverPadding(
+                  padding: const EdgeInsets.fromLTRB(12, 0, 12, 16),
+                  sliver: SliverList(
+                    delegate: SliverChildBuilderDelegate(
+                      (context, i) {
+                        final node = visibleNodes[i];
+                        final r = node['reply'] as CommunityReply;
+                        final depth = (node['depth'] as int?) ?? 0;
+                        final indent =
+                            depth <= 0 ? 0.0 : 22.0 * (depth > 4 ? 4 : depth);
+                        final parentReplyId = (r.parentReplyId ?? '').trim();
+                        final parentReply = parentReplyId.isEmpty
+                            ? null
+                            : replyById[parentReplyId];
+                        final hasHiddenChildren =
+                            node['hasHiddenChildren'] == true;
+                        final hiddenChildrenCount =
+                            (node['hiddenChildrenCount'] as int?) ?? 0;
+                        final isHighlighted = _highlightReplyId != null &&
+                            _highlightReplyId == r.id;
+                        return AnimatedContainer(
+                          duration: const Duration(milliseconds: 250),
+                          margin: const EdgeInsets.only(bottom: 12),
+                          padding: const EdgeInsets.all(6),
+                          decoration: BoxDecoration(
+                            color: isHighlighted
+                                ? DupePalette.pink.withValues(alpha: 0.14)
+                                : Colors.transparent,
+                            borderRadius: BorderRadius.circular(8),
+                            border: isHighlighted
+                                ? Border.all(
+                                    color: DupePalette.teal.withValues(alpha: 0.45),
+                                    width: 1,
+                                  )
+                                : null,
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  CircleAvatar(
+                                    radius: 12,
+                                    backgroundColor:
+                                        DupePalette.teal.withValues(alpha: 0.15),
+                                    backgroundImage: (r.authorPfp != null &&
+                                            r.authorPfp!.isNotEmpty)
+                                        ? ResizeImage(
+                                            MemoryImage(
+                                                base64Decode(r.authorPfp!)),
+                                            width: 96,
+                                            height: 96,
+                                          )
+                                        : null,
+                                    child: (r.authorPfp == null ||
+                                            r.authorPfp!.isEmpty)
+                                        ? Icon(Icons.person_outline_rounded,
+                                            size: 13, color: DupePalette.tealWall)
+                                        : null,
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          r.author,
+                                          style: const TextStyle(
+                                            fontSize: 12,
+                                            fontWeight: FontWeight.w600,
+                                            color: AppColors.purpleDark,
+                                          ),
+                                        ),
+                                        Text(
+                                          _timeAgo(r.createdAt),
+                                          style: TextStyle(
+                                              fontSize: 11,
+                                              color: DupePalette.greySubtitle),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  PopupMenuButton<String>(
+                                    icon: Icon(Icons.more_vert_rounded,
+                                        size: 20, color: DupePalette.textPrimary),
+                                    onSelected: (v) async {
+                                      try {
+                                        if (v == 'reply_back') {
+                                          final mention = '@${r.author} ';
+                                          final current =
+                                              _replyController.text.trim();
+                                          final next = current.isEmpty
+                                              ? mention
+                                              : '$mention$current';
+                                          setState(() {
+                                            _replyingToName = r.author;
+                                            _replyingToReplyId =
+                                                r.id.isNotEmpty ? r.id : null;
+                                          });
+                                          _replyController
+                                            ..text = next
+                                            ..selection =
+                                                TextSelection.collapsed(
+                                                    offset: next.length);
+                                          return;
+                                        }
+                                        if (v == 'delete_reply') {
+                                          await widget.service
+                                              .deleteReply(_post.id, r.id);
+                                          await _refreshPost();
+                                          if (!mounted) return;
+                                          ScaffoldMessenger.of(context)
+                                              .showSnackBar(
+                                            const SnackBar(
+                                              content: Text('Reply deleted'),
+                                              behavior:
+                                                  SnackBarBehavior.floating,
+                                            ),
+                                          );
+                                          return;
+                                        }
+                                        if (v == 'report_reply') {
+                                          if (r.id.isEmpty) return;
+                                          final reason = await _askReason();
+                                          if (reason == null ||
+                                              reason.isEmpty) {
+                                            return;
+                                          }
+                                          await widget.service.reportReply(
+                                            postId: _post.id,
+                                            replyId: r.id,
+                                            reason: reason,
+                                          );
+                                          if (!mounted) return;
+                                          ScaffoldMessenger.of(context)
+                                              .showSnackBar(
+                                            const SnackBar(
+                                              content: Text('Reply reported'),
+                                              behavior:
+                                                  SnackBarBehavior.floating,
+                                            ),
+                                          );
+                                          return;
+                                        }
+                                        if (v == 'block_user') {
+                                          final targetId =
+                                              (r.authorUserId ?? '').trim();
+                                          if (targetId.isEmpty) {
+                                            if (!mounted) return;
+                                            ScaffoldMessenger.of(context)
+                                                .showSnackBar(
+                                              const SnackBar(
+                                                content: Text(
+                                                    'Cannot block this legacy user'),
+                                                behavior:
+                                                    SnackBarBehavior.floating,
+                                              ),
+                                            );
+                                            return;
+                                          }
+                                          await widget.service
+                                              .blockUser(targetId);
+                                          await _refreshPost();
+                                          if (!mounted) return;
+                                          ScaffoldMessenger.of(context)
+                                              .showSnackBar(
+                                            SnackBar(
+                                              content:
+                                                  Text('${r.author} blocked'),
+                                              behavior:
+                                                  SnackBarBehavior.floating,
+                                            ),
+                                          );
+                                        }
+                                      } catch (e) {
+                                        if (!mounted) return;
+                                        ScaffoldMessenger.of(context)
+                                            .showSnackBar(
+                                          SnackBar(
+                                            content: Text('Action failed: $e'),
+                                            behavior:
+                                                SnackBarBehavior.floating,
+                                          ),
+                                        );
+                                      }
+                                    },
+                                    itemBuilder: (_) => [
+                                      const PopupMenuItem(
+                                        value: 'reply_back',
+                                        child: Text('Reply back'),
+                                      ),
+                                      if (_isMyReply(r) && r.id.isNotEmpty)
+                                        const PopupMenuItem(
+                                          value: 'delete_reply',
+                                          child: Text('Delete my reply'),
+                                        ),
+                                      if (!_isMyReply(r) && r.id.isNotEmpty)
+                                        const PopupMenuItem(
+                                          value: 'report_reply',
+                                          child: Text('Report reply'),
+                                        ),
+                                      if (!_isMyReply(r))
+                                        const PopupMenuItem(
+                                          value: 'block_user',
+                                          child: Text('Block user'),
+                                        ),
+                                    ],
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 6),
+                              Padding(
+                                padding: EdgeInsets.only(left: 26 + indent),
+                                child: Container(
+                                  decoration: BoxDecoration(
+                                    border: depth > 0
+                                        ? Border(
+                                            left: BorderSide(
+                                              color: DupePalette.teal
+                                                  .withValues(alpha: 0.55),
+                                              width: 1.2,
+                                            ),
+                                          )
+                                        : null,
+                                  ),
+                                  padding: EdgeInsets.only(
+                                    left: depth > 0 ? 8 : 0,
+                                  ),
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      if (parentReply != null)
+                                        Container(
+                                          margin:
+                                              const EdgeInsets.only(bottom: 4),
+                                          padding: const EdgeInsets.symmetric(
+                                              horizontal: 8, vertical: 3),
+                                          decoration: BoxDecoration(
+                                            gradient: LinearGradient(
+                                              colors: [
+                                                DupePalette.pink
+                                                    .withValues(alpha: 0.14),
+                                                DupePalette.teal
+                                                    .withValues(alpha: 0.1),
+                                              ],
+                                            ),
+                                            borderRadius:
+                                                BorderRadius.circular(999),
+                                            border: Border.all(
+                                              color: DupePalette.pink
+                                                  .withValues(alpha: 0.35),
+                                              width: 1,
+                                            ),
+                                          ),
+                                          child: Text(
+                                            'Replying to @${parentReply.author}',
+                                            style: TextStyle(
+                                              fontSize: 11,
+                                              fontWeight: FontWeight.w600,
+                                              color: DupePalette.pinkDeep,
+                                            ),
+                                          ),
+                                        ),
+                                      _LinkText(
+                                        r.body,
+                                        style: const TextStyle(
+                                            fontSize: 14,
+                                            color: AppColors.purpleDark,
+                                            height: 1.35),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                              if (hasHiddenChildren)
+                                Padding(
+                                  padding: EdgeInsets.only(
+                                      left: 26 + indent + 6, top: 4),
+                                  child: TextButton(
+                                    style: TextButton.styleFrom(
+                                      foregroundColor: DupePalette.pinkDeep,
+                                    ),
+                                    onPressed: () {
+                                      if (!mounted || r.id.isEmpty) return;
+                                      setState(() =>
+                                          _expandedThreadParents.add(r.id));
+                                    },
+                                    child: Text(
+                                      hiddenChildrenCount > 0
+                                          ? 'View more replies ($hiddenChildrenCount)'
+                                          : 'View more replies',
+                                    ),
+                                  ),
+                                ),
+                              if (depth >= _maxVisibleDepth &&
+                                  r.id.isNotEmpty &&
+                                  _expandedThreadParents.contains(r.id))
+                                Padding(
+                                  padding:
+                                      EdgeInsets.only(left: 26 + indent + 6),
+                                  child: TextButton(
+                                    style: TextButton.styleFrom(
+                                      foregroundColor: DupePalette.tealWall,
+                                    ),
+                                    onPressed: () {
+                                      if (!mounted) return;
+                                      setState(() => _expandedThreadParents
+                                          .remove(r.id));
+                                    },
+                                    child: const Text('Hide nested replies'),
+                                  ),
+                                ),
+                            ],
+                          ),
+                        );
+                      },
+                      childCount: visibleNodes.length,
+                    ),
+                  ),
+                ),
+              ],
             ),
-          ],
-        ),
+          ),
+          AnimatedPadding(
+            duration: const Duration(milliseconds: 180),
+            curve: Curves.easeOut,
+            padding: EdgeInsets.fromLTRB(
+              16,
+              8,
+              16,
+              12 + MediaQuery.of(context).viewPadding.bottom,
+            ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _replyController,
+                    focusNode: _replyFocusNode,
+                    enabled: !_sendingReply,
+                    scrollPadding:
+                        const EdgeInsets.fromLTRB(16, 80, 16, 120),
+                    style: const TextStyle(
+                      color: AppColors.purpleDark,
+                      fontSize: 15,
+                      fontWeight: FontWeight.w500,
+                    ),
+                    cursorColor: DupePalette.pinkDeep,
+                    decoration: InputDecoration(
+                      filled: true,
+                      fillColor: DupePalette.scaffoldLight,
+                      hintText: _replyingToName != null &&
+                              _replyingToName!.isNotEmpty
+                          ? 'Replying to $_replyingToName...'
+                          : 'Reply with a store link or suggestion...',
+                      hintStyle: TextStyle(
+                        color: DupePalette.greyGuest,
+                        fontSize: 14,
+                      ),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(14),
+                        borderSide: BorderSide(
+                          color: DupePalette.pink.withValues(alpha: 0.35),
+                        ),
+                      ),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(14),
+                        borderSide: BorderSide(
+                          color: DupePalette.teal.withValues(alpha: 0.4),
+                        ),
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(14),
+                        borderSide:
+                            BorderSide(color: DupePalette.pinkDeep, width: 2),
+                      ),
+                      contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 12, vertical: 10),
+                    ),
+                    maxLines: 1,
+                    textInputAction: TextInputAction.send,
+                    onSubmitted: (_) {
+                      if (!_sendingReply) _sendReply();
+                    },
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Material(
+                  color: Colors.transparent,
+                  child: InkWell(
+                    onTap: _sendingReply ? null : _sendReply,
+                    customBorder: const CircleBorder(),
+                    child: Ink(
+                      height: 48,
+                      width: 48,
+                      decoration: BoxDecoration(
+                        gradient:
+                            _sendingReply ? null : DupePalette.ctaGradient,
+                        color: _sendingReply ? DupePalette.greyGuest : null,
+                        shape: BoxShape.circle,
+                        boxShadow: _sendingReply
+                            ? null
+                            : [
+                                BoxShadow(
+                                  color: DupePalette.pink
+                                      .withValues(alpha: 0.35),
+                                  blurRadius: 10,
+                                  offset: const Offset(0, 3),
+                                ),
+                              ],
+                      ),
+                      child: Center(
+                        child: _sendingReply
+                            ? const SizedBox(
+                                width: 20,
+                                height: 20,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: Colors.white,
+                                ),
+                              )
+                            : const Icon(Icons.send_rounded,
+                                color: Colors.white, size: 22),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }

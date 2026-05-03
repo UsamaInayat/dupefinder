@@ -882,18 +882,26 @@ class ApiService {
     return jsonDecode(response.body) as Map<String, dynamic>;
   }
 
-  /// Home category chips: `dresses` | `bags` | `accessories` | `jewelry` → up to [limit] products.
+  /// Home category chips: `dresses` | `bags` | `accessories` | `jewelry` | `watches` → up to [limit] products.
   Future<Map<String, dynamic>> shopBrowse({
     required String slot,
     int limit = 10,
   }) async {
-    final uri = Uri.parse('$baseUrl/products/shop-browse').replace(
-      queryParameters: {
-        'slot': slot,
-        'limit': limit.toString(),
-      },
-    );
-    final response = await http.get(uri, headers: await getHeaders());
+    Future<http.Response> getSlot(String s) async {
+      final uri = Uri.parse('$baseUrl/products/shop-browse').replace(
+        queryParameters: {
+          'slot': s,
+          'limit': limit.toString(),
+        },
+      );
+      return http.get(uri, headers: await getHeaders());
+    }
+
+    var response = await getSlot(slot);
+    // Older APIs reject `watches` (422). Fall back until production is redeployed.
+    if (response.statusCode == 422 && slot == 'watches') {
+      response = await getSlot('accessories');
+    }
     if (response.statusCode != 200) {
       throw Exception(
         'Shop browse failed (${response.statusCode}): ${response.body}',
@@ -1182,16 +1190,29 @@ class ApiService {
   }
 
   Future<Map<String, dynamic>> toggleCommunityPostLike(String postId) async {
-    final response = await http.post(
-      Uri.parse('$baseUrl/community/posts/$postId/like'),
-      headers: await getCommunityHeaders(),
-    );
-    if (response.statusCode != 200) {
-      throw Exception('Failed to toggle like');
+    const timeout = Duration(seconds: 28);
+    final uri = Uri.parse('$baseUrl/community/posts/$postId/like');
+    for (var attempt = 0; attempt < 3; attempt++) {
+      try {
+        final response = await http
+            .post(uri, headers: await getCommunityHeaders())
+            .timeout(timeout);
+        if (response.statusCode != 200) {
+          throw Exception(
+            'Failed to toggle like (${response.statusCode}): ${response.body}',
+          );
+        }
+        return Map<String, dynamic>.from(
+          (jsonDecode(response.body) as Map<String, dynamic>)['post'] as Map,
+        );
+      } catch (e, st) {
+        if (attempt >= 2) {
+          Error.throwWithStackTrace(e, st);
+        }
+        await Future<void>.delayed(Duration(milliseconds: 280 * (attempt + 1)));
+      }
     }
-    return Map<String, dynamic>.from(
-      (jsonDecode(response.body) as Map<String, dynamic>)['post'] as Map,
-    );
+    throw StateError('toggleCommunityPostLike: exhausted retries');
   }
 
   Future<Map<String, dynamic>> getUserData() async {
