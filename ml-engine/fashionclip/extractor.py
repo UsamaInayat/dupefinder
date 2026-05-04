@@ -127,7 +127,7 @@ class FashionCLIPExtractor:
             del pils
             batch_idx += 1
             # Long CPU runs fragment PyTorch/PIL memory; periodic GC avoids OOM near end of large jobs.
-            if batch_idx % 8 == 0:
+            if batch_idx % 32 == 0:
                 gc.collect()
 
         return np.vstack(all_vecs)

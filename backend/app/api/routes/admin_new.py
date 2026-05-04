@@ -32,6 +32,9 @@ import os
 import re
 import logging
 import hashlib
+import shutil
+import tarfile
+import tempfile
 from pathlib import Path
 from urllib.parse import urlparse, parse_qs, unquote
 
@@ -1879,6 +1882,90 @@ def _get_reindex_lock() -> asyncio.Lock:
     return _reindex_lock
 
 
+def _reindex_runs_on_server() -> bool:
+    """When false, post-scrape FashionCLIP reindex is skipped; use local reindex + upload instead."""
+    v = (os.getenv("REINDEX_ON_SERVER", "true") or "true").strip().lower()
+    return v not in ("0", "false", "no", "off")
+
+
+def _slug_ok_for_faiss_upload(slug: str) -> bool:
+    return bool(re.fullmatch(r"[a-z0-9_-]+", slug, re.I))
+
+
+def _apply_remote_faiss_tar_path(tar_path: Path) -> Dict[str, Any]:
+    """
+    Extract a .tar.gz produced by scripts/reindex_and_upload.py (two top-level dirs),
+    validate index+pkl pairs, atomically replace files under search FAISS dirs, hot-reload.
+    """
+    from app.api.routes.search import FAISS_DIR, ID_MAPS_DIR, hot_reload_indices
+
+    extract_root = Path(tempfile.mkdtemp(prefix="faiss_remote_upload_"))
+    try:
+        with tarfile.open(tar_path, "r:*") as tf:
+            for m in tf.getmembers():
+                if not m.isfile():
+                    continue
+                norm = m.name.replace("\\", "/").lstrip("/")
+                if ".." in norm.split("/"):
+                    raise ValueError(f"Unsafe path in archive: {m.name!r}")
+                parts = norm.split("/")
+                if len(parts) != 2:
+                    continue
+                root, fname = parts[0], parts[1]
+                if root not in ("fashionclip_indices", "fashionclip_id_maps"):
+                    continue
+                stem = Path(fname).stem
+                suf = Path(fname).suffix.lower()
+                if suf not in (".index", ".pkl") or not _slug_ok_for_faiss_upload(stem):
+                    raise ValueError(f"Invalid archive member: {norm!r}")
+                dest = extract_root / norm
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                fobj = tf.extractfile(m)
+                if fobj is None:
+                    continue
+                with open(dest, "wb") as out:
+                    shutil.copyfileobj(fobj, out)
+
+        idx_src = extract_root / "fashionclip_indices"
+        map_src = extract_root / "fashionclip_id_maps"
+        if not idx_src.is_dir() or not map_src.is_dir():
+            raise ValueError(
+                "Archive must contain fashionclip_indices/ and fashionclip_id_maps/ with paired files"
+            )
+
+        index_files = sorted(idx_src.glob("*.index"))
+        if not index_files:
+            raise ValueError("No .index files under fashionclip_indices/ in archive")
+
+        slugs: List[str] = []
+        for idx_file in index_files:
+            slug = idx_file.stem
+            if not _slug_ok_for_faiss_upload(slug):
+                raise ValueError(f"Invalid index slug: {slug!r}")
+            pkl = map_src / f"{slug}.pkl"
+            if not pkl.is_file():
+                raise ValueError(f"Missing id_map for slug {slug!r} (expected fashionclip_id_maps/{slug}.pkl)")
+            slugs.append(slug)
+
+        FAISS_DIR.mkdir(parents=True, exist_ok=True)
+        ID_MAPS_DIR.mkdir(parents=True, exist_ok=True)
+
+        for slug in slugs:
+            for src, dest_dir, ext in (
+                (idx_src / f"{slug}.index", FAISS_DIR, ".index"),
+                (map_src / f"{slug}.pkl", ID_MAPS_DIR, ".pkl"),
+            ):
+                dest = dest_dir / f"{slug}{ext}"
+                tmp = dest_dir / f"{slug}{ext}.upload_tmp"
+                shutil.copy2(src, tmp)
+                os.replace(str(tmp), str(dest))
+
+        reloaded = hot_reload_indices(sorted(slugs))
+        return {"slugs": sorted(slugs), "hot_reloaded": reloaded}
+    finally:
+        shutil.rmtree(extract_root, ignore_errors=True)
+
+
 def _project_root_for_local_csvs() -> str:
     """Directory containing local_brands_links*.csv (same walk as get_available_brands)."""
     _start = os.path.abspath(os.path.dirname(__file__))
@@ -2651,6 +2738,7 @@ async def start_rescraping(
         "current_brand_name": "",
         "save_batch_index": 0,
         "save_batches_total": 0,
+        "reindex_remote_pending": False,
     }
     
     # Store job in memory for real-time status
@@ -2918,6 +3006,18 @@ async def run_scraping_job(job_id: str, brand_list: List[dict]):
             scraping_jobs[job_id]["logs"].append(
                 f"Scraping completed! Total: {total_products} products (new + updated)"
             )
+            if _reindex_runs_on_server():
+                scraping_jobs[job_id]["logs"].append(
+                    "Starting FashionCLIP reindex for new products (on server)..."
+                )
+                reindex_remote_pending = False
+            else:
+                scraping_jobs[job_id]["logs"].append(
+                    "REINDEX_ON_SERVER=false: skipped in-container FashionCLIP reindex. "
+                    "Run reindex locally (same Mongo), then: "
+                    "python scripts/reindex_and_upload.py --api-base <URL> --token <admin_jwt>"
+                )
+                reindex_remote_pending = True
             scraping_history.update_one(
                 {"job_id": job_id},
                 {
@@ -2930,11 +3030,12 @@ async def run_scraping_job(job_id: str, brand_list: List[dict]):
                         "current_phase": "completed",
                         "save_batch_index": 0,
                         "save_batches_total": 0,
+                        "reindex_remote_pending": reindex_remote_pending,
                     }
                 },
             )
-            scraping_jobs[job_id]["logs"].append("Starting FashionCLIP reindex for new products...")
-            asyncio.create_task(_run_reindex_task(job_id))
+            if _reindex_runs_on_server():
+                asyncio.create_task(_run_reindex_task(job_id))
         
     except Exception as e:
         failed_at = datetime.utcnow()
@@ -2988,6 +3089,7 @@ async def _run_reindex_task(job_id: str):
                     "$set": {
                         "reindex_summary": summary or {},
                         "reindex_done": True,
+                        "reindex_remote_pending": False,
                         "reindex_completed_at": datetime.utcnow(),
                     },
                     "$unset": {"reindex_error": "", "reindex_failed_at": ""},
@@ -3081,6 +3183,9 @@ async def startup_reindex_recovery():
     """
     if os.getenv("DISABLE_STARTUP_REINDEX_RECOVERY", "").lower() in ("1", "true", "yes"):
         return
+    if not _reindex_runs_on_server():
+        logger.info("[ReindexRecovery] skipped (REINDEX_ON_SERVER=false)")
+        return
     try:
         delay = int(os.getenv("STARTUP_REINDEX_RECOVERY_DELAY_SEC", "120"))
     except ValueError:
@@ -3141,6 +3246,7 @@ async def startup_reindex_recovery():
                 {
                     "$set": {
                         "reindex_done": True,
+                        "reindex_remote_pending": False,
                         "reindex_summary": summary or {},
                         "reindex_recovered_at": now,
                         "reindex_completed_at": now,
@@ -3155,6 +3261,98 @@ async def startup_reindex_recovery():
             )
         except Exception as ue:
             logger.warning("[ReindexRecovery] reindex OK but Mongo update failed: %s", ue)
+
+
+@router.get("/reindex-remote/info")
+def admin_reindex_remote_info(admin: dict = Depends(require_admin)):
+    """FAISS paths used by search + Mongo counts for the remote reindex workflow."""
+    from app.api.routes.search import FAISS_DIR, ID_MAPS_DIR
+
+    pending = stuck = -1
+    try:
+        col = get_scraping_history_collection()
+        pending = col.count_documents({"reindex_remote_pending": True})
+        stuck = col.count_documents({"status": "completed", "reindex_done": {"$ne": True}})
+    except Exception as e:
+        logger.warning("reindex-remote/info counts: %s", e)
+    return {
+        "reindex_on_server": _reindex_runs_on_server(),
+        "faiss_dir": str(FAISS_DIR.resolve()),
+        "id_maps_dir": str(ID_MAPS_DIR.resolve()),
+        "scraping_jobs_pending_remote_upload": pending,
+        "completed_jobs_missing_reindex_done": stuck,
+    }
+
+
+@router.post("/reindex-remote/upload")
+async def admin_reindex_remote_upload(
+    file: UploadFile = File(...),
+    admin: dict = Depends(require_admin),
+):
+    """
+    Upload a gzip tar from scripts/reindex_and_upload.py with top-level
+    fashionclip_indices/ and fashionclip_id_maps/. Atomically replaces files,
+    hot-reloads search, and clears reindex_remote_pending on scraping_history.
+    """
+    fn = (file.filename or "").lower()
+    if not (fn.endswith(".tar.gz") or fn.endswith(".tgz")):
+        raise HTTPException(
+            status_code=400,
+            detail="Expected a .tar.gz bundle (see scripts/reindex_and_upload.py)",
+        )
+    max_bytes = int(os.getenv("REINDEX_REMOTE_UPLOAD_MAX_BYTES", "900000000"))
+    fd, tmp_name = tempfile.mkstemp(prefix="faiss_bundle_", suffix=".tar.gz")
+    os.close(fd)
+    tmp_path = Path(tmp_name)
+    mongo_result = None
+    try:
+        total = 0
+        with open(tmp_path, "wb") as out:
+            while True:
+                chunk = await file.read(8 * 1024 * 1024)
+                if not chunk:
+                    break
+                total += len(chunk)
+                if total > max_bytes:
+                    raise HTTPException(
+                        status_code=413,
+                        detail=f"Bundle exceeds REINDEX_REMOTE_UPLOAD_MAX_BYTES ({max_bytes})",
+                    )
+                out.write(chunk)
+        result = await asyncio.to_thread(_apply_remote_faiss_tar_path, tmp_path)
+        try:
+            col = get_scraping_history_collection()
+            now = datetime.utcnow()
+            mongo_result = col.update_many(
+                {"reindex_remote_pending": True},
+                {
+                    "$set": {
+                        "reindex_done": True,
+                        "reindex_remote_pending": False,
+                        "reindex_completed_at": now,
+                        "reindex_summary": {
+                            "source": "remote_tar_upload",
+                            "slugs": result.get("slugs", []),
+                            "hot_reloaded": result.get("hot_reloaded", []),
+                        },
+                    },
+                    "$unset": {"reindex_error": "", "reindex_failed_at": ""},
+                },
+            )
+        except Exception as e:
+            logger.warning("Mongo update after remote FAISS upload: %s", e)
+    except HTTPException:
+        raise
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except Exception as e:
+        logger.exception("reindex-remote/upload failed")
+        raise HTTPException(status_code=500, detail=str(e)) from e
+    finally:
+        tmp_path.unlink(missing_ok=True)
+
+    mod = getattr(mongo_result, "modified_count", None) if mongo_result is not None else None
+    return {"ok": True, **result, "scraping_jobs_updated": mod}
 
 
 @router.post("/scraping/cancel/{job_id}")
