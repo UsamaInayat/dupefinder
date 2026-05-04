@@ -124,8 +124,17 @@ def main() -> None:
         help="Only pack + upload existing local index directories",
     )
     args = p.parse_args()
-    if not args.token.strip():
+    tok = args.token.strip()
+    if not tok:
         raise SystemExit("Missing --token or DUPFINDER_ADMIN_TOKEN")
+    if tok.startswith("$env:") or tok.startswith("${"):
+        raise SystemExit(
+            "Token looks like a PowerShell variable that was NOT expanded (cmd.exe does this). "
+            "Fix: run in PowerShell, or set the variable first, or paste the JWT directly:\n"
+            "  PowerShell:  $env:DUPFINDER_ADMIN_TOKEN = '<paste jwt>'\n"
+            "  cmd.exe:      set DUPFINDER_ADMIN_TOKEN=<paste jwt>\n"
+            "Then: --token %DUPFINDER_ADMIN_TOKEN%   (cmd) or --token $env:DUPFINDER_ADMIN_TOKEN (PowerShell)"
+        )
 
     api_base = _normalize_api_base(args.api_base)
 
@@ -134,7 +143,7 @@ def main() -> None:
         _run_local_reindex()
     tar = _build_tarball(ml_dir)
     try:
-        _upload(api_base, args.token.strip(), tar)
+        _upload(api_base, tok, tar)
     finally:
         tar.unlink(missing_ok=True)
 
