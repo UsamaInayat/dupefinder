@@ -70,13 +70,29 @@ def _build_tarball(ml_dir: Path) -> Path:
         shutil.rmtree(staging, ignore_errors=True)
 
 
+def _normalize_api_base(raw: str) -> str:
+    s = (raw or "").strip()
+    if not s:
+        raise SystemExit("--api-base is empty")
+    if s.startswith("$") or s in ("$API", "${API}"):
+        raise SystemExit(
+            "API base is not a real URL (looks like an unexpanded $API variable). "
+            "Use the full URL, e.g. --api-base https://dupefinder-api.up.railway.app/api\n"
+            "In PowerShell: set $API first, then pass --api-base $API with NO quotes around $API; "
+            "or paste the https URL directly. In cmd.exe use the full URL — cmd does not expand $API."
+        )
+    if not s.startswith(("http://", "https://")):
+        s = "https://" + s.lstrip("/")
+    return s.rstrip("/")
+
+
 def _upload(api_base: str, token: str, tar_path: Path) -> None:
     try:
         import httpx
     except ImportError as e:
         raise SystemExit("pip install httpx") from e
 
-    base = api_base.rstrip("/")
+    base = _normalize_api_base(api_base)
     url = f"{base}/admin/reindex-remote/upload"
     print(f"[INFO] POST {url} ({tar_path.stat().st_size} bytes) ...", flush=True)
     with open(tar_path, "rb") as f:
@@ -103,6 +119,7 @@ def main() -> None:
     )
     p.add_argument(
         "--skip-reindex",
+        "-skip-reindex",
         action="store_true",
         help="Only pack + upload existing local index directories",
     )
@@ -110,12 +127,14 @@ def main() -> None:
     if not args.token.strip():
         raise SystemExit("Missing --token or DUPFINDER_ADMIN_TOKEN")
 
+    api_base = _normalize_api_base(args.api_base)
+
     ml_dir = _default_ml_dir()
     if not args.skip_reindex:
         _run_local_reindex()
     tar = _build_tarball(ml_dir)
     try:
-        _upload(args.api_base, args.token.strip(), tar)
+        _upload(api_base, args.token.strip(), tar)
     finally:
         tar.unlink(missing_ok=True)
 
