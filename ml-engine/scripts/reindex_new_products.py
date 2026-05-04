@@ -124,9 +124,9 @@ def _fashionclip_extract_batch_size() -> int:
             return max(1, min(128, int(raw)))
         except ValueError:
             pass
-    # Railway sets RAILWAY_ENVIRONMENT (~512MB–1GB hobby tiers): default small batch.
+    # Railway sets RAILWAY_ENVIRONMENT (~512MB–1GB tiers): default 1 image per forward.
     if os.getenv("RAILWAY_ENVIRONMENT", "").strip():
-        return 2
+        return 1
     return 32
 
 
@@ -136,7 +136,7 @@ def _reindex_download_workers() -> int:
     if raw:
         return max(1, min(16, _env_int("REINDEX_DOWNLOAD_WORKERS", 4)))
     if os.getenv("RAILWAY_ENVIRONMENT", "").strip():
-        return 3
+        return 2
     return 8
 
 
@@ -280,6 +280,13 @@ def run_reindex(
             return {}
 
         # ── Load FashionCLIP extractor ────────────────────────────────────────
+        try:
+            import torch
+
+            torch.set_num_threads(1)
+            torch.set_num_interop_threads(1)
+        except Exception:
+            pass
         print("[INFO] Loading FashionCLIP extractor ...")
         from fashionclip.extractor import FashionCLIPExtractor
         extractor = FashionCLIPExtractor(device="auto")
@@ -293,7 +300,8 @@ def run_reindex(
             # One huge extract_batch() hogs RAM for 1000+ inner steps on Railway; smaller
             # chunks return to reindex loop for gc.collect() between calls.
             if os.getenv("RAILWAY_ENVIRONMENT", "").strip():
-                path_chunk = min(96, len(image_paths))
+                # Smaller chunks + infer_batch=1 keeps PyTorch RSS from creeping to OOM mid-job.
+                path_chunk = min(32, len(image_paths))
             else:
                 path_chunk = len(image_paths)
         print(

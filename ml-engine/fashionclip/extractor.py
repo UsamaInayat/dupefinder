@@ -81,7 +81,9 @@ class FashionCLIPExtractor:
             vecs       = self.model.visual_projection(pooled) # (N, 512)
 
         vecs = vecs / vecs.norm(dim=-1, keepdim=True)
-        return vecs.cpu().float().numpy()
+        out = vecs.cpu().float().numpy()
+        del inputs, pixel_values, vision_out, pooled, vecs
+        return out
 
     @staticmethod
     def _load_pil(source: Union[str, Path, bytes]) -> Image.Image:
@@ -125,7 +127,7 @@ class FashionCLIPExtractor:
             del pils
             batch_idx += 1
             # Long CPU runs fragment PyTorch/PIL memory; periodic GC avoids OOM near end of large jobs.
-            if batch_idx % 32 == 0:
+            if batch_idx % 8 == 0:
                 gc.collect()
 
         return np.vstack(all_vecs)
