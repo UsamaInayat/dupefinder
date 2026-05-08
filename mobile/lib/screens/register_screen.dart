@@ -32,6 +32,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
   bool _hasDigit = false;
   bool _hasSpecial = false;
   bool _hasMinLength = false;
+  bool _hasMaxLength = true;
 
   static bool _validEmail(String v) {
     return RegExp(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$').hasMatch(v.trim());
@@ -55,6 +56,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
       _hasDigit = p.contains(RegExp(r'[0-9]'));
       _hasSpecial = p.contains(RegExp(r'[!@#$%^&*(),.?":{}|<>]'));
       _hasMinLength = p.length >= 8;
+      _hasMaxLength = p.length <= 20;
     });
   }
 
@@ -109,7 +111,12 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
   Future<void> _register() async {
     if (!_formKey.currentState!.validate()) return;
-    if (!_hasUppercase || !_hasLowercase || !_hasDigit || !_hasSpecial || !_hasMinLength) {
+    if (!_hasUppercase ||
+        !_hasLowercase ||
+        !_hasDigit ||
+        !_hasSpecial ||
+        !_hasMinLength ||
+        !_hasMaxLength) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Password must meet all requirements below')),
       );
@@ -292,6 +299,11 @@ class _RegisterScreenState extends State<RegisterScreen> {
                                 onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
                               ),
                             ),
+                            validator: (v) {
+                              if (v == null || v.isEmpty) return 'Enter a password';
+                              if (v.length > 20) return 'Password must be 20 characters or fewer';
+                              return null;
+                            },
                           ),
                           if (_showPasswordRequirements) ...[
                             const SizedBox(height: 12),
@@ -317,6 +329,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                             ),
                             validator: (v) {
                               if (v == null || v.isEmpty) return 'Confirm your password';
+                              if (v.length > 20) return 'Password must be 20 characters or fewer';
                               if (v != _passwordController.text) return 'Passwords must match';
                               return null;
                             },
@@ -489,6 +502,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
           ),
           const SizedBox(height: 8),
           row(_hasMinLength, 'At least 8 characters'),
+          row(_hasMaxLength, 'At most 20 characters'),
           row(_hasUppercase, 'At least 1 uppercase letter'),
           row(_hasLowercase, 'At least 1 lowercase letter'),
           row(_hasDigit, 'At least 1 number'),

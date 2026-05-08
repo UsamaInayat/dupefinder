@@ -88,6 +88,17 @@ class _WishlistScreenState extends State<WishlistScreen> {
     }
   }
 
+  String? _resolveProductUrl(Map<String, dynamic> product) {
+    final raw = ((product['product_url'] ??
+            product['product_link'] ??
+            product['url'] ??
+            '') as String?)
+        ?.trim();
+    if (raw == null || raw.isEmpty) return null;
+    if (raw.startsWith('http://') || raw.startsWith('https://')) return raw;
+    return 'https://$raw';
+  }
+
   @override
   Widget build(BuildContext context) {
     final topInset = MediaQuery.paddingOf(context).top;
@@ -160,7 +171,7 @@ class _WishlistScreenState extends State<WishlistScreen> {
             final price =
                 p['price'] != null ? (p['price'] as num).toDouble() : null;
             final imageUrl = p['image_url'] as String?;
-            final productUrl = p['product_url'] as String?;
+            final productUrl = _resolveProductUrl(p);
             final score = (p['final_score'] as num?)?.toDouble() ?? 0;
             final matchPercent = (score * 100).round();
             return Card(

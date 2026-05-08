@@ -1,3 +1,48 @@
+### Current Status / Progress Tracking — Executor Update (May 8, 2026, DB price-16 count + product URL reliability)
+
+- Checked MongoDB products collection for exact price match:
+  - `price == 16` count: **1**.
+  - Sample matched item: Skmei watch entry with direct product URL.
+- Did **not delete** yet (waiting for user confirmation before data removal).
+- Implemented mobile click-link reliability improvement:
+  - `mobile/lib/screens/wishlist_screen.dart` now resolves product link from `product_url`, fallback `product_link`, fallback `url`.
+  - `mobile/lib/screens/compare_screen.dart` now uses the same fallback URL resolution.
+  - This reduces cases where a tap opens an incorrect/general page due to missing preferred URL field.
+
+### Executor's Feedback or Assistance Requests — May 8, 2026 (DB deletion confirmation needed)
+
+- I need explicit user confirmation to perform deletion of the `price == 16` record.
+- Proposed safe delete scope: `deleteMany({"price": 16})` (current expected delete count = 1).
+
+### Current Status / Progress Tracking — Executor Update (May 8, 2026, deletion executed)
+
+- User confirmed deletion.
+- Executed DB cleanup on `products` collection with filter `{"price": 16}`.
+- Verification:
+  - before delete: `1`
+  - deleted count: `1`
+  - after delete: `0`
+
+### Current Status / Progress Tracking — Executor Update (May 8, 2026, mobile compare features + password max length)
+
+- Implemented **targeted mobile compare enhancement** in `mobile/lib/screens/compare_screen.dart`:
+  - Added per-item **Feature** line in each compare card using existing fields (`fabric`, `material`, `features`, `display_category`, `category`).
+  - Added **Features** row in comparison summary so users can compare more than price/brand/match.
+  - Kept behavior backward-compatible (empty feature fields are ignored and shown as `—` in summary).
+- Implemented password length cap (**max 20 chars**) with minimal scope:
+  - `mobile/lib/screens/register_screen.dart`: added max-length requirement check + validator messages.
+  - `mobile/lib/screens/login_screen.dart`: added validator preventing passwords over 20 chars.
+  - `backend/app/models/auth_schemas.py`: changed signup schema password `max_length` from 100 to 20.
+
+### Executor's Feedback or Assistance Requests — May 8, 2026 (mobile compare features + password max length)
+
+- Milestone complete for the requested two changes only.
+- Please manually verify on mobile:
+  - Compare tab now shows `Feature: ...` per item when available.
+  - Compare summary includes a `Features` line.
+  - Registration/login reject passwords longer than 20 characters.
+- If you want, next executor step can add automated Flutter tests for these two validations/comparison displays.
+
 ### Current Status / Progress Tracking — Executor Update (Apr 22, 2026, Railway: split Docker + API↔scraper wiring)
 
 - Implemented **two-container split** for Railway size limits:

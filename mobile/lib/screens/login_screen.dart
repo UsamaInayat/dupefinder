@@ -199,6 +199,7 @@ class _LoginScreenState extends State<LoginScreen> {
                           validator: (v) {
                             if (v == null || v.isEmpty) return 'Enter your password';
                             if (v.length < 8) return 'At least 8 characters';
+                            if (v.length > 20) return 'At most 20 characters';
                             return null;
                           },
                         ),

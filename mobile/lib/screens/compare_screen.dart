@@ -168,11 +168,12 @@ class _CompareScreenState extends State<CompareScreen> {
                   final p = _items[index];
                   final name = p['name'] as String? ?? '';
                   final brand = p['brand'] as String? ?? '';
+                  final feature = _featureLabel(p);
                   final price = p['price'] != null
                       ? (p['price'] as num).toDouble()
                       : null;
                   final imageUrl = p['image_url'] as String?;
-                  final productUrl = p['product_url'] as String?;
+                  final productUrl = _resolveProductUrl(p);
                   final score = (p['final_score'] as num?)?.toDouble() ?? 0;
                   final matchPercent = (score * 100).round();
                   return Card(
@@ -246,6 +247,13 @@ class _CompareScreenState extends State<CompareScreen> {
                                       style: TextStyle(
                                           fontSize: 11,
                                           color: Colors.grey[600])),
+                                if (feature.isNotEmpty)
+                                  Text('Feature: $feature',
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: TextStyle(
+                                          fontSize: 11,
+                                          color: Colors.grey[700])),
                                 if (price != null)
                                   Text('PKR ${price.toStringAsFixed(0)}',
                                       style: const TextStyle(
@@ -298,6 +306,7 @@ class _CompareScreenState extends State<CompareScreen> {
     final prices = <double>[];
     final matches = <int>[];
     final brands = <String>{};
+    final features = <String>{};
     for (final p in _items) {
       final price = p['price'];
       if (price != null) prices.add((price as num).toDouble());
@@ -305,6 +314,8 @@ class _CompareScreenState extends State<CompareScreen> {
       if (score != null) matches.add((score * 100).round());
       final brand = p['brand'] as String?;
       if (brand != null && brand.isNotEmpty) brands.add(brand);
+      final feature = _featureLabel(p);
+      if (feature.isNotEmpty) features.add(feature);
     }
     final priceMin =
         prices.isEmpty ? null : prices.reduce((a, b) => a < b ? a : b);
@@ -414,9 +425,44 @@ class _CompareScreenState extends State<CompareScreen> {
                   : brands.length == 1
                       ? 'Same: ${brands.first}'
                       : '${brands.length} different: ${brands.take(3).join(', ')}${brands.length > 3 ? '...' : ''}'),
+          const SizedBox(height: 6),
+          _summaryRowLight(
+              'Features',
+              features.isEmpty
+                  ? '—'
+                  : features.length == 1
+                      ? 'Same: ${features.first}'
+                      : '${features.length} types: ${features.take(3).join(', ')}${features.length > 3 ? '...' : ''}'),
         ],
       ),
     );
+  }
+
+  String _featureLabel(Map<String, dynamic> product) {
+    final direct = [
+      product['fabric'],
+      product['material'],
+      product['features'],
+      product['display_category'],
+      product['category'],
+    ];
+    for (final value in direct) {
+      if (value is String && value.trim().isNotEmpty) {
+        return value.trim();
+      }
+    }
+    return '';
+  }
+
+  String? _resolveProductUrl(Map<String, dynamic> product) {
+    final raw = ((product['product_url'] ??
+            product['product_link'] ??
+            product['url'] ??
+            '') as String?)
+        ?.trim();
+    if (raw == null || raw.isEmpty) return null;
+    if (raw.startsWith('http://') || raw.startsWith('https://')) return raw;
+    return 'https://$raw';
   }
 
   Widget _summaryRowLight(String label, String value) {
