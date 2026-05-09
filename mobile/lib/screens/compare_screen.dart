@@ -168,9 +168,6 @@ class _CompareScreenState extends State<CompareScreen> {
                   final p = _items[index];
                   final name = p['name'] as String? ?? '';
                   final brand = p['brand'] as String? ?? '';
-                  final feature = _featureLabelFromBackend(p);
-                  final fibre = _fibreLabel(p);
-                  final description = _descriptionLabel(p);
                   final price = p['price'] != null
                       ? (p['price'] as num).toDouble()
                       : null;
@@ -249,27 +246,6 @@ class _CompareScreenState extends State<CompareScreen> {
                                       style: TextStyle(
                                           fontSize: 11,
                                           color: Colors.grey[600])),
-                                if (fibre.isNotEmpty)
-                                  Text('Fibre: $fibre',
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: TextStyle(
-                                          fontSize: 11,
-                                          color: Colors.grey[700])),
-                                if (feature.isNotEmpty)
-                                  Text('Feature: $feature',
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: TextStyle(
-                                          fontSize: 11,
-                                          color: Colors.grey[700])),
-                                if (description.isNotEmpty)
-                                  Text('Description: $description',
-                                      maxLines: 2,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: TextStyle(
-                                          fontSize: 11,
-                                          color: Colors.grey[700])),
                                 if (price != null)
                                   Text('PKR ${price.toStringAsFixed(0)}',
                                       style: const TextStyle(
@@ -322,7 +298,6 @@ class _CompareScreenState extends State<CompareScreen> {
     final prices = <double>[];
     final matches = <int>[];
     final brands = <String>{};
-    final features = <String>{};
     final showFeatureSummary = _items.any(_hasBackendFeatureData);
     for (final p in _items) {
       final price = p['price'];
@@ -331,10 +306,6 @@ class _CompareScreenState extends State<CompareScreen> {
       if (score != null) matches.add((score * 100).round());
       final brand = p['brand'] as String?;
       if (brand != null && brand.isNotEmpty) brands.add(brand);
-      if (_hasBackendFeatureData(p)) {
-        final feature = _featureLabelFromBackend(p);
-        if (feature.isNotEmpty) features.add(feature);
-      }
     }
     final priceMin =
         prices.isEmpty ? null : prices.reduce((a, b) => a < b ? a : b);
@@ -446,13 +417,7 @@ class _CompareScreenState extends State<CompareScreen> {
                       : '${brands.length} different: ${brands.take(3).join(', ')}${brands.length > 3 ? '...' : ''}'),
           if (showFeatureSummary) ...[
             const SizedBox(height: 6),
-            _summaryRowLight(
-                'Features',
-                features.isEmpty
-                    ? '—'
-                    : features.length == 1
-                        ? 'Same: ${features.first}'
-                        : '${features.length} types: ${features.take(3).join(', ')}${features.length > 3 ? '...' : ''}'),
+            _summaryFeaturesBulleted(_items),
           ],
         ],
       ),
@@ -488,25 +453,95 @@ class _CompareScreenState extends State<CompareScreen> {
     return _featureLabelFromBackend(product).isNotEmpty;
   }
 
-  String _fibreLabel(Map<String, dynamic> product) {
-    final direct = [
-      product['fabric'],
-      product['material'],
-    ];
-    for (final value in direct) {
-      if (value is String && value.trim().isNotEmpty) {
-        return value.trim();
+  /// Tokens for summary bullets: prefer `feature_keywords`, else comma-split label.
+  Iterable<String> _featureTokensForProduct(Map<String, dynamic> product) sync* {
+    final keywords = product['feature_keywords'];
+    if (keywords is List && keywords.isNotEmpty) {
+      var yielded = false;
+      for (final x in keywords) {
+        if (x is String) {
+          final s = x.trim();
+          if (s.isNotEmpty) {
+            yielded = true;
+            yield s;
+          }
+        }
       }
+      if (yielded) return;
     }
-    return '';
+    final label = _featureLabelFromBackend(product);
+    if (label.isEmpty) return;
+    for (final part in label.split(',')) {
+      final s = part.trim();
+      if (s.isNotEmpty) yield s;
+    }
   }
 
-  String _descriptionLabel(Map<String, dynamic> product) {
-    final d = product['description'];
-    if (d is String && d.trim().isNotEmpty) {
-      return d.trim();
+  /// Dedupe by lowercase so "leather" / "Leather" from two items become one bullet.
+  List<String> _distinctFeatureBullets(List<Map<String, dynamic>> items) {
+    final seen = <String>{};
+    final out = <String>[];
+    for (final p in items) {
+      if (!_hasBackendFeatureData(p)) continue;
+      for (final t in _featureTokensForProduct(p)) {
+        final key = t.toLowerCase();
+        if (seen.add(key)) out.add(t);
+      }
     }
-    return '';
+    return out;
+  }
+
+  Widget _summaryFeaturesBulleted(List<Map<String, dynamic>> items) {
+    final bullets = _distinctFeatureBullets(items);
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 4),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 110,
+            child: Text(
+              'Features',
+              style: GoogleFonts.inter(
+                fontSize: 12,
+                color: Colors.white.withValues(alpha: 0.85),
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ),
+          Expanded(
+            child: bullets.isEmpty
+                ? Text(
+                    '—',
+                    style: GoogleFonts.inter(
+                      fontSize: 12,
+                      color: Colors.white,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  )
+                : Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: bullets
+                        .map(
+                          (t) => Padding(
+                            padding: const EdgeInsets.only(bottom: 3),
+                            child: Text(
+                              '• $t',
+                              style: GoogleFonts.inter(
+                                fontSize: 12,
+                                color: Colors.white,
+                                fontWeight: FontWeight.w600,
+                                height: 1.25,
+                              ),
+                            ),
+                          ),
+                        )
+                        .toList(),
+                  ),
+          ),
+        ],
+      ),
+    );
   }
 
   String? _resolveProductUrl(Map<String, dynamic> product) {
