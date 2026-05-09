@@ -477,22 +477,77 @@ class _CompareScreenState extends State<CompareScreen> {
     }
   }
 
-  /// Dedupe by lowercase so "leather" / "Leather" from two items become one bullet.
-  List<String> _distinctFeatureBullets(List<Map<String, dynamic>> items) {
+  /// Dedupe tokens only within one product (same keyword twice, etc.).
+  List<String> _featureTokensForProductUnique(Map<String, dynamic> product) {
     final seen = <String>{};
     final out = <String>[];
-    for (final p in items) {
-      if (!_hasBackendFeatureData(p)) continue;
-      for (final t in _featureTokensForProduct(p)) {
-        final key = t.toLowerCase();
-        if (seen.add(key)) out.add(t);
-      }
+    for (final t in _featureTokensForProduct(product)) {
+      if (seen.add(t.toLowerCase())) out.add(t);
     }
     return out;
   }
 
+  String _compareItemFeatureHeading(Map<String, dynamic> p) {
+    final brand = (p['brand'] as String?)?.trim() ?? '';
+    final name = (p['name'] as String?)?.trim() ?? 'Product';
+    const maxName = 40;
+    final short = name.length <= maxName
+        ? name
+        : '${name.substring(0, maxName - 1)}…';
+    if (brand.isNotEmpty) return '$brand — $short';
+    return short;
+  }
+
+  /// One block per compared item so users can tell which product has which features.
   Widget _summaryFeaturesBulleted(List<Map<String, dynamic>> items) {
-    final bullets = _distinctFeatureBullets(items);
+    final labelStyle = GoogleFonts.inter(
+      fontSize: 12,
+      color: Colors.white.withValues(alpha: 0.85),
+      fontWeight: FontWeight.w500,
+    );
+    final bulletStyle = GoogleFonts.inter(
+      fontSize: 12,
+      color: Colors.white,
+      fontWeight: FontWeight.w600,
+      height: 1.25,
+    );
+    final headingStyle = GoogleFonts.inter(
+      fontSize: 12,
+      color: Colors.white.withValues(alpha: 0.95),
+      fontWeight: FontWeight.w700,
+      height: 1.2,
+    );
+
+    final sections = <Widget>[];
+    for (final p in items) {
+      if (!_hasBackendFeatureData(p)) continue;
+      final tokens = _featureTokensForProductUnique(p);
+      if (tokens.isEmpty) continue;
+      sections.add(
+        Padding(
+          padding: const EdgeInsets.only(bottom: 10),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                _compareItemFeatureHeading(p),
+                style: headingStyle,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+              ),
+              const SizedBox(height: 4),
+              ...tokens.map(
+                (t) => Padding(
+                  padding: const EdgeInsets.only(bottom: 2),
+                  child: Text('• $t', style: bulletStyle),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
     return Padding(
       padding: const EdgeInsets.only(bottom: 4),
       child: Row(
@@ -500,43 +555,14 @@ class _CompareScreenState extends State<CompareScreen> {
         children: [
           SizedBox(
             width: 110,
-            child: Text(
-              'Features',
-              style: GoogleFonts.inter(
-                fontSize: 12,
-                color: Colors.white.withValues(alpha: 0.85),
-                fontWeight: FontWeight.w500,
-              ),
-            ),
+            child: Text('Features', style: labelStyle),
           ),
           Expanded(
-            child: bullets.isEmpty
-                ? Text(
-                    '—',
-                    style: GoogleFonts.inter(
-                      fontSize: 12,
-                      color: Colors.white,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  )
+            child: sections.isEmpty
+                ? Text('—', style: bulletStyle)
                 : Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
-                    children: bullets
-                        .map(
-                          (t) => Padding(
-                            padding: const EdgeInsets.only(bottom: 3),
-                            child: Text(
-                              '• $t',
-                              style: GoogleFonts.inter(
-                                fontSize: 12,
-                                color: Colors.white,
-                                fontWeight: FontWeight.w600,
-                                height: 1.25,
-                              ),
-                            ),
-                          ),
-                        )
-                        .toList(),
+                    children: sections,
                   ),
           ),
         ],
