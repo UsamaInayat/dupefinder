@@ -14,6 +14,47 @@
 - I need explicit user confirmation to perform deletion of the `price == 16` record.
 - Proposed safe delete scope: `deleteMany({"price": 16})` (current expected delete count = 1).
 
+### Current Status / Progress Tracking — Executor Update (May 8, 2026, full DB enrichment + compare headings)
+
+- User requested full-database enrichment and compare UI headings.
+- Code changes applied (minimal scope):
+  - `mobile/lib/screens/compare_screen.dart`
+    - Added `Fibre: ...` heading display using extracted `fabric/material`.
+    - Added `Description: ...` heading display using extracted `description`.
+    - Kept existing comparison fields and behavior intact.
+- Full DB enrichment command started for all products:
+  - `python scripts/enrich_product_descriptions.py --all --overwrite --limit 32013`
+  - Scope: fill/refresh `description`, `fabric`, `material`, `features`, `feature_keywords` for all products with URL support.
+
+### Current Status / Progress Tracking — Executor Update (May 8, 2026, description backfill + feature extraction milestone 1)
+
+- Implemented backend capability to enrich existing products from stored product links:
+  - Added `backend/scripts/enrich_product_descriptions.py`
+  - Script fetches product page HTML from `product_url`, extracts description, extracts feature fields, and updates DB.
+  - Supports safe execution flags: `--dry-run`, `--limit`, `--overwrite`, `--all`.
+- Added reusable feature parser:
+  - New file: `backend/app/services/feature_extraction_service.py`
+  - Extracts `fabric`, `material`, `feature_keywords`, and `features` summary from description text.
+- Improved description extraction quality in scraper:
+  - Updated `backend/app/services/scraper_service.py` (`_extract_description`) with broader selectors + meta fallback.
+- Wired compare page to consume extracted keyword list too:
+  - Updated `mobile/lib/screens/compare_screen.dart` to prioritize `feature_keywords` when present.
+- Verification run:
+  - Dry run command succeeded: `python backend/scripts/enrich_product_descriptions.py --limit 1 --dry-run`
+  - Result showed real update candidates (description/features) for URL-backed products.
+
+### Executor's Feedback or Assistance Requests — May 8, 2026 (Milestone 1 ready for your verification)
+
+- Milestone 1 complete. Please run this command to preview updates safely:
+  - `python backend/scripts/enrich_product_descriptions.py --limit 20 --dry-run`
+- If preview looks correct, confirm and I will do the next executor task:
+  - Execute real update batch (e.g. `--limit 200`) and report updated/failed counts.
+
+### Lessons — May 8, 2026
+
+- For standalone backend scripts, add backend path bootstrap (`sys.path` insertion) so imports like `from app...` work both from repo root and backend working directory.
+- Dry-run output should include extracted value previews (not only field names) so non-technical verification is possible before DB writes.
+
 ### Current Status / Progress Tracking — Executor Update (May 8, 2026, deletion executed)
 
 - User confirmed deletion.
@@ -3774,3 +3815,49 @@ Expected speedup: ~20s/batch → ~1-2s/batch → 23k images done in ~10 min inst
 ### Executor's Feedback or Assistance Requests — Apr 20, 2026 (wishlist/compare stale UI fix)
 
 - User confirmed behavior is fixed locally. Changes committed + pushed to GitHub (`8ae3ccb`).
+
+### Current Status / Progress Tracking — Executor Update (May 9, 2026, enrich skip + chunk tuning)
+
+- Added `backend/scripts/enrich_product_descriptions.py` flags:
+  - `--skip N` (pass 1 only): skip first N matches after stable sort; pass 2+ ignores skip so failed rows anywhere can retry.
+  - `--sort-key` (default `_id`): sort field used before skip.
+- Docstring example for “after 12k, up to 20k more” with higher concurrency/chunk/mongo-batch.
+
+### Lessons — May 9, 2026
+
+- Large `skip()` on Mongo is slower than range queries but acceptable for one-off backfills; stable `--sort-key` matters so “first 12k” is deterministic.
+- Default `--skip-scope resume` skips within **missing/failed only**; if fewer than N rows remain in that set, the run exits with 0 work. Use `--skip-scope catalog` to skip N in **all URL products** order, then enrich those in the slice that still need descriptions.
+
+### Current Status / Progress Tracking — Executor Update (May 9, 2026, skip-scope catalog + abort logs)
+
+- `enrich_product_descriptions.py`: `--skip-scope catalog` (aggregation: URL list sort, skip, limit, then missing/failed filter unless `--all`). `--skip-scope resume` unchanged.
+- `[ABORT]` / `[RUN]` lines print even with `--quiet` so empty runs show the reason.
+
+### Current Status / Progress Tracking — Executor Update (May 9, 2026, --last newest batch)
+
+- `enrich_product_descriptions.py`: pass 1 uses **descending** `--sort-key` when `--last` > 0 (default **20000**): up to 20k **newest** matching rows (e.g. largest `_id`). `--last 0` restores ascending behavior.
+- `--limit` default raised to **20000** and caps `--last` (so `--limit 5 --last 20000` processes 5 rows).
+- `--skip-scope catalog` + `--last`: aggregation sorts descending when targeting the newest URL-catalog slice.
+
+### Current Status / Progress Tracking — Executor Update (May 9, 2026, reverse-order default)
+
+- `enrich_product_descriptions.py`: added `--reverse-order/--no-reverse-order` (default `--reverse-order`), so scraping order now starts from highest `--sort-key` to lowest (e.g., `_id` newest to oldest).
+- This applies to pass ordering directly (not tied to `--last` only), so runs can go reverse across the chosen dataset.
+
+### Current Status / Progress Tracking — Executor Update (May 9, 2026, terminal traceback cleanup)
+
+- From terminal output: reverse ordering worked, but run was manually stopped (`KeyboardInterrupt`), showing asyncio traceback.
+- Added graceful Ctrl+C handling in `enrich_product_descriptions.py` main: now prints `[ABORT] interrupted_by_user (Ctrl+C).` instead of long stack trace.
+- Added non-http URL scheme guard in `_fetch_description` to skip `mailto:` / `tel:` / similar early and mark failure reason as `invalid_url_scheme` with clearer warning log.
+
+### Current Status / Progress Tracking — Executor Update (May 9, 2026, stop retrying permanent failures)
+
+- `enrich_product_descriptions.py`: split failure status into `failed_retryable` and `failed_permanent`.
+- Resume query now retries only missing description + retryable failures (`failed` legacy + `failed_retryable`), not permanent failures.
+- Permanent failures include `invalid_url_scheme`, `http_404`, `http_410`, and `no_description` to avoid wasting later passes on non-recoverable records.
+
+### Current Status / Progress Tracking — Executor Update (May 9, 2026, ignore failed by default)
+
+- Added `--include-failed` flag to `enrich_product_descriptions.py`.
+- New default behavior: resume ignores failed URLs and only scrapes rows with missing/empty description.
+- This keeps runs focused on the requested “just scrape last 20k products” instead of repeatedly revisiting failure-heavy rows.

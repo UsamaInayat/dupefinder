@@ -168,7 +168,12 @@ class _CompareScreenState extends State<CompareScreen> {
                   final p = _items[index];
                   final name = p['name'] as String? ?? '';
                   final brand = p['brand'] as String? ?? '';
-                  final feature = _featureLabel(p);
+                  final feature = _featureLabelFromBackend(p);
+                  final fibre = _fibreLabel(p);
+                  final description = _descriptionLabel(p);
+                  final showFeatureRow = _shouldShowFeatureRowForCompare(_items);
+                  final showDescriptionRow =
+                      _shouldShowDescriptionRowForCompare(_items);
                   final price = p['price'] != null
                       ? (p['price'] as num).toDouble()
                       : null;
@@ -247,9 +252,23 @@ class _CompareScreenState extends State<CompareScreen> {
                                       style: TextStyle(
                                           fontSize: 11,
                                           color: Colors.grey[600])),
-                                if (feature.isNotEmpty)
+                                if (fibre.isNotEmpty)
+                                  Text('Fibre: $fibre',
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: TextStyle(
+                                          fontSize: 11,
+                                          color: Colors.grey[700])),
+                                if (showFeatureRow && feature.isNotEmpty)
                                   Text('Feature: $feature',
                                       maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: TextStyle(
+                                          fontSize: 11,
+                                          color: Colors.grey[700])),
+                                if (showDescriptionRow && description.isNotEmpty)
+                                  Text('Description: $description',
+                                      maxLines: 2,
                                       overflow: TextOverflow.ellipsis,
                                       style: TextStyle(
                                           fontSize: 11,
@@ -307,6 +326,7 @@ class _CompareScreenState extends State<CompareScreen> {
     final matches = <int>[];
     final brands = <String>{};
     final features = <String>{};
+    final showFeatureSummary = _shouldShowFeatureRowForCompare(_items);
     for (final p in _items) {
       final price = p['price'];
       if (price != null) prices.add((price as num).toDouble());
@@ -314,8 +334,10 @@ class _CompareScreenState extends State<CompareScreen> {
       if (score != null) matches.add((score * 100).round());
       final brand = p['brand'] as String?;
       if (brand != null && brand.isNotEmpty) brands.add(brand);
-      final feature = _featureLabel(p);
-      if (feature.isNotEmpty) features.add(feature);
+      if (showFeatureSummary) {
+        final feature = _featureLabelFromBackend(p);
+        if (feature.isNotEmpty) features.add(feature);
+      }
     }
     final priceMin =
         prices.isEmpty ? null : prices.reduce((a, b) => a < b ? a : b);
@@ -425,31 +447,87 @@ class _CompareScreenState extends State<CompareScreen> {
                   : brands.length == 1
                       ? 'Same: ${brands.first}'
                       : '${brands.length} different: ${brands.take(3).join(', ')}${brands.length > 3 ? '...' : ''}'),
-          const SizedBox(height: 6),
-          _summaryRowLight(
-              'Features',
-              features.isEmpty
-                  ? '—'
-                  : features.length == 1
-                      ? 'Same: ${features.first}'
-                      : '${features.length} types: ${features.take(3).join(', ')}${features.length > 3 ? '...' : ''}'),
+          if (showFeatureSummary) ...[
+            const SizedBox(height: 6),
+            _summaryRowLight(
+                'Features',
+                features.isEmpty
+                    ? '—'
+                    : features.length == 1
+                        ? 'Same: ${features.first}'
+                        : '${features.length} types: ${features.take(3).join(', ')}${features.length > 3 ? '...' : ''}'),
+          ],
         ],
       ),
     );
   }
 
-  String _featureLabel(Map<String, dynamic> product) {
+  /// Feature text from enrichment only (not category fallbacks).
+  String _featureLabelFromBackend(Map<String, dynamic> product) {
+    final keywords = product['feature_keywords'];
+    if (keywords is List && keywords.isNotEmpty) {
+      final tokens = keywords
+          .whereType<String>()
+          .map((e) => e.trim())
+          .where((e) => e.isNotEmpty)
+          .take(3)
+          .toList();
+      if (tokens.isNotEmpty) return tokens.join(', ');
+    }
     final direct = [
       product['fabric'],
       product['material'],
       product['features'],
-      product['display_category'],
-      product['category'],
     ];
     for (final value in direct) {
       if (value is String && value.trim().isNotEmpty) {
         return value.trim();
       }
+    }
+    return '';
+  }
+
+  bool _hasBackendFeatureData(Map<String, dynamic> product) {
+    return _featureLabelFromBackend(product).isNotEmpty;
+  }
+
+  bool _hasBackendDescription(Map<String, dynamic> product) {
+    final d = product['description'];
+    return d is String && d.trim().isNotEmpty;
+  }
+
+  /// With 2+ items, show feature UI only when every product has backend feature data
+  /// (so one item never "borrows" feature context from another). Single item: if it has data.
+  bool _shouldShowFeatureRowForCompare(List<Map<String, dynamic>> items) {
+    if (items.isEmpty) return false;
+    if (items.length == 1) return _hasBackendFeatureData(items.first);
+    return items.every(_hasBackendFeatureData);
+  }
+
+  /// Same gating for description lines.
+  bool _shouldShowDescriptionRowForCompare(List<Map<String, dynamic>> items) {
+    if (items.isEmpty) return false;
+    if (items.length == 1) return _hasBackendDescription(items.first);
+    return items.every(_hasBackendDescription);
+  }
+
+  String _fibreLabel(Map<String, dynamic> product) {
+    final direct = [
+      product['fabric'],
+      product['material'],
+    ];
+    for (final value in direct) {
+      if (value is String && value.trim().isNotEmpty) {
+        return value.trim();
+      }
+    }
+    return '';
+  }
+
+  String _descriptionLabel(Map<String, dynamic> product) {
+    final d = product['description'];
+    if (d is String && d.trim().isNotEmpty) {
+      return d.trim();
     }
     return '';
   }

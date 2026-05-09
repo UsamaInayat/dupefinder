@@ -1532,12 +1532,27 @@ class ProductScraper:
             '[itemprop="description"]',
             '.description',
             '.product-details',
+            '.product__description',
+            '.product-single__description',
+            '.rte',
+            '[class*="product-description"]',
+            '[class*="product__description"]',
+            '[class*="description"] p',
         ]
         
         for selector in selectors:
             element = soup.select_one(selector)
             if element:
-                return element.get_text(strip=True)[:500]  # Limit to 500 chars
+                text = element.get_text(" ", strip=True)
+                if text:
+                    return text[:500]  # Limit to 500 chars
+
+        # Fallback: OpenGraph/meta description
+        meta = soup.select_one('meta[property="og:description"], meta[name="description"]')
+        if meta:
+            text = (meta.get("content") or "").strip()
+            if text:
+                return text[:500]
         
         return ""
     
