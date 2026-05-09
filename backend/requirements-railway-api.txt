@@ -32,7 +32,8 @@ Pillow>=10.1.0
 
 # ML & AI (for embedding extraction; search route loads ml-engine)
 # torch: installed in Dockerfile.railway-api from PyTorch *CPU* wheel index (much smaller than default CUDA wheels).
-transformers>=4.35.0
+# Cap <5: Transformers 5.x pulls a newer stack; keep 4.x unless we intentionally upgrade + retest FashionCLIP.
+transformers>=4.46.0,<5.0.0
 # NumPy 2.x breaks some wheels/extensions built for 1.x (FAISS/torch edge cases). Stay on 1.26+ until everything is 2.0-native.
 numpy>=1.26.0,<2.0.0
 tqdm>=4.65.0

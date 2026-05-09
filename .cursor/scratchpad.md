@@ -3861,3 +3861,12 @@ Expected speedup: ~20s/batch → ~1-2s/batch → 23k images done in ~10 min inst
 - Added `--include-failed` flag to `enrich_product_descriptions.py`.
 - New default behavior: resume ignores failed URLs and only scrapes rows with missing/empty description.
 - This keeps runs focused on the requested “just scrape last 20k products” instead of repeatedly revisiting failure-heavy rows.
+
+### Current Status / Progress Tracking — Executor Update (May 10, 2026, Railway FashionCLIP / transformers)
+
+- Railway API image: bumped CPU **PyTorch** in `Dockerfile.railway-api` from `2.4.1` → **`2.6.0`** so `import transformers` no longer hits `infer_schema` / postponed-annotation failures on MoE `custom_op` registration (FashionCLIP preload).
+- `backend/requirements-railway-api.txt`: **`transformers>=4.46.0,<5.0.0`** so deploys do not silently jump to Transformers 5.x until we opt in and retest.
+
+### Executor's Feedback or Assistance Requests — May 10, 2026
+
+- **Redeploy** the Railway API service after merge so the new image builds. Confirm logs show FashionCLIP preload succeeds (no `infer_schema` ValueError).
