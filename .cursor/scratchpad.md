@@ -3870,3 +3870,9 @@ Expected speedup: ~20s/batch → ~1-2s/batch → 23k images done in ~10 min inst
 ### Executor's Feedback or Assistance Requests — May 10, 2026
 
 - **Redeploy** the Railway API service after merge so the new image builds. Confirm logs show FashionCLIP preload succeeds (no `infer_schema` ValueError).
+
+### Current Status / Progress Tracking — Executor Update (May 10, 2026, mobile compare description/features)
+
+- **Cause:** Image search API `SearchResult` omitted `description` / feature fields, so items added to Compare never carried them. Compare UI also hid Feature/Description rows unless **every** item had data.
+- **Fix:** `backend/app/api/routes/search.py` now includes optional `description`, `fabric`, `material`, `features`, `feature_keywords` from MongoDB. `compare_screen.dart` shows Feature/Description per card when that item has data; summary “Features” row if **any** item has feature data.
+- **Note:** After backend deploy, **re-add** products to Compare (or clear and add from a fresh search) so stored compare JSON picks up the new fields.

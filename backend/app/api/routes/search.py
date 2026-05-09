@@ -45,6 +45,28 @@ from app.core.database import get_products_collection
 router = APIRouter()
 
 
+def _optional_str(doc: dict, key: str) -> Optional[str]:
+    v = doc.get(key)
+    if isinstance(v, str):
+        s = v.strip()
+        if s:
+            return s
+    return None
+
+
+def _optional_keyword_list(doc: dict) -> Optional[List[str]]:
+    raw = doc.get("feature_keywords")
+    if not isinstance(raw, list) or not raw:
+        return None
+    out: List[str] = []
+    for x in raw:
+        if isinstance(x, str):
+            t = x.strip()
+            if t:
+                out.append(t)
+    return out or None
+
+
 # ── Response models ───────────────────────────────────────────────────────────
 
 class SearchResult(BaseModel):
@@ -57,6 +79,12 @@ class SearchResult(BaseModel):
     display_category: Optional[str]   = None
     similarity_score: float
     final_score:      float           # combined ranking score (sim + price + attr)
+    # Enrichment fields (compare / wishlist use the same payload shape)
+    description:      Optional[str]        = None
+    fabric:           Optional[str]        = None
+    material:         Optional[str]        = None
+    features:         Optional[str]        = None
+    feature_keywords: Optional[List[str]] = None
 
 class SearchResponse(BaseModel):
     query_image:       str
@@ -385,6 +413,11 @@ async def search_by_image(
             display_category = doc.get("display_category"),
             similarity_score = hit["score"],
             final_score      = hit["final_score"],
+            description      = _optional_str(doc, "description"),
+            fabric           = _optional_str(doc, "fabric"),
+            material         = _optional_str(doc, "material"),
+            features         = _optional_str(doc, "features"),
+            feature_keywords = _optional_keyword_list(doc),
         ))
 
     elapsed = (time.time() - start) * 1000

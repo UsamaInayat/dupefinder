@@ -171,9 +171,6 @@ class _CompareScreenState extends State<CompareScreen> {
                   final feature = _featureLabelFromBackend(p);
                   final fibre = _fibreLabel(p);
                   final description = _descriptionLabel(p);
-                  final showFeatureRow = _shouldShowFeatureRowForCompare(_items);
-                  final showDescriptionRow =
-                      _shouldShowDescriptionRowForCompare(_items);
                   final price = p['price'] != null
                       ? (p['price'] as num).toDouble()
                       : null;
@@ -259,14 +256,14 @@ class _CompareScreenState extends State<CompareScreen> {
                                       style: TextStyle(
                                           fontSize: 11,
                                           color: Colors.grey[700])),
-                                if (showFeatureRow && feature.isNotEmpty)
+                                if (feature.isNotEmpty)
                                   Text('Feature: $feature',
                                       maxLines: 1,
                                       overflow: TextOverflow.ellipsis,
                                       style: TextStyle(
                                           fontSize: 11,
                                           color: Colors.grey[700])),
-                                if (showDescriptionRow && description.isNotEmpty)
+                                if (description.isNotEmpty)
                                   Text('Description: $description',
                                       maxLines: 2,
                                       overflow: TextOverflow.ellipsis,
@@ -326,7 +323,7 @@ class _CompareScreenState extends State<CompareScreen> {
     final matches = <int>[];
     final brands = <String>{};
     final features = <String>{};
-    final showFeatureSummary = _shouldShowFeatureRowForCompare(_items);
+    final showFeatureSummary = _items.any(_hasBackendFeatureData);
     for (final p in _items) {
       final price = p['price'];
       if (price != null) prices.add((price as num).toDouble());
@@ -334,7 +331,7 @@ class _CompareScreenState extends State<CompareScreen> {
       if (score != null) matches.add((score * 100).round());
       final brand = p['brand'] as String?;
       if (brand != null && brand.isNotEmpty) brands.add(brand);
-      if (showFeatureSummary) {
+      if (_hasBackendFeatureData(p)) {
         final feature = _featureLabelFromBackend(p);
         if (feature.isNotEmpty) features.add(feature);
       }
@@ -489,26 +486,6 @@ class _CompareScreenState extends State<CompareScreen> {
 
   bool _hasBackendFeatureData(Map<String, dynamic> product) {
     return _featureLabelFromBackend(product).isNotEmpty;
-  }
-
-  bool _hasBackendDescription(Map<String, dynamic> product) {
-    final d = product['description'];
-    return d is String && d.trim().isNotEmpty;
-  }
-
-  /// With 2+ items, show feature UI only when every product has backend feature data
-  /// (so one item never "borrows" feature context from another). Single item: if it has data.
-  bool _shouldShowFeatureRowForCompare(List<Map<String, dynamic>> items) {
-    if (items.isEmpty) return false;
-    if (items.length == 1) return _hasBackendFeatureData(items.first);
-    return items.every(_hasBackendFeatureData);
-  }
-
-  /// Same gating for description lines.
-  bool _shouldShowDescriptionRowForCompare(List<Map<String, dynamic>> items) {
-    if (items.isEmpty) return false;
-    if (items.length == 1) return _hasBackendDescription(items.first);
-    return items.every(_hasBackendDescription);
   }
 
   String _fibreLabel(Map<String, dynamic> product) {
